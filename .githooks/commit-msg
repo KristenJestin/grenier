@@ -1,0 +1,3 @@
+#!/bin/sh
+# Checks the Angular commit convention of the product repository.
+exec node "$(git rev-parse --show-toplevel)/tools/commit-message.ts" "$1"

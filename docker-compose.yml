@@ -1,0 +1,16 @@
+# The PostgreSQL a developer runs locally: `docker compose up -d`. Tests create and drop their own
+# databases on it and never touch one that holds real data.
+services:
+  postgres:
+    image: postgres:18.0
+    environment:
+      POSTGRES_USER: grenier
+      POSTGRES_PASSWORD: grenier
+      POSTGRES_DB: grenier
+    ports:
+      - '127.0.0.1:55432:5432'
+    volumes:
+      - postgres:/var/lib/postgresql
+
+volumes:
+  postgres:

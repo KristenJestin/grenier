@@ -1,0 +1,24 @@
+{
+  "name": "grenier",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "vp run --filter !grenier typecheck",
+    "lint": "vp lint && node tools/boundaries.ts",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "test": "vp test",
+    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check && pnpm test"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.85.0",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/github": "12.0.9",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "@types/node": "24.19.1",
+    "semantic-release": "25.0.9",
+    "typescript": "7.0.2",
+    "vite-plus": "1.0.0"
+  },
+  "packageManager": "pnpm@12.8.2"
+}

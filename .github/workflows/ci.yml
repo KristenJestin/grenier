@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+jobs:
+  commit-messages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      # The first push of a branch has no `before` (GitHub sends forty zeros): every commit the
+      # branch holds is checked then, which for the first push of the repository is its first.
+      - name: Check the Angular commit convention
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "${base//0/}" ]; then
+            node tools/commit-message.ts --range "$head"
+          else
+            node tools/commit-message.ts --range "$base..$head"
+          fi
+
+  # Grenier runs on a Linux server: one target, with the PostgreSQL of docker-compose.yml as a
+  # service, so the suites that need a database get the same one as on a developer's machine.
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.0
+        env:
+          POSTGRES_USER: grenier
+          POSTGRES_PASSWORD: grenier
+          POSTGRES_DB: grenier
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U grenier"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgres://grenier:grenier@127.0.0.1:55432/grenier
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm fmt:check
+      - name: Test
+        timeout-minutes: 20
+        run: pnpm test

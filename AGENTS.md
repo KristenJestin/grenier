@@ -1,0 +1,231 @@
+# AGENTS.md — Grenier
+
+Instructions for any coding agent working in this repository. `CLAUDE.md` is a symbolic link
+to this file: there is one contract, not two that drift apart. This file holds what applies
+everywhere; a package with rules of its own has its own `AGENTS.md`, read **in addition** to
+this one:
+
+- `packages/core/AGENTS.md`: Effect and Schema, wherever Effect is written.
+
+## Project overview
+
+Grenier is a self-hosted personal knowledge system: one person's belongings, contracts, people,
+projects, notes, recipes, bookmarks and decisions, kept in PostgreSQL, written almost entirely by
+AI agents through an MCP server, and read by that person in a small web interface. A Markdown
+export runs every night into a git repository, so nothing depends on Grenier alone.
+
+Three rules shape everything:
+
+- **Nothing is typed in code.** The system knows generic notions (an entry, its type, its
+  fields, its parent, its links, its media, its history). Types such as "recipe" or "contract"
+  and their fields are data, created and changed at run time.
+- **The server runs no AI.** It stores, indexes, validates, searches full text and enforces the
+  rules. Every judgement (summarising, linking, deduplicating) comes from an agent, through MCP.
+- **The rules live in the server.** A write that breaks a type's definition, a broken link or a
+  forbidden change is refused with a message that says what to fix. Agents are not trusted to
+  follow conventions; the server holds them.
+
+The data model is described in [`docs/model.md`](docs/model.md). The issue you implement says
+what is wanted, where, and how to verify it: read it before touching code, and name every test
+suite after the scenario it covers.
+
+Everything in this repository is in English: documents, code, comments, commits, issues and
+pull requests. The interface may be in French.
+
+```
+packages/core     @grenier/core    The model, the database (Effect SQL, migrations), validation,
+                                   search, the event log. The only package that reaches the
+                                   database. Schemas and their conventions: `@grenier/core/schema`.
+packages/mcp      @grenier/mcp     The MCP tools, on top of core; stdio for development, mounted
+                                   over HTTP by apps/server. (not created yet)
+apps/server       @grenier/server  TanStack Start: the web interface (Mantine), the HTTP API and
+                                   the MCP endpoint, in one process. (not created yet)
+apps/import       @grenier/import  Imports a folder of Markdown notes with YAML front matter.
+                                   (not created yet)
+tools/            —                commit-message, branch-guard, install-hooks, boundaries, and
+                                   the vendored lint rules. TypeScript run by Node, tested by
+                                   Vitest.
+```
+
+A package or an application is created by the first issue that needs it, not before.
+
+`packages/*` and `apps/*` form the pnpm workspace. Import another package only through its
+`exports`; never reach into another package's `src`. **Every access to the data goes through
+`@grenier/core`**: `node tools/boundaries.ts` (part of `pnpm lint`) refuses a SQL client imported
+anywhere else, so validation and the event log can never be bypassed.
+
+Every version is pinned exactly: Node, pnpm, Vite+, Effect, PostgreSQL, and whatever a change
+adds.
+
+## Commands
+
+```
+pnpm install --frozen-lockfile   # once, at the root; no per-package lockfiles
+node tools/install-hooks.ts      # once after cloning: the commit hooks
+docker compose up -d             # the local PostgreSQL (port 55432), for the suites that need it
+pnpm typecheck                   # tsc per package, through Vite+ task running
+pnpm lint                        # oxlint, then the boundaries check
+pnpm fmt                         # oxfmt (fmt:check in CI)
+pnpm test                        # vitest (in a terminal: `pnpm exec vp test run`, no watching)
+pnpm check                       # typecheck, lint, fmt:check and test, in that order
+```
+
+Configuration lives in one place: `vite.config.ts` at the root holds the `lint`, `fmt` and
+`test` blocks. The database URL comes from `DATABASE_URL` (see `.env.example`).
+
+## Principles
+
+### 1. Think before coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them; don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop, name what is confusing, ask.
+- If the code and the issue disagree, the issue wins; if the issue is wrong, say so instead of
+  quietly deviating.
+
+### 2. Simplicity first
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what the task asks. No abstractions for single-use code.
+- No configurability, flexibility or "future-proofing" that was not requested.
+- No error handling for impossible scenarios. If 200 lines could be 50, rewrite.
+
+### 3. Surgical changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+- Don't "improve" adjacent code, comments or formatting. Don't refactor what isn't broken.
+- Match existing style. If you notice unrelated dead code, mention it, don't delete it.
+- Every changed line must trace directly to the task.
+
+### 4. The failing test first
+
+**Define success criteria. Loop until verified.**
+
+- Write the test that fails first, see it fail, then make it pass.
+- "Fix the bug" → a test that reproduces it, then the fix. "Refactor X" → tests pass before
+  and after.
+- Every scenario of the issue gets a test named after it. A scenario without a test is a
+  defect, not a TODO.
+
+## Code style
+
+Two rule sets run on oxlint beside the built-in ones:
+
+- `anti-slop`, vendored under `tools/oxlint/anti-slop/` (MIT, from dmmulroy/anti-slop): no
+  chained `as`, no `as` without a `// SAFETY:` line stating the checked invariant, no `unknown`
+  or `object` on a parameter, a return or an alias, no `Record<string, unknown|any|object>`, no
+  `typeof` narrowing where a parser belongs, no `vi.mock` (inject a port instead), no
+  accumulator copy in a reducer, no conditional `{}` spread, no explicit type that discards what
+  inference already knew.
+- `anti-slop-effect`, vendored under `tools/oxlint/anti-slop-effect/`: an error carries its tag
+  from the class that declares it, a tag is matched and never compared by hand, a service is
+  reached through its own accessor, a branch on a tagged value goes through `Effect.match`.
+
+Vendored rules are resynced by copying upstream files over; never edit them in place. No zod
+anywhere: Effect `Schema` replaces it (see `packages/core/AGENTS.md`).
+
+When the interface exists, React code follows the `vercel-react-best-practices` skill, and React
+Doctor will join the checks.
+
+## Testing
+
+- `pnpm test` runs the `repository` project on Node.
+- Always `vp test run`: plain `vp test` starts watch mode and never ends.
+- A suite that needs PostgreSQL uses the local one of `docker-compose.yml` (in CI, the same image
+  as a service), creates its own database with a unique name, and drops it at the end. It never
+  touches a database that holds real data.
+- Tests use neutral, invented data. Never a real person, address, amount or document.
+- A test that fails only under load is rerun alone before the failure is called real; if it
+  fails alone, it is real.
+
+## How the work is organised
+
+| Who | What |
+|---|---|
+| The maintainer | decides what is built, accepts each tranche in the running application, and merges what they have not delegated |
+| The lead agent | turns the maintainer's decisions into issues, reviews the work, opens and merges the pull requests, keeps the tracker honest, and never hides a failure |
+| The developing agent | implements the issues it is given: the failing test first, then the code and the verification |
+| CI | `verify`, `commit-messages` and `shape` on every pull request; releases from `dev` and `main` (semantic-release) |
+
+### The tracker
+
+- **Issues are the tickets, and a ticket stands alone.** It holds the what, the where, the "how
+  to verify" and the base branch, with no local path. If it lacks one of them, ask rather than
+  guess.
+- The plan is cut into **tranches**, labels `tranche:1`, `tranche:2`…, beside `type:*` and
+  `area:*`. A tranche ends on something usable, and the maintainer accepts it.
+- **`dev` is the integration branch**: a branch starts from `origin/dev` and its pull request
+  targets it.
+
+### Working without GitHub access
+
+The developing agent may work on a machine with read access to this public repository and
+nothing else: no GitHub account, no pull request, no CI. Then:
+
+- Clone read-only, work on one branch per issue from `origin/dev`, named `feat/<n>-<topic>` or
+  `fix/<n>-<topic>`.
+- Run every verification locally, since no CI runs: `pnpm check` with the local PostgreSQL up.
+- Commit with the identity you are given, subjects checked by `tools/commit-message.ts`.
+- At the end of a session, deliver what you are asked for (typically a `git bundle` of the
+  branches and one report per issue: what is done, decisions taken, verifications run with their
+  output, what is not verified). The lead agent pushes, opens the pull requests and runs CI.
+
+## Git and pull requests (non-negotiable)
+
+- Git flow without release branches: `main` (released versions), `dev` (integration),
+  `feat/<n>-<topic>` and `fix/<n>-<topic>` from `dev`, `hotfix/<topic>` from `main`.
+- **Never commit, merge, rebase, push or force-push on `main` or `dev` directly.** If you are on
+  one of these branches, create a branch first. `node tools/install-hooks.ts` installs the hooks
+  that refuse it.
+- Never rewrite published history. No `--no-verify`.
+- One commit = one intent. No `wip` commits. Don't mix formatting and logic in one commit.
+- Commits use the Git user configured on the machine.
+- The subject is `<type>(<scope>): <subject>`: the **scope is required**, the subject is 72
+  characters at most, and the type is one of feat, fix, refactor, test, docs, chore, build, ci,
+  perf. `node tools/commit-message.ts --range origin/dev..HEAD` is the judge; run it before
+  delivering, the `commit-messages` check runs the same tool.
+- **Pull requests are merged by squash, and by squash only.** The squash commit takes the pull
+  request's title, so the title is a plain Angular subject: semantic-release reads those
+  subjects to decide the version. The description ends with `Closes #<n>`.
+
+```
+<type>(<scope>): <subject>
+
+<body: why, not what — optional>
+
+BREAKING CHANGE: <description — only if a schema or a public API changes>
+```
+
+- `scope`: `repo`, `tools`, `ci`, `docs`, or the name of a package or a domain (`core`, `mcp`,
+  `server`, `import`, `types`, `entries`, `search`…).
+- `subject`: imperative, lowercase, no trailing period, ≤ 72 chars, in English.
+- Examples: `feat(core): refuse an entry whose fields break its type`,
+  `fix(mcp): keep the section order when reading a long entry`.
+
+## Security and privacy
+
+- This repository is public. Nothing private goes into it, nor into an issue, a pull request or
+  a commit: no personal data, no private infrastructure, no host name, no real person. Tests and
+  examples use neutral data.
+- Secrets are read at the moment they are needed and never printed, logged or committed.
+- Nothing is published outside the pull request: no gist, no upload, no paste service.
+- **A permission denial is never worked around**: do what remains, say what was refused, and
+  leave that action to the maintainer.
+
+## Working on a machine
+
+- Worktrees, logs, drafts and every other scratch file live outside the clone, in a sibling work
+  folder; never inside the repository.
+- Heavy commands (full test runs) run at low priority (`nice -n 19` on Linux), one at a time.
+- Before removing a worktree, check it holds no uncommitted change and no unpushed commit
+  (`git log HEAD --not --remotes`).
+
+## When done
+
+Run `pnpm check` with the local PostgreSQL up, and report the real output. If something fails,
+say so; don't claim green.
