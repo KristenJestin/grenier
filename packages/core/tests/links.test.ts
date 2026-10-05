@@ -36,6 +36,27 @@ describe('body references are kept as links', () => {
     expect(await mentioned()).toEqual(['beta'])
   })
 
+  test('code is not read for references: fenced blocks and inline code are left as they are', async () => {
+    await run(note('Target'))
+    const body = [
+      'See [[target]].',
+      '',
+      '```bash',
+      'if [[ -f $DRAIN_FLAG ]] || [[ $LEVEL =~ ^[0-9]+$ ]]; then echo low; fi',
+      '```',
+      '',
+      'Inline: `[[ -n $NAME ]]`, and ``[[ghost]]`` too.',
+      '',
+      '~~~',
+      '[[another-ghost]]',
+      '~~~',
+    ].join('\n')
+    const script = await run(note('Script', body))
+    expect((await run(linksOf(script.slug))).map(({ slug }) => slug)).toEqual(['target'])
+    await run(writeEntry({ entry: 'target', slug: 'aim' }))
+    expect((await run(readEntry('script'))).entry.body).toBe(body.replace('[[target]]', '[[aim]]'))
+  })
+
   test('a body referencing a missing slug is refused with a sentence naming that slug', async () => {
     expect(await run(refusalOf(note('Dangling', 'See [[ghost]].')))).toBe(
       'The field `body` refers to `ghost`, which is not the slug of any entry.',
