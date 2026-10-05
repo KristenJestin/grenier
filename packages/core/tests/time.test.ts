@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
-import { writeEntry } from '../src/entries/index.ts'
+import { readEntry, writeEntry } from '../src/entries/index.ts'
 import { Actor } from '../src/events/index.ts'
 import { link } from '../src/links/index.ts'
 import { briefing, headsUp, Today, upcoming } from '../src/time/index.ts'
@@ -47,6 +47,26 @@ beforeAll(() =>
         label: 'Bill',
         description: 'A bill to pay once.',
         fields: [{ name: 'due_on', kind: 'date', due: { notice: 'P7D' } }],
+      }),
+      defineType({
+        name: 'car',
+        label: 'Car',
+        description: 'A car, insured and inspected every year.',
+        fields: [
+          {
+            name: 'insurance_renewal',
+            kind: 'date',
+            due: { notice: 'P30D' },
+            recurs: { every: 'yearly', notice: 'P30D' },
+          },
+          {
+            name: 'inspection',
+            kind: 'date',
+            due: { notice: 'P30D' },
+            recurs: { every: 'yearly', notice: 'P30D' },
+          },
+          { name: 'bought', kind: 'date' },
+        ],
       }),
       defineType({ name: 'note', label: 'Note', description: 'A free note.', fields: [] }),
     ]),
@@ -122,6 +142,59 @@ describe('closing an occurrence', () => {
     )
     await expect(run(link('receipt', 'land-tax', 'about', '2026'))).rejects.toThrow(
       'Only a link `fulfills` takes a period.',
+    )
+  })
+})
+
+describe('a fulfills link closes one field', () => {
+  test('a car whose insurance is paid for 2026 still announces its 2026 inspection', async () => {
+    await run(
+      writeEntry({
+        type: 'car',
+        title: 'Blue car',
+        fields: { insurance_renewal: '2020-03-10', inspection: '2020-03-20' },
+      }),
+    )
+    await run(writeEntry({ type: 'note', title: 'Blue car insurance paid' }))
+    await run(link('blue-car-insurance-paid', 'blue-car', 'fulfills', '2026', 'insurance_renewal'))
+    const fieldsOf = (list: ReadonlyArray<{ entry: { slug: string }; field: string }>) =>
+      list.filter(({ entry }) => entry.slug === 'blue-car').map(({ field }) => field)
+    expect(
+      fieldsOf(await run(upcoming('2026-03-01', '2026-03-31').pipe(on('2026-03-01')))),
+    ).toEqual(['inspection'])
+    expect(fieldsOf(await run(headsUp.pipe(on('2026-03-01'), as('car-agent'))))).toEqual([
+      'inspection',
+    ])
+    const { overdue } = await run(briefing('today').pipe(on('2026-03-25')))
+    expect(fieldsOf(overdue)).toEqual(['inspection'])
+  })
+
+  test('the field is inferred when the target has one deadline or recurring date', async () => {
+    await run(writeEntry({ type: 'tax', title: 'Water tax', fields: { deadline: '2024-05-15' } }))
+    await run(writeEntry({ type: 'note', title: 'Water tax paid' }))
+    expect(await run(link('water-tax-paid', 'water-tax', 'fulfills', '2026'))).toEqual({
+      field: 'deadline',
+    })
+    const { links } = await run(readEntry('water-tax-paid'))
+    expect(links).toContainEqual(
+      expect.objectContaining({ relation: 'fulfills', period: '2026', field: 'deadline' }),
+    )
+  })
+
+  test('without a field, a link to a target with two such dates is refused, naming them', async () => {
+    await run(writeEntry({ type: 'car', title: 'Red car', fields: { inspection: '2021-06-01' } }))
+    await run(writeEntry({ type: 'note', title: 'Red car paper' }))
+    await expect(run(link('red-car-paper', 'red-car', 'fulfills', '2026'))).rejects.toThrow(
+      'A link `fulfills` to `red-car` must name the field it closes: `insurance_renewal` or `inspection`.',
+    )
+  })
+
+  test('a field that is not a deadline or recurring date of the target is refused', async () => {
+    await run(writeEntry({ type: 'note', title: 'Red car invoice' }))
+    await expect(
+      run(link('red-car-invoice', 'red-car', 'fulfills', '2026', 'bought')),
+    ).rejects.toThrow(
+      'The field `bought` is not a deadline or a recurring date of `red-car`: name `insurance_renewal` or `inspection`.',
     )
   })
 })
