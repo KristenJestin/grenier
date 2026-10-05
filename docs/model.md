@@ -151,6 +151,15 @@ An occurrence is closed when an entry linked to it by `fulfills`, for that perio
 payment for this year's tax, a service for this year's inspection). A closed occurrence is no
 longer announced; an overdue, unclosed one is.
 
+How the server reads it: a `date` field with `due` is a deadline; with `recurs` it comes back
+every year, month or week from its value (a day the month does not have, such as 29 February or
+the 31st, falls on the month's last day); both may be set. The period of an occurrence is
+`2026` (yearly), `2026-10` (monthly), `2026-W41` (ISO week) or, for a single deadline, its date;
+a link `fulfills` carries that period, and only such a link has one. Overdue means a deadline
+whose last occurrence before today is not fulfilled. "Today" is the local date of the server
+(`TZ`). `briefing(weekend)` covers the coming Saturday and Sunday (on a Sunday, that Sunday).
+Every MCP answer carries `heads_up`; an empty list when nothing enters its notice period.
+
 ## Search
 
 A search looks first in what identifies an entry, then in its body: title and aliases weigh
