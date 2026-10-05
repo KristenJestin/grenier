@@ -38,7 +38,8 @@ export type Child = typeof Child.Type
  * What a write says. With `entry`, the id or slug of an existing entry, it updates that entry:
  * only the keys given change, and `fields` and `provenance` are merged key by key, a `null`
  * removing a key. Without `entry`, it creates one. `parent` and `superseded_by` take an id or a
- * slug. The rules are checked by the write, not by this schema, so that every problem is
+ * slug. `created` and `updated`, a date or a date and time, are taken only when the entry is
+ * created, for an import that keeps when a note was first written. The rules are checked by the write, not by this schema, so that every problem is
  * reported at once.
  */
 export const WriteEntryInput = Schema.Struct({
@@ -57,5 +58,7 @@ export const WriteEntryInput = Schema.Struct({
   valid_from: Schema.optionalKey(Schema.NullOr(Schema.String)),
   valid_until: Schema.optionalKey(Schema.NullOr(Schema.String)),
   superseded_by: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  created: Schema.optionalKey(Schema.String),
+  updated: Schema.optionalKey(Schema.String),
 })
 export type WriteEntryInput = typeof WriteEntryInput.Type

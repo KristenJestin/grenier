@@ -259,3 +259,26 @@ describe('several problems in one write are all reported in one refusal', () => 
     )
   })
 })
+
+describe('an import keeps when an entry was first written', () => {
+  test('created and updated are taken on creation', async () => {
+    const entry = await run(
+      writeEntry({
+        type: 'note',
+        title: 'Old note',
+        created: '2019-03-01',
+        updated: '2021-06-30T08:00:00Z',
+      }),
+    )
+    expect(entry.created).toBe('2019-03-01T00:00:00.000Z')
+    expect(entry.updated).toBe('2021-06-30T08:00:00.000Z')
+    expect((await run(readEntry('old-note'))).entry.created).toBe('2019-03-01T00:00:00.000Z')
+  })
+
+  test('they are refused on an update', async () => {
+    await run(writeEntry({ type: 'note', title: 'Kept' }))
+    expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(
+      'The field `created` can be given only when the entry is created.',
+    )
+  })
+})
