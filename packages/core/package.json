@@ -10,6 +10,7 @@
     "./events": "./src/events/index.ts",
     "./links": "./src/links/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./search": "./src/search/index.ts",
     "./testing": "./src/testing.ts",
     "./types": "./src/types/index.ts"
   },
