@@ -9,6 +9,7 @@ import { Refused } from '../refused.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing, replaceMentions } from '../links/store.ts'
 import { formatSchemaError } from '../schema/index.ts'
+import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
 import { Child, Entry } from './entry.ts'
@@ -85,6 +86,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     entry,
     path: lineage.slice(0, -1).map(({ title }) => title),
     links: yield* outgoing(entry.id),
+    media: yield* mediaOf(entry.id),
     backlinks: yield* incoming(entry.id),
     children: yield* children(sql`
       SELECT id::text AS id, slug, type, title, summary FROM entries

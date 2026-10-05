@@ -122,6 +122,14 @@ A medium is a file attached to an entry: an image, a video, a copy of a web page
 on the server's disk, stored by content hash; the database keeps its record (kind, MIME type,
 size, hash, dimensions or duration, source URL, alternative text). Media never go into git.
 
+How the server does it: a file comes as base64 (20 MB at most) or as an http(s) URL the server
+fetches (200 MB, 30 seconds, every redirect checked, never a private address unless
+`MEDIA_ALLOW_PRIVATE=true`). Its type is read from its content, never from what the caller
+declares; images, videos, sounds, PDF and HTML are kept, anything else is refused. It is written
+once under `MEDIA_DIR`, at a path made of its SHA-256, however many entries it is attached to,
+and served at `/media/<sha256>` to a valid key. The alternative text is searched with the entry
+(it is part of the body's weight). Width, height and duration are not measured yet.
+
 ## Events
 
 Every write is recorded: when, by which key (which agent on which machine), on which entry or

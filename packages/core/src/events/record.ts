@@ -32,6 +32,7 @@ export type Action =
   | 'change_field'
   | 'delete'
   | 'merge'
+  | 'attach'
 
 /**
  * Records a write. It runs in the transaction of the write it describes, so neither exists
