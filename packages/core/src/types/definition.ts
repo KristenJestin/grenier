@@ -1,7 +1,7 @@
 import { Schema } from 'effect'
 
 /** An ISO 8601 duration: `P60D`, `P2W`, `P1Y6M`, `PT12H`. */
-const ISO_DURATION = /^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?$/
+export const ISO_DURATION = /^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?$/
 
 const Notice = Schema.String.check(
   Schema.isPattern(ISO_DURATION, { expected: 'an ISO 8601 duration such as P60D' }),
