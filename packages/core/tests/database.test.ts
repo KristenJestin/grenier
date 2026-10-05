@@ -2,6 +2,7 @@ import { ConfigProvider, Context, Effect, Exit, Layer } from 'effect'
 import { describe, expect, test } from 'vite-plus/test'
 import {
   DatabaseUrlMissing,
+  databaseReachable,
   latestVersion,
   layer,
   migrate,
@@ -55,5 +56,19 @@ describe('without DATABASE_URL the error names the missing variable', () => {
     expect(error.message).toBe(
       'The environment variable DATABASE_URL is missing: set it to the URL of the PostgreSQL database.',
     )
+  })
+})
+
+describe('the health of the database', () => {
+  const at = (url: string) =>
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: { DATABASE_URL: url } })))
+
+  test('a database that answers is reachable', async () => {
+    expect(await Effect.runPromise(databaseReachable)).toBe(true)
+  })
+
+  test('a server that does not answer is not reachable, and the check does not fail', async () => {
+    const closed = 'postgres://grenier:grenier@127.0.0.1:1/grenier'
+    expect(await Effect.runPromise(databaseReachable.pipe(at(closed)))).toBe(false)
   })
 })
