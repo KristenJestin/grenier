@@ -27,6 +27,7 @@ export type Entry = typeof Entry.Type
 /** A child of an entry, as listed under it. */
 export const Child = Schema.Struct({
   id: Schema.String,
+  slug: Schema.String,
   type: Schema.String,
   title: Schema.String,
   summary: Schema.String,

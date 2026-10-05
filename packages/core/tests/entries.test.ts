@@ -216,8 +216,20 @@ describe('a project-like entry is read with its children and the path of its anc
     const read = await run(readEntry('atlas'))
     expect(read.path).toEqual(['Work'])
     expect(read.children).toEqual([
-      { id: notes.id, type: 'note', title: 'Kick-off', summary: 'First meeting.' },
-      { id: decision.id, type: 'note', title: 'Use maps', summary: 'We use maps.' },
+      {
+        id: notes.id,
+        slug: 'kick-off',
+        type: 'note',
+        title: 'Kick-off',
+        summary: 'First meeting.',
+      },
+      {
+        id: decision.id,
+        slug: 'use-maps',
+        type: 'note',
+        title: 'Use maps',
+        summary: 'We use maps.',
+      },
     ])
     expect((await run(readEntry(decision.slug))).path).toEqual(['Work', 'Atlas'])
   })

@@ -77,7 +77,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     entry,
     path: lineage.slice(0, -1).map(({ title }) => title),
     children: yield* children(sql`
-      SELECT id::text AS id, type, title, summary FROM entries
+      SELECT id::text AS id, slug, type, title, summary FROM entries
       WHERE parent_id = ${entry.id}::uuid AND archived_at IS NULL ORDER BY title`),
   }
 })
