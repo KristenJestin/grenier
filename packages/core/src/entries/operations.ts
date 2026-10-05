@@ -1,6 +1,9 @@
 import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
+import { currentActor } from '../events/actor.ts'
+import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
+import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { formatSchemaError } from '../schema/index.ts'
 import { findType } from '../types/operations.ts'
@@ -140,13 +143,37 @@ const stateOf = ({ type, title, slug, parent_id, ...entry }: Entry) => ({
   superseded_by: entry.superseded_by,
 })
 
+type Recorded = Omit<Entry, 'id' | 'created' | 'updated' | 'provenance'> & {
+  readonly provenance: Snapshot
+}
+
+/** What the event log keeps of an entry: every field a write can change. */
+const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
+  type: base.type,
+  title: base.title,
+  slug: base.slug,
+  aliases: base.aliases,
+  tags: base.tags,
+  parent_id: base.parent_id,
+  body: base.body,
+  summary: base.summary,
+  verified: base.verified,
+  valid_from: base.valid_from,
+  valid_until: base.valid_until,
+  superseded_by: base.superseded_by,
+  archived_at: base.archived_at,
+  ...prefixed('fields', fields),
+  ...prefixed('provenance', provenance),
+})
+
 /**
  * Creates an entry, or updates the one `entry` names. The result is validated against the
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
- * per problem, all problems at once.
+ * per problem, all problems at once. A write that changes nothing writes nothing.
  */
 export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryInput) {
   const sql = yield* SqlClient.SqlClient
+  const actor = yield* currentActor
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const existing = input.entry === undefined ? undefined : yield* findEntry(input.entry)
@@ -236,6 +263,17 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         return yield* new Refused({ message: problems.join(' ') })
       }
       const entry = decoded.success
+      const changes = changesBetween(
+        existing === undefined ? {} : snapshotOf(existing),
+        snapshotOf({
+          ...entry,
+          parent_id: parentId,
+          fields: references,
+          superseded_by: supersededBy,
+          archived_at: existing?.archived_at ?? null,
+        }),
+      )
+      if (existing !== undefined && changes.length === 0) return existing
       const values = sql`
         ${entry.type}, ${entry.title}, ${entry.slug}, ${JSON.stringify(entry.aliases)}::jsonb,
         ${JSON.stringify(entry.tags)}::jsonb, ${parentId}::uuid, ${JSON.stringify(references)}::jsonb,
@@ -251,7 +289,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
             )
           : yield* ids(sql`UPDATE entries SET (${columns}, updated) = (${values}, now())
               WHERE id = ${existing.id}::uuid RETURNING id::text AS id`)
-      return yield* findEntry(written?.id ?? '')
+      const id = written?.id ?? ''
+      yield* recordEvent(
+        actor,
+        { entryId: id, typeName: null },
+        existing === undefined ? 'create' : 'update',
+        changes,
+      )
+      return yield* findEntry(id)
     }),
   )
 })
@@ -259,8 +304,20 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
 /** Archives an entry: it stays in place, keeps its slug, and leaves the default views. */
 export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: string) {
   const sql = yield* SqlClient.SqlClient
-  const { id } = yield* findEntry(reference)
-  yield* sql`UPDATE entries SET archived_at = now(), updated = now()
-    WHERE id = ${id}::uuid AND archived_at IS NULL`
-  return yield* findEntry(id)
+  const actor = yield* currentActor
+  return yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const entry = yield* findEntry(reference)
+      if (entry.archived_at !== null) return entry
+      yield* sql`UPDATE entries SET archived_at = now(), updated = now() WHERE id = ${entry.id}::uuid`
+      const archived = yield* findEntry(entry.id)
+      yield* recordEvent(
+        actor,
+        { entryId: entry.id, typeName: null },
+        'archive',
+        changesBetween(snapshotOf(entry), snapshotOf(archived)),
+      )
+      return archived
+    }),
+  )
 })

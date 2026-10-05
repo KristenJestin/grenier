@@ -109,6 +109,13 @@ size, hash, dimensions or duration, source URL, alternative text). Media never g
 Every write is recorded: when, by which key (which agent on which machine), on which entry or
 type, which field, the value before and after. The history of any value can be read back.
 
+Each write is one event, recorded in the transaction of the write: its actor (a write without
+one is refused), its action (`create`, `update`, `archive`, `define`, `add_field`) and the list
+of the fields it changed, each with its value before and after. Fields are named as in a
+refusal: `title`, `parent_id`, `body`, `fields.provider`, `provenance.provider`. A write that
+changes nothing records nothing. The history of one field lists its changes after the
+creation; the value it was created with is the `before` of the first change.
+
 ## Sources
 
 The source registry records what an import read and which entries it produced, with each item's
