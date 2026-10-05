@@ -1,6 +1,7 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
 import { archiveEntry, readEntry, writeEntry } from '../src/entries/index.ts'
+import { Rights } from '../src/auth/index.ts'
 import { Refused } from '../src/refused.ts'
 import { defineType } from '../src/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -194,6 +195,15 @@ describe('a write that breaks the rules is refused with one sentence naming the 
     expect(await run(refusalOf(writeEntry({ ...contract, verified: true })))).toBe(
       'The field `verified` can be set to true by the owner only.',
     )
+  })
+
+  test('verified set to true by the owner is kept', async () => {
+    const entry = await run(
+      writeEntry({ ...contract, slug: 'checked-by-owner', verified: true }).pipe(
+        Effect.provideService(Rights, ['read', 'write', 'owner']),
+      ),
+    )
+    expect(entry.verified).toBe(true)
   })
 
   test('a provenance for a field the type does not have', async () => {
