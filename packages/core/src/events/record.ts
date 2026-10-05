@@ -21,7 +21,7 @@ export const changesBetween = (before: Snapshot, after: Snapshot): ReadonlyArray
     .map((field) => ({ field, before: before[field] ?? null, after: after[field] ?? null }))
     .filter((change) => JSON.stringify(change.before) !== JSON.stringify(change.after))
 
-export type Action = 'create' | 'update' | 'archive' | 'define' | 'add_field'
+export type Action = 'create' | 'update' | 'archive' | 'link' | 'unlink' | 'define' | 'add_field'
 
 /**
  * Records a write. It runs in the transaction of the write it describes, so neither exists

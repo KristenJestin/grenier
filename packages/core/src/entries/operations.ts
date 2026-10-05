@@ -5,6 +5,8 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { referencesIn, renameReferences } from '../links/references.ts'
+import { incoming, MENTIONS, outgoing, replaceMentions } from '../links/store.ts'
 import { formatSchemaError } from '../schema/index.ts'
 import { findType } from '../types/operations.ts'
 import { Child, Entry } from './entry.ts'
@@ -23,6 +25,7 @@ const children = rowsOf(Child)
 const ids = rowsOf(Schema.Struct({ id: Schema.String }))
 const ancestors = rowsOf(Schema.Struct({ id: Schema.String, title: Schema.String }))
 const slugs = rowsOf(Schema.Struct({ slug: Schema.String }))
+const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
 const COLUMNS = `id::text AS id, type, title, slug, aliases, tags, parent_id::text AS parent_id,
   fields, provenance, body, summary, verified, created, updated, valid_from::text AS valid_from,
@@ -79,6 +82,8 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   return {
     entry,
     path: lineage.slice(0, -1).map(({ title }) => title),
+    links: yield* outgoing(entry.id),
+    backlinks: yield* incoming(entry.id),
     children: yield* children(sql`
       SELECT id::text AS id, slug, type, title, summary FROM entries
       WHERE parent_id = ${entry.id}::uuid AND archived_at IS NULL ORDER BY title`),
@@ -259,10 +264,24 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         }
       }
 
+      for (const reference of referencesIn(state.body)) {
+        if (reference !== slug && (yield* idOf(reference)) === undefined) {
+          problems.push(
+            `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
+          )
+        }
+      }
+
       if (Result.isFailure(decoded) || problems.length > 0) {
         return yield* new Refused({ message: problems.join(' ') })
       }
-      const entry = decoded.success
+      const renamed = existing !== undefined && existing.slug !== decoded.success.slug
+      const entry = renamed
+        ? {
+            ...decoded.success,
+            body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
+          }
+        : decoded.success
       const changes = changesBetween(
         existing === undefined ? {} : snapshotOf(existing),
         snapshotOf({
@@ -296,7 +315,35 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         existing === undefined ? 'create' : 'update',
         changes,
       )
+      const mentioned = yield* Effect.forEach(referencesIn(entry.body), idOf)
+      yield* replaceMentions(id, mentioned.filter(Predicate.isString))
+      if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
       return yield* findEntry(id)
+    }),
+  )
+})
+
+/**
+ * After a slug changes from `from` to `to`, points the references of every body that mentions
+ * the entry to the new slug, each rewrite recorded as a change of that body.
+ */
+const rewriteReferences = Effect.fn('rewriteReferences')(function* (
+  actor: string,
+  id: string,
+  from: string,
+  to: string,
+) {
+  const sql = yield* SqlClient.SqlClient
+  const mentioning = yield* bodies(sql`
+    SELECT e.id::text AS id, e.body FROM links l JOIN entries e ON e.id = l.source_id
+    WHERE l.target_id = ${id}::uuid AND l.relation = ${MENTIONS} AND l.source_id <> ${id}::uuid`)
+  yield* Effect.forEach(mentioning, (source) =>
+    Effect.gen(function* () {
+      const body = renameReferences(source.body, from, to)
+      yield* sql`UPDATE entries SET body = ${body}, updated = now() WHERE id = ${source.id}::uuid`
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
+        { field: 'body', before: source.body, after: body },
+      ])
     }),
   )
 })

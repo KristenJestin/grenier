@@ -8,6 +8,7 @@
     "./database": "./src/database/index.ts",
     "./entries": "./src/entries/index.ts",
     "./events": "./src/events/index.ts",
+    "./links": "./src/links/index.ts",
     "./schema": "./src/schema/index.ts",
     "./testing": "./src/testing.ts",
     "./types": "./src/types/index.ts"
