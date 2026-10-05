@@ -1,3 +1,4 @@
+import { Rights } from '@grenier/core/auth'
 import type { Right } from '@grenier/core/auth'
 import type { layer as database } from '@grenier/core/database'
 import { Actor } from '@grenier/core/events'
@@ -6,7 +7,7 @@ import type { Context } from 'effect'
 import { McpServer } from 'effect/ai'
 import { HttpRouter } from 'effect/http'
 import { PROTOCOLS } from './protocols.ts'
-import { GrenierHandlers, GrenierTools, KeyRights } from './tools.ts'
+import { GrenierHandlers, GrenierTools } from './tools.ts'
 
 /** The database services the tools run on, built once by the server and shared by its handlers. */
 export type Database = Context.Context<Layer.Success<typeof database>>
@@ -26,7 +27,7 @@ export function makeMcpHttpHandler(options: {
   const app = McpServer.toolkit(GrenierTools).pipe(
     Layer.provide(GrenierHandlers),
     Layer.provide(Layer.succeed(Actor, options.actor)),
-    Layer.provide(Layer.succeed(KeyRights, options.rights)),
+    Layer.provide(Layer.succeed(Rights, options.rights)),
     Layer.provide(
       McpServer.layerHttp({
         name: 'grenier',

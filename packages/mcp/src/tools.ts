@@ -7,16 +7,22 @@ import { search, SearchOptions } from '@grenier/core/search'
 import { addDays, BRIEFING_PERIODS, briefing, headsUp, Today, upcoming } from '@grenier/core/time'
 import {
   addField,
+  ChangeFieldInput,
+  changeField,
+  confirmProposal,
   defineType,
   FieldDefinition,
   getType,
+  listProposals,
   listTypes,
+  proposeTypeDeletion,
+  proposeTypeMerge,
   TypeDefinition,
 } from '@grenier/core/types'
-import { RIGHTS } from '@grenier/core/auth'
+import { Rights } from '@grenier/core/auth'
 import type { Right } from '@grenier/core/auth'
 import type { layer as database } from '@grenier/core/database'
-import { Context, Effect, Schema, Struct } from 'effect'
+import { Effect, Schema, Struct } from 'effect'
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/ai'
 import { headingsOf, sectionOf } from './sections.ts'
@@ -76,6 +82,17 @@ const BriefingInput = Schema.Struct({
     description: '`today`, `week` (the seven days from today) or `weekend` (the coming one).',
   }),
 })
+const ProposeInput = Schema.Struct({
+  action: Schema.Literals(['delete', 'merge']),
+  type: Schema.String.annotate({ description: 'The type to delete, or to merge into `into`.' }),
+  into: Schema.optionalKey(Schema.String).annotate({
+    description: 'For a merge: the type that stays.',
+  }),
+  mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)).annotate({
+    description: 'For a merge: each field of `type` and the field of `into` it becomes.',
+  }),
+})
+const ProposalInput = Schema.Struct({ id: Schema.String })
 const HistoryInput = Schema.Struct({
   entry: Reference,
   field: Schema.optionalKey(Schema.String).annotate({
@@ -104,6 +121,18 @@ export const GrenierTools = Toolkit.make(
   tool('unlink', 'Removes a link between two entries.', LinkInput),
   tool('history', 'Reads the history of an entry, or of one of its fields.', HistoryInput),
   tool(
+    'change_field',
+    'Changes a field of a type: make it required, change its kind, rename it, change its values. Refused while entries would break, naming them; a `default` or a `mapping` repairs them. Try it with `dry_run` first.',
+    ChangeFieldInput,
+  ),
+  tool(
+    'propose_type_change',
+    'Proposes to delete a type or merge it into another. Only the owner can confirm it.',
+    ProposeInput,
+  ),
+  tool('list_proposals', 'Lists the proposed deletions and merges of types.', NoInput),
+  tool('confirm_proposal', 'Confirms a proposal. For the owner only.', ProposalInput),
+  tool(
     'upcoming',
     'Lists the dates coming in a period (deadlines, birthdays, renewals), with the days left; what a link `fulfills` closed is left out.',
     UpcomingInput,
@@ -114,14 +143,6 @@ export const GrenierTools = Toolkit.make(
     BriefingInput,
   ),
 )
-
-/**
- * What the agent's key may do. Over stdio, where there is no key, every right is granted; over
- * HTTP, the server provides the rights of the key the request came with.
- */
-export const KeyRights = Context.Reference<ReadonlyArray<Right>>('@grenier/mcp/KeyRights', {
-  defaultValue: () => RIGHTS,
-})
 
 /** The database every tool reaches through the core. */
 type Database = Layer.Success<typeof database>
@@ -135,7 +156,7 @@ export const GrenierHandlers = GrenierTools.toLayer(
      * The handler of a tool: decodes its input with the tool's schema, runs it, and answers a
      * refusal with its sentences. Any other failure is a defect, reported as an internal error.
      */
-    const rights = yield* KeyRights
+    const rights = yield* Rights
     const handler =
       <I, E>(
         right: Right,
@@ -210,6 +231,23 @@ export const GrenierHandlers = GrenierTools.toLayer(
         field === undefined
           ? Effect.map(entryHistory(entry), (events) => ({ events }))
           : Effect.map(fieldHistory(entry, field), (changes) => ({ changes })),
+      ),
+      change_field: handler('write', ChangeFieldInput, (input) => changeField(input)),
+      propose_type_change: handler('write', ProposeInput, ({ action, type, into, mapping }) =>
+        Effect.map(
+          action === 'delete'
+            ? proposeTypeDeletion(type)
+            : into === undefined
+              ? Effect.fail(new Refused({ message: 'A merge needs `into`: the type that stays.' }))
+              : proposeTypeMerge(type, into, mapping ?? {}),
+          (proposal) => ({ proposal }),
+        ),
+      ),
+      list_proposals: handler('read', NoInput, () =>
+        Effect.map(listProposals, (proposals) => ({ proposals })),
+      ),
+      confirm_proposal: handler('write', ProposalInput, ({ id }) =>
+        Effect.map(confirmProposal(id), (proposal) => ({ proposal })),
       ),
       upcoming: handler('read', UpcomingInput, ({ from, to }) =>
         Effect.gen(function* () {
