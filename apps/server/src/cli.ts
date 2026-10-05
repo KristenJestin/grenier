@@ -4,6 +4,7 @@
  *
  *   node src/cli.ts owner:create --email <email> [--name <name>]
  *   node src/cli.ts key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
+ *                              [--owner <email>]   (creates the owner first if there is none)
  *   node src/cli.ts key:list
  *   node src/cli.ts key:revoke --name <name>
  *
@@ -17,7 +18,7 @@ import { Effect, Layer } from 'effect'
 
 const USAGE = `Usage:
   owner:create --email <email> [--name <name>]
-  key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
+  key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>] [--owner <email>]
   key:list
   key:revoke --name <name>`
 
@@ -28,6 +29,7 @@ const { positionals, values } = parseArgs({
     name: { type: 'string' },
     rights: { type: 'string' },
     'expires-in-days': { type: 'string' },
+    owner: { type: 'string' },
   },
 })
 
@@ -41,6 +43,12 @@ const command = Effect.gen(function* () {
       return `The owner ${values.email} is created.`
     }
     case 'key:create': {
+      if (values.owner !== undefined) {
+        // The owner may exist already: then the key is simply theirs.
+        yield* auth
+          .createOwner(values.owner, 'Owner')
+          .pipe(Effect.catchTag('Refused', () => Effect.void))
+      }
       const days = values['expires-in-days']
       const { key, secret } = yield* auth.createKey(
         name,
