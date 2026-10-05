@@ -12,6 +12,7 @@
     "./refused": "./src/refused.ts",
     "./schema": "./src/schema/index.ts",
     "./search": "./src/search/index.ts",
+    "./sources": "./src/sources/index.ts",
     "./testing": "./src/testing.ts",
     "./types": "./src/types/index.ts"
   },

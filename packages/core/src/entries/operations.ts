@@ -92,7 +92,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
 })
 
 /** The slug of a title: `Château de Bois` gives `chateau-de-bois`. */
-const slugOf = (title: string) =>
+export const slugOf = (title: string) =>
   title
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
@@ -113,6 +113,15 @@ const freeSlugOf = Effect.fn('freeSlugOf')(function* (title: string) {
   while (taken.has(suffix === 1 ? base : `${base}-${suffix}`)) suffix += 1
   return suffix === 1 ? base : `${base}-${suffix}`
 })
+
+/** The instant a date or a date and time names, in ISO 8601; a date is taken at midnight UTC. */
+const instantOf = (value: string | undefined) => {
+  if (value === undefined) return null
+  const instant = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value
+  return /^\d{4}-\d{2}-\d{2}T/.test(instant) && !Number.isNaN(Date.parse(instant))
+    ? new Date(instant).toISOString()
+    : undefined
+}
 
 const withoutNulls = <V>(record: Readonly<Record<string, V | null>>): Record<string, V> =>
   Object.fromEntries(Object.entries(record).filter((pair): pair is [string, V] => pair[1] !== null))
@@ -184,7 +193,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const existing = input.entry === undefined ? undefined : yield* findEntry(input.entry)
-      const { entry: _, fields = {}, provenance = {}, ...given } = input
+      const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
       const base = existing === undefined ? CREATED : stateOf(existing)
       const state = {
         ...base,
@@ -226,6 +235,29 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
             `The field \`provenance.${name}\` must name a field of the type \`${type.name}\`.`,
           )
         }
+      }
+      const instants = { created, updated }
+      for (const [field, value] of Object.entries(instants)) {
+        if (value === undefined) continue
+        if (existing !== undefined) {
+          problems.push(`The field \`${field}\` can be given only when the entry is created.`)
+        } else if (instantOf(value) === undefined) {
+          problems.push(
+            `The field \`${field}\` must be a date such as \`2026-10-05\` or a date and time such as \`2026-10-05T14:30:00Z\`.`,
+          )
+        }
+      }
+      const createdAt = instantOf(created) ?? new Date().toISOString()
+      const updatedAt = instantOf(updated)
+      if (
+        existing === undefined &&
+        updatedAt !== undefined &&
+        updatedAt !== null &&
+        updatedAt < createdAt
+      ) {
+        problems.push(
+          'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
+        )
       }
       if (input.verified === true) {
         problems.push('The field `verified` can be set to true by the owner only.')
@@ -305,9 +337,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         body, summary, verified, valid_from, valid_until, superseded_by, search_language`)
       const [written] =
         existing === undefined
-          ? yield* ids(
-              sql`INSERT INTO entries (${columns}) VALUES (${values}) RETURNING id::text AS id`,
-            )
+          ? yield* ids(sql`INSERT INTO entries (${columns}, created, updated)
+              VALUES (${values}, coalesce(${instantOf(created)}::timestamptz, now()),
+                coalesce(${instantOf(updated ?? created)}::timestamptz, now()))
+              RETURNING id::text AS id`)
           : yield* ids(sql`UPDATE entries SET (${columns}, updated) = (${values}, now())
               WHERE id = ${existing.id}::uuid RETURNING id::text AS id`)
       const id = written?.id ?? ''
