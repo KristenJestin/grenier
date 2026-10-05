@@ -1,25 +1,32 @@
-import { layer as database, migrate } from '@grenier/core/database'
+import type { Right } from '@grenier/core/auth'
+import type { layer as database } from '@grenier/core/database'
 import { Actor } from '@grenier/core/events'
 import { Layer } from 'effect'
+import type { Context } from 'effect'
 import { McpServer } from 'effect/ai'
 import { HttpRouter } from 'effect/http'
 import { PROTOCOLS } from './protocols.ts'
-import { GrenierHandlers, GrenierTools } from './tools.ts'
+import { GrenierHandlers, GrenierTools, KeyRights } from './tools.ts'
+
+/** The database services the tools run on, built once by the server and shared by its handlers. */
+export type Database = Context.Context<Layer.Success<typeof database>>
 
 /**
  * The Grenier MCP tools over the Streamable HTTP transport, as a `fetch` handler serving `path`:
- * a web server mounts it on its route. The database is brought to the latest version when the
- * handler is built; every write is made by `actor`. Handlers built with the same `memoMap` share
- * one database pool.
+ * a web server mounts it on its route. Each handler is a server of its own, for one key: every
+ * write is made by `actor`, and the tools refuse what `rights` do not allow. Only the database is
+ * shared between handlers.
  */
 export function makeMcpHttpHandler(options: {
   readonly actor: string
+  readonly rights: ReadonlyArray<Right>
   readonly path: `/${string}`
-  readonly memoMap?: Layer.MemoMap
+  readonly database: Database
 }) {
   const app = McpServer.toolkit(GrenierTools).pipe(
     Layer.provide(GrenierHandlers),
     Layer.provide(Layer.succeed(Actor, options.actor)),
+    Layer.provide(Layer.succeed(KeyRights, options.rights)),
     Layer.provide(
       McpServer.layerHttp({
         name: 'grenier',
@@ -28,8 +35,7 @@ export function makeMcpHttpHandler(options: {
         protocols: PROTOCOLS,
       }),
     ),
-    Layer.provide(Layer.effectDiscard(migrate)),
-    Layer.provide(database),
+    Layer.provide(Layer.succeedContext(options.database)),
   )
-  return HttpRouter.toWebHandler(app, { memoMap: options.memoMap, disableLogger: true })
+  return HttpRouter.toWebHandler(app, { disableLogger: true })
 }

@@ -5,6 +5,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "exports": {
+    "./auth": "./src/auth/index.ts",
     "./database": "./src/database/index.ts",
     "./entries": "./src/entries/index.ts",
     "./events": "./src/events/index.ts",
@@ -20,7 +21,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.7.7",
     "@effect/sql-pg": "4.0.0",
+    "better-auth": "1.7.7",
     "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@better-auth/memory-adapter": "1.7.7"
   }
 }
