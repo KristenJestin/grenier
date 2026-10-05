@@ -5,7 +5,8 @@
   "license": "UNLICENSED",
   "type": "module",
   "exports": {
-    ".": "./src/tools.ts"
+    ".": "./src/tools.ts",
+    "./http": "./src/http.ts"
   },
   "scripts": {
     "start": "node --env-file-if-exists=../../.env src/main.ts",
