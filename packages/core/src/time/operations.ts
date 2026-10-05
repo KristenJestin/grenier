@@ -1,0 +1,224 @@
+import { Context, Effect, Match, Predicate, Schema } from 'effect'
+import { SqlClient } from 'effect/sql'
+import { rowsOf } from '../database/rows.ts'
+import { Actor } from '../events/actor.ts'
+import { listTypes } from '../types/operations.ts'
+import {
+  addDays,
+  addDuration,
+  addMonths,
+  dayNumber,
+  subtractDuration,
+  weekdayOf,
+} from './calendar.ts'
+import { datesBetween, periodOf, ruleOf } from './occurrences.ts'
+import type { Rule } from './occurrences.ts'
+
+/** What day it is for the owner: the local date of the process (`TZ`), unless a test fixes it. */
+export const Today = Context.Reference<() => string>('@grenier/core/time/Today', {
+  defaultValue: () => () => {
+    const now = new Date()
+    return [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+      .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0'))
+      .join('-')
+  },
+})
+
+const EntrySummary = Schema.Struct({
+  id: Schema.String,
+  slug: Schema.String,
+  title: Schema.String,
+  type: Schema.String,
+})
+
+/** One time a date comes back: the entry, the field, the date, and what an agent needs to say it. */
+export const Occurrence = Schema.Struct({
+  entry: EntrySummary,
+  field: Schema.String,
+  date: Schema.String,
+  period: Schema.String,
+  days_left: Schema.Number,
+  age: Schema.NullOr(Schema.Number),
+  deadline: Schema.Boolean,
+})
+export type Occurrence = typeof Occurrence.Type
+
+const dated = rowsOf(
+  Schema.Struct({ ...EntrySummary.fields, fields: Schema.Record(Schema.String, Schema.Json) }),
+)
+const closures = rowsOf(Schema.Struct({ target: Schema.String, period: Schema.String }))
+const created = rowsOf(EntrySummary)
+const shown = rowsOf(
+  Schema.Struct({ entry_id: Schema.String, field: Schema.String, period: Schema.String }),
+)
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Every date of the entries that comes to the agents, with its rule; and what is closed. */
+const datesAndClosures = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const rules = new Map(
+    (yield* listTypes).flatMap((type) =>
+      type.fields.flatMap((field) => {
+        const rule = ruleOf(field)
+        return rule === undefined ? [] : [[`${type.name} ${field.name}`, rule] as const]
+      }),
+    ),
+  )
+  const types = [...new Set([...rules.keys()].map((key) => key.split(' ')[0] ?? ''))]
+  const entries =
+    types.length === 0
+      ? []
+      : yield* dated(sql`SELECT id::text AS id, slug, title, type, fields FROM entries
+          WHERE type = ANY(${types}) AND archived_at IS NULL`)
+  const dates = entries.flatMap((entry) =>
+    Object.entries(entry.fields).flatMap(([field, value]) => {
+      const rule = rules.get(`${entry.type} ${field}`)
+      return rule === undefined || !Predicate.isString(value) || !DATE.test(value)
+        ? []
+        : [
+            {
+              entry: { id: entry.id, slug: entry.slug, title: entry.title, type: entry.type },
+              field,
+              start: value,
+              rule,
+            },
+          ]
+    }),
+  )
+  const closed = new Set(
+    (yield* closures(
+      sql`SELECT target_id::text AS target, period FROM links WHERE relation = 'fulfills'`,
+    )).map(({ target, period }) => `${target} ${period}`),
+  )
+  return { dates, closed }
+})
+
+type Dated = Effect.Success<typeof datesAndClosures>['dates'][number]
+
+const occurrence = (
+  today: string,
+  { entry, field, start, rule }: Dated,
+  date: string,
+): Occurrence => ({
+  entry,
+  field,
+  date,
+  period: periodOf(rule.every, date),
+  days_left: dayNumber(date) - dayNumber(today),
+  age: rule.every === 'yearly' ? Number(date.slice(0, 4)) - Number(start.slice(0, 4)) : null,
+  deadline: rule.deadline,
+})
+
+const byDate = (left: Occurrence, right: Occurrence) =>
+  left.date.localeCompare(right.date) || left.entry.title.localeCompare(right.entry.title)
+
+/** The occurrences between two dates, closed or not. */
+const occurrencesBetween = Effect.fn('occurrencesBetween')(function* (from: string, to: string) {
+  const today = (yield* Today)()
+  const { dates, closed } = yield* datesAndClosures
+  const all = dates.flatMap((each) =>
+    datesBetween(each.rule.every, each.start, from, to).map((date) =>
+      occurrence(today, each, date),
+    ),
+  )
+  return { all, isClosed: (each: Occurrence) => closed.has(`${each.entry.id} ${each.period}`) }
+})
+
+/** The occurrences between two dates that no entry fulfills yet, by date. */
+export const upcoming = Effect.fn('upcoming')(function* (from: string, to: string) {
+  const { all, isClosed } = yield* occurrencesBetween(from, to)
+  return all.filter((each) => !isClosed(each)).toSorted(byDate)
+})
+
+/**
+ * The occurrences inside their notice period today that the current actor was not told about
+ * today. Each is told once a day per actor: telling it records it.
+ */
+export const headsUp = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const actor = yield* Actor
+  const today = (yield* Today)()
+  if (actor === undefined) return []
+  const { dates, closed } = yield* datesAndClosures
+  const due = dates
+    .flatMap((each) =>
+      datesBetween(each.rule.every, each.start, today, addDuration(today, each.rule.notice))
+        .filter((date) => subtractDuration(date, each.rule.notice) <= today)
+        .map((date) => occurrence(today, each, date)),
+    )
+    .filter((each) => !closed.has(`${each.entry.id} ${each.period}`))
+  if (due.length === 0) return []
+  const told = yield* shown(sql`
+    INSERT INTO heads_up (actor, entry_id, field, period, day)
+    SELECT ${actor}, (item ->> 'entry_id')::uuid, item ->> 'field', item ->> 'period', ${today}::date
+    FROM jsonb_array_elements(${JSON.stringify(
+      due.map(({ entry, field, period }) => ({ entry_id: entry.id, field, period })),
+    )}::jsonb) AS item
+    ON CONFLICT DO NOTHING
+    RETURNING entry_id::text AS entry_id, field, period`)
+  const fresh = new Set(told.map(({ entry_id, field, period }) => `${entry_id} ${field} ${period}`))
+  return due
+    .filter(({ entry, field, period }) => fresh.has(`${entry.id} ${field} ${period}`))
+    .toSorted(byDate)
+})
+
+/** How far back a recurring deadline is looked for: its last occurrence before today. */
+const lookBack = (rule: Rule, today: string) =>
+  Match.value(rule.every).pipe(
+    Match.when('yearly', () => addMonths(today, -12)),
+    Match.when('monthly', () => addMonths(today, -1)),
+    Match.when('weekly', () => addDays(today, -7)),
+    Match.when('once', () => '0000-01-01'),
+    Match.exhaustive,
+  )
+
+export const BRIEFING_PERIODS = ['today', 'week', 'weekend'] as const
+export type BriefingPeriod = (typeof BRIEFING_PERIODS)[number]
+
+/** The days a briefing covers: today, the seven days from today, or the coming weekend. */
+const rangeOf = (period: BriefingPeriod, today: string): readonly [string, string] => {
+  if (period === 'today') return [today, today]
+  if (period === 'week') return [today, addDays(today, 6)]
+  const weekday = weekdayOf(today)
+  if (weekday === 7) return [today, today]
+  const saturday = addDays(today, 6 - weekday)
+  return [saturday, addDays(saturday, 1)]
+}
+
+/**
+ * What matters for a period: the occurrences in it, the deadlines past and unfulfilled, and a year
+ * ago (the entries created, and the occurrences, on the same days one year earlier).
+ */
+export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod) {
+  const sql = yield* SqlClient.SqlClient
+  const today = (yield* Today)()
+  const [from, to] = rangeOf(period, today)
+  const { dates, closed } = yield* datesAndClosures
+  const overdue = dates
+    .filter(({ rule }) => rule.deadline)
+    .flatMap((each) => {
+      const last = datesBetween(
+        each.rule.every,
+        each.start,
+        lookBack(each.rule, today),
+        addDays(today, -1),
+      ).at(-1)
+      return last === undefined ? [] : [occurrence(today, each, last)]
+    })
+    .filter((each) => !closed.has(`${each.entry.id} ${each.period}`))
+    .toSorted(byDate)
+  const [yearFrom, yearTo] = [addMonths(from, -12), addMonths(to, -12)]
+  return {
+    from,
+    to,
+    upcoming: yield* upcoming(from, to),
+    overdue,
+    a_year_ago: {
+      created: yield* created(sql`SELECT id::text AS id, slug, title, type FROM entries
+        WHERE created::date BETWEEN ${yearFrom}::date AND ${yearTo}::date AND archived_at IS NULL
+        ORDER BY created`),
+      occurrences: (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),
+    },
+  }
+})
