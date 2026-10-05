@@ -88,6 +88,45 @@ describe('an agent works through MCP calls only', () => {
     })
   })
 
+  test('define a type, add an optional field, write a parent and its child, read them, archive one', async () => {
+    await mcp().call('define_type', {
+      name: 'project',
+      label: 'Project',
+      description: 'A project and its notes.',
+      fields: [],
+    })
+    expect(
+      await mcp().call('add_field', { type: 'project', field: { name: 'stage', kind: 'text' } }),
+    ).toMatchObject({ result: { type: { fields: [{ name: 'stage', kind: 'text' }] } } })
+    await mcp().call('write', { type: 'project', title: 'Garden', fields: { stage: 'digging' } })
+    await mcp().call('write', { type: 'project', title: 'Pond', parent: 'garden' })
+    expect(await mcp().call('read', { entry: 'garden' })).toMatchObject({
+      result: {
+        entry: { fields: { stage: 'digging' } },
+        children: [{ slug: 'pond', title: 'Pond' }],
+      },
+    })
+    expect(await mcp().call('read', { entry: 'pond' })).toMatchObject({
+      result: { path: ['Garden'] },
+    })
+    expect(await mcp().call('archive', { entry: 'pond' })).toMatchObject({
+      result: { entry: { slug: 'pond', archived_at: expect.any(String) } },
+    })
+    expect(await mcp().call('read', { entry: 'garden' })).toMatchObject({
+      result: { children: [] },
+    })
+  })
+
+  test('link and unlink two entries, seen from both ends', async () => {
+    await mcp().call('write', { type: 'project', title: 'Shed' })
+    await mcp().call('link', { source: 'shed', target: 'garden', relation: 'about' })
+    expect(await mcp().call('read', { entry: 'garden' })).toMatchObject({
+      result: { backlinks: [{ relation: 'about', slug: 'shed' }] },
+    })
+    await mcp().call('unlink', { source: 'shed', target: 'garden', relation: 'about' })
+    expect(await mcp().call('read', { entry: 'shed' })).toMatchObject({ result: { links: [] } })
+  })
+
   test('a write answers with the entry but not its body, which may be long', async () => {
     const written = await mcp().call('write', {
       type: 'note',
