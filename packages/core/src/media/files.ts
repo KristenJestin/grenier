@@ -82,7 +82,11 @@ export const typeOf = Effect.fn('typeOf')(function* (bytes: Uint8Array) {
   return { mime, kind }
 })
 
-/** Addresses of the machine and its networks, which a fetch must not reach unless allowed. */
+/**
+ * Addresses of the machine and its networks, which a fetch must not reach unless allowed. An
+ * IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) is checked against the IPv4 ranges by BlockList
+ * itself, so no rule names `::ffff:0:0/96`: such a rule would match every IPv4 address.
+ */
 const PRIVATE = (() => {
   const list = new BlockList()
   for (const [network, prefix] of [
@@ -93,15 +97,23 @@ const PRIVATE = (() => {
     ['169.254.0.0', 16],
     ['172.16.0.0', 12],
     ['192.168.0.0', 16],
+    ['198.18.0.0', 15],
+    ['224.0.0.0', 4],
+    // Reserved, up to the broadcast address 255.255.255.255.
+    ['240.0.0.0', 4],
   ] as const) {
     list.addSubnet(network, prefix, 'ipv4')
   }
   for (const [network, prefix] of [
-    ['::', 128],
-    ['::1', 128],
+    // IPv4-compatible, which holds the unspecified address `::` and the loopback `::1`.
+    ['::', 96],
+    ['64:ff9b::', 96],
+    ['64:ff9b:1::', 48],
+    ['2002::', 16],
     ['fc00::', 7],
     ['fe80::', 10],
-    ['::ffff:0:0', 96],
+    ['fec0::', 10],
+    ['ff00::', 8],
   ] as const) {
     list.addSubnet(network, prefix, 'ipv6')
   }
@@ -113,6 +125,10 @@ const TIMEOUT = 30_000
 
 /** An address a host name resolves to. */
 export type ResolvedAddress = { readonly address: string; readonly family: number }
+
+/** Whether an address belongs to the machine or its networks, which a fetch must not reach. */
+export const isPrivateAddress = ({ address, family }: ResolvedAddress) =>
+  PRIVATE.check(address, family === 6 ? 'ipv6' : 'ipv4')
 
 /**
  * How a host name becomes addresses: the system's DNS. A test gives its own, to see which address a
@@ -202,9 +218,7 @@ export const fetchFile = Effect.fn('fetchFile')(function* (address: string) {
             catch: () => new Refused({ message: `The host of \`${current}\` cannot be found.` }),
           })
         : [{ address: host, family: isIP(host) }]
-    const reachesPrivate = addresses.some(({ address: each, family }) =>
-      PRIVATE.check(each, family === 6 ? 'ipv6' : 'ipv4'),
-    )
+    const reachesPrivate = addresses.some(isPrivateAddress)
     const [pinned] = addresses
     if (pinned === undefined) {
       return yield* refuse(`The host of \`${current}\` cannot be found.`)
