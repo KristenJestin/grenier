@@ -1,5 +1,9 @@
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { rowsOf } from '../database/rows.ts'
+import { currentActor } from '../events/actor.ts'
+import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
+import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { FieldDefinition, TypeDefinition } from './definition.ts'
 import { areSimilar } from './similar.ts'
@@ -19,6 +23,14 @@ const Row = Schema.Struct({
 })
 
 const typeOf = Schema.decodeUnknownEffect(Row)
+const names = rowsOf(Schema.Struct({ name: Schema.String }))
+
+/** What the event log keeps of a type: its label, its description and each field definition. */
+const snapshotOf = ({ label, description, fields }: TypeDefinition): Snapshot => ({
+  label,
+  description,
+  ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
+})
 
 export const findType = Effect.fn('findType')(function* (name: string) {
   const sql = yield* SqlClient.SqlClient
@@ -47,18 +59,23 @@ export const listTypes = Effect.gen(function* () {
  */
 export const defineType = Effect.fn('defineType')(function* (input: typeof TypeDefinition.Encoded) {
   const sql = yield* SqlClient.SqlClient
+  const actor = yield* currentActor
   const type = yield* decodeType(input)
   return yield* sql.withTransaction(
     Effect.gen(function* () {
-      const names = (yield* sql<{ readonly name: string }>`SELECT name FROM types`).map(
-        ({ name }) => name,
-      )
-      if (names.includes(type.name)) {
+      const existing = (yield* names(sql`SELECT name FROM types`)).map(({ name }) => name)
+      if (existing.includes(type.name)) {
         return yield* new Refused({ message: `The type \`${type.name}\` already exists.` })
       }
       yield* sql`INSERT INTO types (name, label, description, fields)
         VALUES (${type.name}, ${type.label}, ${type.description}, ${JSON.stringify(type.fields)}::jsonb)`
-      const warnings = names
+      yield* recordEvent(
+        actor,
+        { entryId: null, typeName: type.name },
+        'define',
+        changesBetween({}, snapshotOf(type)),
+      )
+      const warnings = existing
         .filter((name) => areSimilar(name, type.name))
         .map(
           (name) =>
@@ -75,6 +92,7 @@ export const addField = Effect.fn('addField')(function* (
   input: typeof FieldDefinition.Encoded,
 ) {
   const sql = yield* SqlClient.SqlClient
+  const actor = yield* currentActor
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const type = yield* getType(typeName)
@@ -86,6 +104,12 @@ export const addField = Effect.fn('addField')(function* (
       const extended = yield* decodeType({ ...type, fields: [...type.fields, input] })
       yield* sql`UPDATE types SET fields = ${JSON.stringify(extended.fields)}::jsonb, updated = now()
         WHERE name = ${type.name}`
+      yield* recordEvent(
+        actor,
+        { entryId: null, typeName: type.name },
+        'add_field',
+        changesBetween(snapshotOf(type), snapshotOf(extended)),
+      )
       return extended
     }),
   )
