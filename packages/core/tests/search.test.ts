@@ -72,7 +72,7 @@ describe('search with the default language', () => {
     )
     const [result] = await run(search('walnuts'))
     expect(result).toMatchObject({ title: 'Harvest', summary: 'What we picked.' })
-    expect(result?.excerpt).toContain('**walnuts**')
+    expect(result?.excerpt).toContain('<mark>walnuts</mark>')
     expect(result?.id).toMatch(/^[0-9a-f-]{36}$/)
   })
 
@@ -96,7 +96,7 @@ describe('search in French', () => {
     await run(writeEntry({ type: 'note', title: 'Château de famille' }).pipe(inLanguage('french')))
     const [found] = await run(search('chateau').pipe(inLanguage('french')))
     expect(found?.title).toBe('Château de famille')
-    expect(found?.excerpt).toContain('**Château**')
+    expect(found?.excerpt).toContain('<mark>Château</mark>')
     const plural = await run(search('châteaux familles').pipe(inLanguage('french')))
     expect(plural.map(({ title }) => title)).toEqual(['Château de famille'])
   })

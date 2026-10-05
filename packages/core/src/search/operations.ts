@@ -27,8 +27,8 @@ export type SearchOptions = typeof SearchOptions.Type
 
 const found = rowsOf(Schema.Struct({ ...SearchResult.fields, path: Schema.Null }))
 
-/** Marks the matched words in the excerpt as Markdown bold. */
-const HEADLINE = 'StartSel=**, StopSel=**, MaxWords=30, MinWords=12, MaxFragments=2'
+/** Marks the matched words in the excerpt with `<mark>`, which no Markdown body uses for itself. */
+const HEADLINE = 'StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=12, MaxFragments=2'
 
 /**
  * Finds entries by their text: titles and aliases weigh most, then tags and summaries, then
