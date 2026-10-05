@@ -1,9 +1,10 @@
-import { Effect, Result } from 'effect'
+import { Deferred, Effect, Fiber, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
 import { Rights } from '../src/auth/index.ts'
 import { readEntry, writeEntry } from '../src/entries/index.ts'
 import { entryHistory, typeHistory } from '../src/events/index.ts'
 import { Refused } from '../src/refused.ts'
+import { committedOnceAwaited } from '../src/testing.ts'
 import {
   changeField,
   confirmProposal,
@@ -289,5 +290,39 @@ describe('changing the kind of a field', () => {
       { name: 'ends', kind: 'text' },
       { name: 'renewed', kind: 'text' },
     ])
+  })
+})
+
+describe('a change of a type while an entry of it is being written', () => {
+  test('keeps the value that write gives the entry', async () => {
+    await run(
+      defineType({
+        name: 'shelf',
+        label: 'Shelf',
+        description: 'A shelf in a room.',
+        fields: [
+          { name: 'label', kind: 'text' },
+          { name: 'place', kind: 'text' },
+        ],
+      }),
+    )
+    await run(writeEntry({ type: 'shelf', title: 'Top shelf', fields: { label: 'A' } }))
+    await run(
+      Effect.gen(function* () {
+        const written = yield* Deferred.make<void>()
+        // The write stays uncommitted until the change waits on it.
+        const write = yield* Effect.forkChild(
+          committedOnceAwaited(
+            writeEntry({ entry: 'top-shelf', fields: { place: 'attic' } }).pipe(
+              Effect.tap(() => Deferred.succeed(written, undefined)),
+            ),
+          ),
+        )
+        yield* Deferred.await(written)
+        yield* changeField({ type: 'shelf', field: 'label', rename: 'name' })
+        yield* Fiber.join(write)
+      }),
+    )
+    expect((await run(readEntry('top-shelf'))).entry.fields).toEqual({ name: 'A', place: 'attic' })
   })
 })
