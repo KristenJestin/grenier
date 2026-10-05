@@ -163,6 +163,12 @@ describe('a write that breaks the rules is refused with one sentence naming the 
     )
   })
 
+  test('an unknown field on a type that has no field', async () => {
+    expect(
+      await run(refusalOf(writeEntry({ type: 'note', title: 'Bare', fields: { colour: 'red' } }))),
+    ).toBe('The field `fields.colour` is not expected.')
+  })
+
   test('a duplicate slug', async () => {
     await run(writeEntry({ ...contract, slug: 'taken' }))
     expect(await run(refusalOf(writeEntry({ ...contract, slug: 'taken' })))).toBe(

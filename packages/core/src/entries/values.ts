@@ -63,6 +63,14 @@ export type FieldValues = { readonly [name: string]: Schema.Json }
 
 /** The schema of the `fields` of an entry of that type, built from the type at run time. */
 export function fieldsOf(type: TypeDefinition): Schema.Codec<FieldValues, FieldValues> {
+  // An empty Struct accepts any value: a type without fields refuses every key itself.
+  if (type.fields.length === 0) {
+    return Schema.Record(Schema.String, Schema.Json).check(
+      Schema.makeFilter((values) =>
+        Object.keys(values).map((name) => ({ path: [name], issue: 'is not expected' })),
+      ),
+    )
+  }
   return Schema.Struct(
     Object.fromEntries(
       type.fields.map((field): [string, Value | Schema.optionalKey<Value>] => {
