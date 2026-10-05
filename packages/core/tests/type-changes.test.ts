@@ -326,3 +326,93 @@ describe('a change of a type while an entry of it is being written', () => {
     expect((await run(readEntry('top-shelf'))).entry.fields).toEqual({ name: 'A', place: 'attic' })
   })
 })
+
+describe('a field that becomes a link to an entry', () => {
+  test('stores the id of the entry each value names, and is refused for a value naming none', async () => {
+    await run(
+      defineType({
+        name: 'loan',
+        label: 'Loan',
+        description: 'Something lent.',
+        fields: [{ name: 'item', kind: 'text' }],
+      }),
+    )
+    await run(writeEntry({ type: 'lamp', title: 'Desk lamp' }))
+    const { id } = (await run(readEntry('desk-lamp'))).entry
+    await run(writeEntry({ type: 'loan', title: 'Loan one', fields: { item: 'nobody' } }))
+    await run(writeEntry({ type: 'loan', title: 'Loan two', fields: { item: 'desk-lamp' } }))
+    const refusal =
+      'The change would leave 1 entries invalid: `loan-one`: the field `fields.item` must name an ' +
+      'existing entry: `nobody` does not exist. Give a `default` for the missing values, or a ' +
+      '`mapping` for the others.'
+    expect(await run(refusalOf(changeField({ type: 'loan', field: 'item', kind: 'entry' })))).toBe(
+      refusal,
+    )
+    const dry = await run(
+      changeField({ type: 'loan', field: 'item', kind: 'entry', dry_run: true }),
+    )
+    expect(dry).toMatchObject({
+      invalid: [
+        {
+          slug: 'loan-one',
+          problem: 'the field `fields.item` must name an existing entry: `nobody` does not exist',
+        },
+      ],
+      repaired: ['loan-two'],
+    })
+    expect(
+      await run(
+        refusalOf(
+          changeField({
+            type: 'loan',
+            field: 'item',
+            kind: 'entry',
+            mapping: { nobody: 'no-one' },
+          }),
+        ),
+      ),
+    ).toBe(refusal.replace('`nobody` does not exist', '`no-one` does not exist'))
+    await run(
+      changeField({ type: 'loan', field: 'item', kind: 'entry', mapping: { nobody: 'desk-lamp' } }),
+    )
+    const loans = await Promise.all(['loan-one', 'loan-two'].map((slug) => run(readEntry(slug))))
+    expect(loans.map(({ entry }) => entry.fields['item'])).toEqual([id, id])
+    await run(writeEntry({ entry: 'loan-one', title: 'Loan one, returned' }))
+    expect((await run(readEntry('loan-one'))).entry.title).toBe('Loan one, returned')
+  })
+
+  test('in a merge, stores the id of the entry each value names, and is refused for a value naming none', async () => {
+    await run(
+      Effect.all([
+        defineType({
+          name: 'card',
+          label: 'Card',
+          description: 'A card about something.',
+          fields: [{ name: 'about', kind: 'text' }],
+        }),
+        defineType({
+          name: 'label',
+          label: 'Label',
+          description: 'A label stuck on something.',
+          fields: [{ name: 'on', kind: 'entry' }],
+        }),
+      ]),
+    )
+    const { id } = (await run(readEntry('desk-lamp'))).entry
+    await run(writeEntry({ type: 'card', title: 'Card one', fields: { about: 'desk-lamp' } }))
+    await run(writeEntry({ type: 'card', title: 'Card two', fields: { about: 'nowhere' } }))
+    const proposal = await run(proposeTypeMerge('card', 'label', { about: 'on' }))
+    expect(await run(refusalOf(asOwner(confirmProposal(proposal.id))))).toBe(
+      'The change would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
+        'existing entry: `nowhere` does not exist. Give a `default` for the missing values, or a ' +
+        '`mapping` for the others.',
+    )
+    await run(writeEntry({ entry: 'card-two', fields: { about: id } }))
+    await run(asOwner(confirmProposal(proposal.id)))
+    const cards = await Promise.all(['card-one', 'card-two'].map((slug) => run(readEntry(slug))))
+    expect(cards.map(({ entry }) => [entry.type, entry.fields['on']])).toEqual([
+      ['label', id],
+      ['label', id],
+    ])
+  })
+})

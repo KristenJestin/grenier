@@ -2,6 +2,7 @@ import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
+import { idOf } from '../entries/operations.ts'
 import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
@@ -59,6 +60,9 @@ const keyOf = (value: Schema.Json) => (Predicate.isString(value) ? value : JSON.
 
 const types = rowsOf(TypeDefinition)
 
+const bySlug = (one: { slug: string }, other: { slug: string }) =>
+  one.slug < other.slug ? -1 : one.slug > other.slug ? 1 : 0
+
 /** The type of that name, locked until the transaction ends; refused when there is none. */
 const lockedType = Effect.fn('lockedType')(function* (name: string) {
   const sql = yield* SqlClient.SqlClient
@@ -79,13 +83,7 @@ const entriesOf = (type: string) =>
   Effect.flatMap(SqlClient.SqlClient, (sql) =>
     stored(sql`SELECT id::text AS id, slug, type, fields, provenance FROM entries WHERE type = ${type}
       ORDER BY id FOR UPDATE`),
-  ).pipe(
-    Effect.map((entries) =>
-      entries.toSorted((one, other) =>
-        one.slug < other.slug ? -1 : one.slug > other.slug ? 1 : 0,
-      ),
-    ),
-  )
+  ).pipe(Effect.map((entries) => entries.toSorted(bySlug)))
 
 /** Validates the fields of every entry against a type; the entries it would leave invalid. */
 const invalidUnder = (
@@ -100,6 +98,47 @@ const invalidUnder = (
   })
 }
 
+type Rewrite = { before: Stored; slug: string; type: string; fields: Values; provenance: Values }
+
+/**
+ * Turns each value of the `entry` fields named into the id of the entry it names, by its slug or
+ * its id, as a write of an entry does: an id is what is stored. A value naming no entry stays, and
+ * is the problem of its entry.
+ */
+const withEntryIds = Effect.fn('withEntryIds')(function* (
+  rewrites: ReadonlyArray<Rewrite>,
+  fields: ReadonlyArray<string>,
+) {
+  const unknown: Array<{ slug: string; problem: string }> = []
+  const resolved = yield* Effect.forEach(rewrites, (rewrite) =>
+    Effect.gen(function* () {
+      const ids: Record<string, Schema.Json> = {}
+      for (const field of fields) {
+        const value = rewrite.fields[field]
+        if (!Predicate.isString(value)) continue
+        const id = yield* idOf(value)
+        if (id === undefined) {
+          unknown.push({
+            slug: rewrite.slug,
+            problem: `the field \`fields.${field}\` must name an existing entry: \`${value}\` does not exist`,
+          })
+        } else {
+          ids[field] = id
+        }
+      }
+      return { ...rewrite, fields: { ...rewrite.fields, ...ids } }
+    }),
+  )
+  return { resolved, unknown }
+})
+
+/** The problems of the entries a change would leave invalid, in the order of their slugs. */
+const problemsOf = (
+  type: TypeDefinition,
+  rewrites: ReadonlyArray<Rewrite>,
+  unknown: ReadonlyArray<{ slug: string; problem: string }>,
+) => [...invalidUnder(type, rewrites), ...unknown].toSorted(bySlug)
+
 const refusedFor = (invalid: ReadonlyArray<{ slug: string; problem: string }>) =>
   new Refused({
     message: `The change would leave ${invalid.length} entries invalid: ${invalid
@@ -110,7 +149,7 @@ const refusedFor = (invalid: ReadonlyArray<{ slug: string; problem: string }>) =
 /** Writes the new fields of the entries a change repairs, each with its event. */
 const rewriteEntries = Effect.fn('rewriteEntries')(function* (
   actor: string,
-  changes: ReadonlyArray<{ before: Stored; type: string; fields: Values; provenance: Values }>,
+  changes: ReadonlyArray<Rewrite>,
 ) {
   const sql = yield* SqlClient.SqlClient
   yield* Effect.forEach(changes, ({ before, fields, provenance, type }) =>
@@ -171,7 +210,7 @@ export const changeField = Effect.fn('changeField')(
 
     const entries = yield* entriesOf(type.name)
     const mapping = input.mapping ?? {}
-    const proposed = entries.map((entry) => {
+    const rewrites = entries.map((entry) => {
       const fields: Record<string, Schema.Json> = renamed(entry.fields, old.name, name)
       const value = fields[name]
       const mapped = value === undefined ? undefined : mappedOf(mapping, keyOf(value))
@@ -186,7 +225,11 @@ export const changeField = Effect.fn('changeField')(
         provenance: renamed(entry.provenance, old.name, name),
       }
     })
-    const invalid = invalidUnder(next, proposed)
+    const { resolved: proposed, unknown } = yield* withEntryIds(
+      rewrites,
+      kind === 'entry' ? [name] : [],
+    )
+    const invalid = problemsOf(next, proposed, unknown)
     const repaired = proposed.filter(
       ({ before, fields, provenance }) =>
         JSON.stringify(fields) !== JSON.stringify(before.fields) ||
@@ -370,7 +413,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
             message: `The merge would lose values: ${lost.join('; ')}. Map these fields first.`,
           })
         }
-        const moved = entries.map((entry) => ({
+        const rewrites = entries.map((entry) => ({
           before: entry,
           slug: entry.slug,
           type: into.name,
@@ -386,7 +429,11 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
             ),
           ),
         }))
-        const invalid = invalidUnder(into, moved)
+        const { resolved: moved, unknown } = yield* withEntryIds(
+          rewrites,
+          into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
+        )
+        const invalid = problemsOf(into, moved, unknown)
         if (invalid.length > 0) return yield* refusedFor(invalid)
         yield* rewriteEntries(actor, moved)
       } else {

@@ -84,11 +84,13 @@ field that stops being a date loses its `due` and `recurs`), renames it (its val
 provenance move with it) or changes its allowed values. It checks every entry of the type, archived
 ones included, and refuses while one would become invalid, naming each; a `default` fills the
 entries that lack a field made required, a `mapping` turns old values into new ones, and every
-entry repaired gets an `update` event. `dry_run` answers what would happen and writes nothing.
-Deleting or merging a type is a proposal; only a key with the right `owner` confirms it, and no
-agent key has that right. A merge moves the entries to the other type, their fields renamed by its
-mapping, and is refused if a value would be lost or an entry left invalid. A deleted type is
-marked, not removed, so its history stays; its name cannot be used again.
+entry repaired gets an `update` event. `dry_run` answers what would happen and writes nothing. A
+value of a field that becomes a link to an entry, by a change or a merge, is stored as the id of
+the entry its slug or id names; one that names no entry is refused. Deleting or merging a type is a
+proposal; only a key with the right `owner` confirms it, and no agent key has that right. A merge
+moves the entries to the other type, their fields renamed by its mapping, and is refused if a value
+would be lost or an entry left invalid. A deleted type is marked, not removed, so its history
+stays; its name cannot be used again.
 
 ## The tree
 
