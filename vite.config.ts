@@ -1,7 +1,10 @@
 import { defineConfig, loadEnv } from 'vite-plus'
 
-/** Generated output is not part of the workspace: never linted, formatted, type checked or tested. */
-const OUTSIDE_THE_WORKSPACE = ['reports/**', 'dist/**', '**/dist/**']
+/**
+ * Generated output is not part of the workspace: never linted, formatted or tested. The route tree
+ * TanStack Start generates is committed, since the type check needs it before any build.
+ */
+const OUTSIDE_THE_WORKSPACE = ['reports/**', 'dist/**', '**/dist/**', '**/routeTree.gen.ts']
 /** Vendored lint rules keep their upstream style so a resync stays a readable diff. */
 const VENDORED = ['tools/oxlint/**']
 const ZOD = 'No zod in Grenier: validate with Effect `Schema` (`import { Schema } from "effect"`).'

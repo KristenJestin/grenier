@@ -40,7 +40,7 @@ packages/mcp      @grenier/mcp     The MCP tools, on top of core; stdio for deve
                                    over HTTP by apps/server. Started and declared to an MCP
                                    client as its README says.
 apps/server       @grenier/server  TanStack Start: the web interface (Mantine), the HTTP API and
-                                   the MCP endpoint, in one process. (not created yet)
+                                   the MCP endpoint, in one process. Today: `/mcp` and `/health`.
 apps/import       @grenier/import  Imports a folder of Markdown notes with YAML front matter;
                                    its README says how to run it and how notes are read.
 tools/            —                commit-message, branch-guard, install-hooks, boundaries, and
@@ -69,6 +69,14 @@ pnpm lint                        # oxlint, then the boundaries check
 pnpm fmt                         # oxfmt (fmt:check in CI)
 pnpm test                        # vitest (in a terminal: `pnpm exec vp test run`, no watching)
 pnpm check                       # typecheck, lint, fmt:check and test, in that order
+```
+
+The server, in development (`/mcp` and `/health` on `PORT`, 3000 by default):
+
+```
+GRENIER_ACTOR=agent-laptop pnpm --filter @grenier/server dev        # with reloading
+pnpm --filter @grenier/server build && GRENIER_ACTOR=agent-laptop pnpm --filter @grenier/server start
+claude mcp add --transport http grenier http://localhost:3000/mcp   # declare it to Claude Code
 ```
 
 Configuration lives in one place: `vite.config.ts` at the root holds the `lint`, `fmt` and
