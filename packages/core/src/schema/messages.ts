@@ -12,13 +12,21 @@ const problemOf: SchemaIssue.LeafHook = (issue) =>
     Match.tag('MissingKey', () => 'is missing'),
     Match.tag('InvalidType', ({ ast }) => mustBe(ast)),
     Match.tag('UnexpectedKey', () => 'is not expected'),
+    Match.tag('InvalidValue', ({ annotations }) =>
+      Predicate.isString(annotations?.message) ? annotations.message : 'is not valid',
+    ),
     Match.orElse(() => 'is not valid'),
   )
 
-/** A failed refinement says what it expects: Schema's checks carry it in plain English. */
-const problemOfCheck: SchemaIssue.CheckHook = ({ filter }) => {
+/**
+ * A failed refinement says what it expects: Schema's checks carry it in plain English. A check
+ * that names its own problem, as a check across several fields does, is reported at the field it
+ * points to.
+ */
+const problemOfCheck: SchemaIssue.CheckHook = ({ filter, issue }) => {
   const expected = filter.annotations?.expected
-  return Predicate.isString(expected) ? `must be ${expected}` : 'is not valid'
+  if (Predicate.isString(expected)) return `must be ${expected}`
+  return Predicate.isTagged(issue, 'InvalidValue') ? problemOf(issue) : undefined
 }
 
 const mustBe = (ast: SchemaAST.AST): string =>
@@ -56,6 +64,9 @@ export function toFormSchema<S extends Schema.Decoder<unknown>>(
 ): StandardSchemaV1<S['Encoded'], S['Type']> & S {
   return Schema.toStandardSchemaV1(schema, {
     leafHook: (issue) => `This field ${problemOf(issue)}.`,
-    checkHook: (issue) => `This field ${problemOfCheck(issue)}.`,
+    checkHook: (issue) => {
+      const problem = problemOfCheck(issue)
+      return problem === undefined ? undefined : `This field ${problem}.`
+    },
   })
 }
