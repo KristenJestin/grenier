@@ -219,9 +219,23 @@ describe('dates come to the agent', () => {
         relation: 'fulfills',
         period: ends,
       }),
-    ).toMatchObject({ result: { relation: 'fulfills', period: ends } })
+    ).toMatchObject({ result: { relation: 'fulfills', period: ends, field: 'ends' } })
     expect(await mcp().call('upcoming', { to: ends })).toMatchObject({
       result: { occurrences: [] },
+    })
+  })
+
+  test('link declares the field a link `fulfills` closes', async () => {
+    const { result } = await mcp().request('tools/list', {})
+    expect(result).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'link',
+          inputSchema: expect.objectContaining({
+            properties: expect.objectContaining({ field: expect.anything() }),
+          }),
+        }),
+      ]),
     })
   })
 })
