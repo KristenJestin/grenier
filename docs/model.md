@@ -28,6 +28,13 @@ bookmark, a folder-like area. All entries share the same base:
 
 An entry is never deleted by an agent; it is archived.
 
+The values of the field kinds, as they are written and read: `date` as `2026-10-05`,
+`datetime` as `2026-10-05T14:30:00Z` (with an offset), `duration` as an ISO 8601 duration,
+`money` as an amount and an ISO 4217 currency (`12.50 EUR`), `url` as an `http` or `https`
+URL, and `entry` as the slug or id of an existing entry, kept as its id. A write names the
+parent (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
+`fields` and `provenance` are merged key by key, and `null` removes a key.
+
 ## Types are data
 
 A **type** has a name, a label, a description and a list of field definitions:

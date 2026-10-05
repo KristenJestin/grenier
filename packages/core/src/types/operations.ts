@@ -20,7 +20,7 @@ const Row = Schema.Struct({
 
 const typeOf = Schema.decodeUnknownEffect(Row)
 
-const findType = Effect.fn('findType')(function* (name: string) {
+export const findType = Effect.fn('findType')(function* (name: string) {
   const sql = yield* SqlClient.SqlClient
   const [row] = yield* sql`SELECT name, label, description, fields FROM types WHERE name = ${name}`
   return row === undefined ? undefined : yield* typeOf(row).pipe(Effect.orDie)
