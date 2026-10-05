@@ -1,16 +1,51 @@
-# The PostgreSQL a developer runs locally: `docker compose up -d`. Tests create and drop their own
-# databases on it and never touch one that holds real data.
+# Grenier and its PostgreSQL: `docker compose up -d` starts both, once `.env.production` exists
+# (copy `.env.production.example`, see its comments). The database alone, for development and the
+# test suites: `docker compose up -d postgres`. Tests create and drop their own databases on it
+# and never touch one that holds real data.
 services:
   postgres:
     image: postgres:18.0
     environment:
       POSTGRES_USER: grenier
-      POSTGRES_PASSWORD: grenier
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grenier}
       POSTGRES_DB: grenier
     ports:
-      - '127.0.0.1:55432:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-55432}:5432'
     volumes:
       - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'grenier']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  grenier:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    env_file:
+      - path: .env.production
+        required: true
+    ports:
+      - '${GRENIER_BIND:-127.0.0.1}:${GRENIER_PORT:-3000}:3000'
+    volumes:
+      - media:/data/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
 
 volumes:
   postgres:
+  media:

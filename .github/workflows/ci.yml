@@ -62,3 +62,12 @@ jobs:
       - name: Test
         timeout-minutes: 20
         run: pnpm test
+
+  # The image of the server, built on every pull request as it will be on the owner's server. It is
+  # built only: nothing is pushed to any registry.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image of the server
+        run: docker build -f apps/server/Dockerfile -t grenier:ci .
