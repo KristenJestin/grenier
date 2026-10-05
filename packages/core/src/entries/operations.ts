@@ -8,6 +8,7 @@ import { Refused } from '../refused.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing, replaceMentions } from '../links/store.ts'
 import { formatSchemaError } from '../schema/index.ts'
+import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
 import { Child, Entry } from './entry.ts'
 import type { WriteEntryInput } from './entry.ts'
@@ -60,7 +61,7 @@ export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
 })
 
 /** The entry and its ancestors, from the root down to the entry itself. */
-const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
+export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
   const sql = yield* SqlClient.SqlClient
   return yield* ancestors(sql`
     WITH RECURSIVE up AS (
@@ -179,6 +180,7 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
 export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryInput) {
   const sql = yield* SqlClient.SqlClient
   const actor = yield* currentActor
+  const configuration = yield* searchConfiguration
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const existing = input.entry === undefined ? undefined : yield* findEntry(input.entry)
@@ -298,9 +300,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         ${JSON.stringify(entry.tags)}::jsonb, ${parentId}::uuid, ${JSON.stringify(references)}::jsonb,
         ${JSON.stringify(entry.provenance)}::jsonb, ${entry.body}, ${entry.summary},
         ${entry.verified}, ${entry.valid_from}::date, ${entry.valid_until}::date,
-        ${supersededBy}::uuid`
+        ${supersededBy}::uuid, ${configuration}::regconfig`
       const columns = sql.literal(`type, title, slug, aliases, tags, parent_id, fields, provenance,
-        body, summary, verified, valid_from, valid_until, superseded_by`)
+        body, summary, verified, valid_from, valid_until, superseded_by, search_language`)
       const [written] =
         existing === undefined
           ? yield* ids(

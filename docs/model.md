@@ -146,6 +146,15 @@ An occurrence is closed when an entry linked to it by `fulfills`, for that perio
 payment for this year's tax, a service for this year's inspection). A closed occurrence is no
 longer announced; an overdue, unclosed one is.
 
+## Search
+
+A search looks first in what identifies an entry, then in its body: title and aliases weigh
+most, then tags and summary, then body. It filters by type, by ancestor (only the descendants of
+an entry) and leaves archived entries out unless asked. Each result carries the id, slug, type,
+title, summary, the path of ancestors, an excerpt with the matched words in `<mark>` tags, and
+its rank; 20 results by default. The language comes from `SEARCH_LANGUAGE` (a PostgreSQL text
+search configuration, `simple` by default) and accents never matter.
+
 ## MCP tools (first set)
 
 `define_type`, `write`, `read` (section by section for long entries), `search` (titles, tags and
