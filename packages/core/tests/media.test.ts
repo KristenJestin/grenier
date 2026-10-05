@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { ConfigProvider, Effect, Predicate } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vite-plus/test'
 import { readEntry, writeEntry } from '../src/entries/index.ts'
-import { getPinned } from '../src/media/files.ts'
+import { getPinned, isPrivateAddress } from '../src/media/files.ts'
 import { attachMedia, describeMedia, HostResolver, readMedia } from '../src/media/index.ts'
 import { Refused } from '../src/refused.ts'
 import { search } from '../src/search/index.ts'
@@ -218,6 +218,43 @@ describe('a file fetched from a URL', () => {
         refusalOf(attachMedia({ entry: 'manual', url: 'file:///etc/hostname' }).pipe(withMedia())),
       ),
     ).toBe('The URL `file:///etc/hostname` must be an http or https address.')
+  })
+})
+
+describe('the addresses a fetch may reach', () => {
+  const v4 = (address: string) => isPrivateAddress({ address, family: 4 })
+  const v6 = (address: string) => isPrivateAddress({ address, family: 6 })
+
+  test('a public IPv4 address is accepted', () => {
+    expect(['8.8.8.8', '1.1.1.1', '93.184.215.14'].map(v4)).toEqual([false, false, false])
+  })
+
+  test('a public IPv4 address written as IPv4-mapped IPv6 is accepted', () => {
+    expect(['::ffff:8.8.8.8', '::ffff:1.1.1.1'].map(v6)).toEqual([false, false])
+  })
+
+  test('a private IPv4 address written as IPv4-mapped IPv6 is refused', () => {
+    expect(['::ffff:127.0.0.1', '::ffff:10.0.0.7', '::ffff:7f00:1'].map(v6)).toEqual([
+      true,
+      true,
+      true,
+    ])
+  })
+
+  test('a host resolving to an IPv4-mapped private address is refused before any connection', async () => {
+    const resolver = () => Promise.resolve([{ address: '::ffff:10.0.0.7', family: 6 }])
+    expect(
+      await run(
+        refusalOf(
+          attachMedia({ entry: 'manual', url: 'http://files.invalid/pixel' }).pipe(
+            withMedia(),
+            Effect.provideService(HostResolver, resolver),
+          ),
+        ),
+      ),
+    ).toBe(
+      'The URL `http://files.invalid/pixel` leads to a private address: Grenier fetches only from the Internet.',
+    )
   })
 })
 
