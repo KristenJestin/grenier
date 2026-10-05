@@ -5,7 +5,9 @@
   "license": "UNLICENSED",
   "type": "module",
   "exports": {
-    "./schema": "./src/schema/index.ts"
+    "./database": "./src/database/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
