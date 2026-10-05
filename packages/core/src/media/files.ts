@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
@@ -32,7 +32,8 @@ export const storeFile = Effect.fn('storeFile')(function* (bytes: Uint8Array) {
     )
     if (present) return
     await mkdir(join(directory, hash.slice(0, 2)), { recursive: true })
-    const partial = `${path}.${process.pid}.part`
+    // A name of its own for each write: two attachments of one file at once do not share it.
+    const partial = `${path}.${randomUUID()}.part`
     await writeFile(partial, bytes)
     await rename(partial, path)
   })
@@ -136,12 +137,12 @@ interface Answer {
  * a DNS answer that changes between the check and the connection cannot lead it elsewhere. TLS
  * still checks the certificate against the name of the URL.
  */
-const getPinned = (url: URL, pinned: ResolvedAddress, limit: number) =>
+export const getPinned = (url: URL, pinned: ResolvedAddress, limit: number, timeout = TIMEOUT) =>
   new Promise<Answer>((resolve, reject) => {
     const request = (url.protocol === 'https:' ? httpsGet : httpGet)(
       url,
       {
-        timeout: TIMEOUT,
+        timeout,
         lookup: (_host, options, callback) =>
           options.all === true
             ? callback(null, [pinned])
@@ -172,6 +173,9 @@ const getPinned = (url: URL, pinned: ResolvedAddress, limit: number) =>
         response.on('error', reject)
       },
     )
+    // `timeout` only notices a silent connection; this bounds the whole download.
+    const deadline = setTimeout(() => request.destroy(new Error('timed out')), timeout)
+    request.on('close', () => clearTimeout(deadline))
     request.on('timeout', () => request.destroy(new Error('timed out')))
     request.on('error', reject)
   })

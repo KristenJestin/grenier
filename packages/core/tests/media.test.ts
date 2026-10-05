@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { ConfigProvider, Effect, Predicate } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vite-plus/test'
 import { readEntry, writeEntry } from '../src/entries/index.ts'
+import { getPinned } from '../src/media/files.ts'
 import { attachMedia, describeMedia, HostResolver, readMedia } from '../src/media/index.ts'
 import { Refused } from '../src/refused.ts'
 import { search } from '../src/search/index.ts'
@@ -85,6 +86,44 @@ describe('an image attached from bytes', () => {
     await run(attachMedia({ entry: 'shade', data: PIXEL }).pipe(withMedia()))
     expect(files()).toHaveLength(1)
     expect((await run(readEntry('shade'))).media).toHaveLength(1)
+  })
+})
+
+describe('the same file attached several times at once', () => {
+  test('every attachment succeeds and the file is kept whole, once', async () => {
+    await run(writeEntry({ type: 'thing', title: 'Busy' }))
+    const page = base64('<!doctype html><title>Same page, three times</title>')
+    const attached = await Promise.all(
+      [1, 2, 3].map(() => run(attachMedia({ entry: 'busy', data: page }).pipe(withMedia()))),
+    )
+    const [hash] = new Set(attached.map(({ media }) => media.sha256))
+    expect(attached).toHaveLength(3)
+    const served = await run(readMedia(hash ?? '').pipe(withMedia()))
+    expect(Buffer.from(served.bytes).toString('base64')).toBe(page)
+  })
+})
+
+describe('a download that never ends', () => {
+  test('is stopped after its time, even when a byte comes now and then', async () => {
+    const slow = createServer((_, response) => {
+      response.writeHead(200, { 'content-type': 'application/octet-stream' })
+      const drip = setInterval(() => response.write('.'), 50)
+      response.on('close', () => clearInterval(drip))
+    })
+    await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve))
+    const address = slow.address()
+    const port = address === null || Predicate.isString(address) ? 0 : address.port
+    const started = Date.now()
+    await expect(
+      getPinned(
+        new URL(`http://127.0.0.1:${port}/`),
+        { address: '127.0.0.1', family: 4 },
+        1000,
+        400,
+      ),
+    ).rejects.toThrow()
+    expect(Date.now() - started).toBeLessThan(3000)
+    slow.close()
   })
 })
 
