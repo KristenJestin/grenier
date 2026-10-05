@@ -13,7 +13,7 @@ import {
   TypeDefinition,
 } from '@grenier/core/types'
 import type { layer as database } from '@grenier/core/database'
-import { Effect, Schema } from 'effect'
+import { Effect, Schema, Struct } from 'effect'
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/ai'
 import { headingsOf, sectionOf } from './sections.ts'
@@ -120,8 +120,9 @@ export const GrenierHandlers = GrenierTools.toLayer(
       ),
       get_type: handler(NameInput, ({ name }) => Effect.map(getType(name), (type) => ({ type }))),
       list_types: handler(NoInput, () => Effect.map(listTypes, (types) => ({ types }))),
+      // The body is left out of the answer: the agent just sent it, and it may be long.
       write: handler(WriteEntryInput, (input) =>
-        Effect.map(writeEntry(input), (entry) => ({ entry })),
+        Effect.map(writeEntry(input), (entry) => ({ entry: Struct.omit(entry, ['body']) })),
       ),
       read: handler(ReadInput, ({ entry, headings, section }) =>
         Effect.gen(function* () {

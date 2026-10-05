@@ -88,6 +88,19 @@ describe('an agent works through MCP calls only', () => {
     })
   })
 
+  test('a write answers with the entry but not its body, which may be long', async () => {
+    const written = await mcp().call('write', {
+      type: 'note',
+      title: 'Long page',
+      body: 'A line of text.\n'.repeat(1000),
+    })
+    expect(written).toMatchObject({ result: { entry: { slug: 'long-page', title: 'Long page' } } })
+    expect(JSON.stringify(written)).not.toContain('A line of text.')
+    expect(await mcp().call('read', { entry: 'long-page' })).toMatchObject({
+      result: { entry: { body: 'A line of text.\n'.repeat(1000) } },
+    })
+  })
+
   test('a refused write answers with the sentences of the core, not a stack trace', async () => {
     expect(
       await mcp().call('write', { type: 'note', title: 'Bad', fields: { mood: 'angry' } }),
