@@ -21,7 +21,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `provenance` | per field: `extracted` (read from a source), `inferred` (deduced by an agent) or `ambiguous` (sources disagree) |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
-| `verified` | false until the owner has reviewed the entry; only the owner sets it to true |
+| `verified` | false until the owner has reviewed the entry; only the owner sets it to true, and a write that changes the entry by a writer without the `owner` right sets it back to false (recorded in the event like any changed field) |
 | `created`, `updated` | when Grenier learned it and last changed it |
 | `valid_from`, `valid_until`, `superseded_by` | when it was true in the world, and what replaced it |
 | `archived_at` | set when the entry is archived: it stays in place and leaves the default views |

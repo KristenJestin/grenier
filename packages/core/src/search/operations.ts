@@ -1,7 +1,7 @@
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
-import { findEntry, lineageOf } from '../entries/operations.ts'
+import { findEntry, lineageOf, TREE_DEPTH } from '../entries/operations.ts'
 import { searchConfiguration } from './language.ts'
 
 /** A found entry, with what an agent needs to choose whether to read it. */
@@ -43,10 +43,11 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
     WITH RECURSIVE query AS (
       SELECT websearch_to_tsquery(${configuration}::regconfig, ${query}) AS q
     ), subtree AS (
-      SELECT id FROM entries WHERE parent_id = ${under}::uuid
+      SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
       UNION ALL
-      SELECT e.id FROM entries e JOIN subtree s ON e.parent_id = s.id
-    )
+      SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
+      WHERE s.depth < ${TREE_DEPTH}
+    ) CYCLE id SET looped USING trail
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, NULL AS path,
       ts_headline(${configuration}::regconfig,
         concat_ws(' — ', e.title, nullif(e.summary, ''), nullif(e.body, '')), query.q,

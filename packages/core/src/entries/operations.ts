@@ -50,17 +50,31 @@ export const idOf = Effect.fn('idOf')(function* (reference: string) {
   return row?.id
 })
 
-/** The entry named by its id or its slug; refused when there is none. */
-export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
+const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked: boolean) {
   const sql = yield* SqlClient.SqlClient
   const [row] = yield* entries(
-    sql`SELECT ${sql.literal(COLUMNS)} FROM entries WHERE slug = ${reference} OR id::text = ${reference}`,
+    sql`SELECT ${sql.literal(COLUMNS)} FROM entries WHERE slug = ${reference} OR id::text = ${reference}
+      ${locked ? sql`FOR NO KEY UPDATE` : sql``}`,
   )
   if (row === undefined) {
     return yield* new Refused({ message: `The entry \`${reference}\` does not exist.` })
   }
   return toEntry(row)
 })
+
+/** The entry named by its id or its slug; refused when there is none. */
+export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
+  return yield* entryNamed(reference, false)
+})
+
+/**
+ * How deep a walk of the tree goes, far beyond any real tree. With the `CYCLE` clause of each
+ * walk, it keeps a damaged tree from hanging a read.
+ */
+export const TREE_DEPTH = 1000
+
+/** Serialises the writes that move an entry, so that two moves cannot close a cycle together. */
+const TREE_LOCK = 7_418_309
 
 /** The entry and its ancestors, from the root down to the entry itself. */
 export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
@@ -70,8 +84,9 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
       SELECT id, parent_id, title, 0 AS depth FROM entries WHERE id = ${id}::uuid
       UNION ALL
       SELECT e.id, e.parent_id, e.title, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
-    )
-    SELECT id::text AS id, title FROM up ORDER BY depth DESC`)
+      WHERE up.depth < ${TREE_DEPTH}
+    ) CYCLE id SET looped USING trail
+    SELECT id::text AS id, title FROM up WHERE NOT looped ORDER BY depth DESC`)
 })
 
 /**
@@ -195,7 +210,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
   const configuration = yield* searchConfiguration
   return yield* sql.withTransaction(
     Effect.gen(function* () {
-      const existing = input.entry === undefined ? undefined : yield* findEntry(input.entry)
+      // Taken before any row lock, and only by a move: the cycle check below reads a tree that
+      // no other move changes until this one commits.
+      if (input.entry !== undefined && Predicate.isString(input.parent)) {
+        yield* sql`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
+      }
+      // Locked until the write commits: a concurrent write waits, then starts from this one. The
+      // lock lets other writes still point to the entry (as a parent, through a foreign key).
+      const existing = input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
       const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
       const base = existing === undefined ? CREATED : stateOf(existing)
       const state = {
@@ -262,7 +284,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
           'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
         )
       }
-      if (input.verified === true && !(yield* Rights).includes('owner')) {
+      const byOwner = (yield* Rights).includes('owner')
+      if (input.verified === true && !byOwner) {
         problems.push('The field `verified` can be set to true by the owner only.')
       }
       const owner = yield* idOf(slug)
@@ -319,22 +342,27 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
             body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
           }
         : decoded.success
-      const changes = changesBetween(
-        existing === undefined ? {} : snapshotOf(existing),
-        snapshotOf({
-          ...entry,
-          parent_id: parentId,
-          fields: references,
-          superseded_by: supersededBy,
-          archived_at: existing?.archived_at ?? null,
-        }),
-      )
+      const changesWith = (verified: boolean) =>
+        changesBetween(
+          existing === undefined ? {} : snapshotOf(existing),
+          snapshotOf({
+            ...entry,
+            verified,
+            parent_id: parentId,
+            fields: references,
+            superseded_by: supersededBy,
+            archived_at: existing?.archived_at ?? null,
+          }),
+        )
+      // What the owner verified is no longer verified once a writer without `owner` changes it.
+      const verified = entry.verified && (byOwner || changesWith(true).length === 0)
+      const changes = changesWith(verified)
       if (existing !== undefined && changes.length === 0) return existing
       const values = sql`
         ${entry.type}, ${entry.title}, ${entry.slug}, ${JSON.stringify(entry.aliases)}::jsonb,
         ${JSON.stringify(entry.tags)}::jsonb, ${parentId}::uuid, ${JSON.stringify(references)}::jsonb,
         ${JSON.stringify(entry.provenance)}::jsonb, ${entry.body}, ${entry.summary},
-        ${entry.verified}, ${entry.valid_from}::date, ${entry.valid_until}::date,
+        ${verified}, ${entry.valid_from}::date, ${entry.valid_until}::date,
         ${supersededBy}::uuid, ${configuration}::regconfig`
       const columns = sql.literal(`type, title, slug, aliases, tags, parent_id, fields, provenance,
         body, summary, verified, valid_from, valid_until, superseded_by, search_language`)

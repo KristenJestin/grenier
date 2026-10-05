@@ -1,8 +1,11 @@
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
+import { execute, whileLocked } from '../src/database/contention.ts'
 import { archiveEntry, readEntry, writeEntry } from '../src/entries/index.ts'
 import { Rights } from '../src/auth/index.ts'
+import { entryHistory } from '../src/events/index.ts'
 import { Refused } from '../src/refused.ts'
+import { search } from '../src/search/index.ts'
 import { defineType } from '../src/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
@@ -307,5 +310,95 @@ describe('an import keeps when an entry was first written', () => {
     expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(
       'The field `created` can be given only when the entry is created.',
     )
+  })
+})
+
+describe('concurrent updates of different fields of one entry both survive', () => {
+  test('two updates that read the entry before either writes', async () => {
+    const entry = await run(writeEntry({ ...contract, slug: 'shared-contract' }))
+    const ended = await run(
+      whileLocked(execute('SELECT 1 FROM entries WHERE id = $1::uuid FOR UPDATE', entry.id), [
+        writeEntry({ entry: 'shared-contract', fields: { renewal: 'manual' } }),
+        writeEntry({ entry: 'shared-contract', fields: { seats: 3 } }),
+      ]),
+    )
+    expect(ended.map(({ _tag }) => _tag)).toEqual(['Success', 'Success'])
+    expect((await run(readEntry('shared-contract'))).entry.fields).toEqual({
+      ...contract.fields,
+      renewal: 'manual',
+      seats: 3,
+    })
+  })
+})
+
+describe('the tree never holds a cycle, and a cycle never hangs a read', () => {
+  test('two entries moved under each other at the same time', async () => {
+    const east = await run(writeEntry({ type: 'area', title: 'East wing', slug: 'east-wing' }))
+    const west = await run(writeEntry({ type: 'area', title: 'West wing', slug: 'west-wing' }))
+    const ended = await run(
+      whileLocked(
+        execute(
+          'SELECT 1 FROM entries WHERE id IN ($1::uuid, $2::uuid) FOR UPDATE',
+          east.id,
+          west.id,
+        ),
+        [
+          writeEntry({ entry: 'east-wing', parent: 'west-wing' }),
+          writeEntry({ entry: 'west-wing', parent: 'east-wing' }),
+        ],
+      ),
+    )
+    expect(ended.filter(Result.isSuccess)).toHaveLength(1)
+    expect(ended.filter(Result.isFailure).map(({ failure }) => failure instanceof Refused)).toEqual(
+      [true],
+    )
+    const parents = [
+      (await run(readEntry('east-wing'))).entry.parent_id,
+      (await run(readEntry('west-wing'))).entry.parent_id,
+    ]
+    expect(parents).not.toEqual([west.id, east.id])
+  })
+
+  test('a cycle written around the rules, as a damaged database would hold', async () => {
+    const upper = await run(writeEntry({ type: 'area', title: 'Loop upper', slug: 'loop-upper' }))
+    const lower = await run(
+      writeEntry({ type: 'area', title: 'Loop lower', slug: 'loop-lower', parent: 'loop-upper' }),
+    )
+    await run(
+      execute('UPDATE entries SET parent_id = $1::uuid WHERE id = $2::uuid', lower.id, upper.id),
+    )
+    const read = await run(Effect.timeout(readEntry('loop-upper'), '5 seconds'))
+    expect(read.path).toEqual(['Loop lower'])
+    const found = await run(Effect.timeout(search('loop', { under: 'loop-upper' }), '5 seconds'))
+    expect(found.map(({ slug }) => slug)).toContain('loop-lower')
+  })
+})
+
+describe('an entry the owner verified is no longer verified once a writer without owner changes it', () => {
+  const asOwner = Effect.provideService(Rights, ['read', 'write', 'owner'])
+
+  test('an update by an agent sets verified back to false, in the same event', async () => {
+    await run(writeEntry({ ...contract, slug: 'reviewed-by-owner', verified: true }).pipe(asOwner))
+    const updated = await run(writeEntry({ entry: 'reviewed-by-owner', summary: 'Changed.' }))
+    expect(updated.verified).toBe(false)
+    const last = (await run(entryHistory('reviewed-by-owner'))).at(-1)
+    expect(last?.changes).toEqual([
+      { field: 'summary', before: '', after: 'Changed.' },
+      { field: 'verified', before: true, after: false },
+    ])
+  })
+
+  test('an update by the owner keeps verified as given', async () => {
+    await run(writeEntry({ ...contract, slug: 'kept-by-owner', verified: true }).pipe(asOwner))
+    const updated = await run(
+      writeEntry({ entry: 'kept-by-owner', summary: 'Changed.' }).pipe(asOwner),
+    )
+    expect(updated.verified).toBe(true)
+  })
+
+  test('a write by an agent that changes nothing leaves it verified', async () => {
+    await run(writeEntry({ ...contract, slug: 'untouched-by-agent', verified: true }).pipe(asOwner))
+    const written = await run(writeEntry({ entry: 'untouched-by-agent', title: contract.title }))
+    expect(written.verified).toBe(true)
   })
 })
