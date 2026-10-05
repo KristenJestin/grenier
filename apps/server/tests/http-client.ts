@@ -52,7 +52,8 @@ export async function connect(url: string, headers: Readonly<Record<string, stri
   return {
     request,
     async call(name: string, args: Schema.Json) {
-      const { result } = await request('tools/call', { name, arguments: args })
+      const { result, error } = await request('tools/call', { name, arguments: args })
+      if (result === undefined) throw new Error(`the call failed: ${error?.message}`)
       const { isError = false, content } = Schema.decodeUnknownSync(ToolResult)(result)
       const text = content.map((part) => part.text).join('')
       return isError

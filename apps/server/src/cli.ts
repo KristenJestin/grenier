@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+/**
+ * The owner's command line: the owner account and the keys of the agents.
+ *
+ *   node src/cli.ts owner:create --email <email> [--name <name>]
+ *   node src/cli.ts key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
+ *   node src/cli.ts key:list
+ *   node src/cli.ts key:revoke --name <name>
+ *
+ * A key's secret is printed once, at its creation, and kept nowhere in clear.
+ */
+import { parseArgs } from 'node:util'
+import * as NodeRuntime from '@effect/platform-node-shared/NodeRuntime'
+import { Auth } from '@grenier/core/auth'
+import { layer as database, migrate } from '@grenier/core/database'
+import { Effect, Layer } from 'effect'
+
+const USAGE = `Usage:
+  owner:create --email <email> [--name <name>]
+  key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
+  key:list
+  key:revoke --name <name>`
+
+const { positionals, values } = parseArgs({
+  allowPositionals: true,
+  options: {
+    email: { type: 'string' },
+    name: { type: 'string' },
+    rights: { type: 'string' },
+    'expires-in-days': { type: 'string' },
+  },
+})
+
+const command = Effect.gen(function* () {
+  const auth = yield* Auth
+  const name = values.name ?? ''
+  switch (positionals[0]) {
+    case 'owner:create': {
+      if (values.email === undefined) return yield* Effect.fail({ message: USAGE })
+      yield* auth.createOwner(values.email, values.name ?? 'Owner')
+      return `The owner ${values.email} is created.`
+    }
+    case 'key:create': {
+      const days = values['expires-in-days']
+      const { key, secret } = yield* auth.createKey(
+        name,
+        (values.rights ?? '').split(',').filter((right) => right !== ''),
+        days === undefined ? undefined : Number(days),
+      )
+      return [
+        `The key ${key.name} is created, with the rights ${key.rights.join(', ')}${key.expires_at === null ? '' : `, until ${key.expires_at}`}.`,
+        'Its secret, shown this once and kept nowhere in clear:',
+        '',
+        secret,
+      ].join('\n')
+    }
+    case 'key:list': {
+      const keys = yield* auth.listKeys
+      return keys.length === 0
+        ? 'There is no key.'
+        : keys
+            .map(
+              (key) =>
+                `${key.name}\t${key.rights.join(',')}\t${key.expires_at ?? 'no expiry'}${key.revoked ? '\trevoked' : ''}`,
+            )
+            .join('\n')
+    }
+    case 'key:revoke': {
+      yield* auth.revokeKey(name)
+      return `The key ${name} is revoked.`
+    }
+    default:
+      return yield* Effect.fail({ message: USAGE })
+  }
+})
+
+const program = Effect.gen(function* () {
+  yield* migrate
+  console.log(yield* command)
+}).pipe(
+  Effect.provide(Layer.provideMerge(Auth.layer, database)),
+  Effect.catch((error) =>
+    Effect.sync(() => {
+      console.error(error.message)
+      process.exitCode = 1
+    }),
+  ),
+)
+
+NodeRuntime.runMain(program)

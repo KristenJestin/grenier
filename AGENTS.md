@@ -71,13 +71,19 @@ pnpm test                        # vitest (in a terminal: `pnpm exec vp test run
 pnpm check                       # typecheck, lint, fmt:check and test, in that order
 ```
 
-The server, in development (`/mcp` and `/health` on `PORT`, 3000 by default):
+The server, in development (`/mcp` and `/health` on `PORT`, 3000 by default). It needs
+`BETTER_AUTH_SECRET` in `.env`; every request to `/mcp` carries a key, whose name is the actor of
+its writes:
 
 ```
-GRENIER_ACTOR=agent-laptop pnpm --filter @grenier/server dev        # with reloading
-pnpm --filter @grenier/server build && GRENIER_ACTOR=agent-laptop pnpm --filter @grenier/server start
-claude mcp add --transport http grenier http://localhost:3000/mcp   # declare it to Claude Code
+pnpm --filter @grenier/server grenier owner:create --email owner@example.org
+pnpm --filter @grenier/server grenier key:create --name agent-laptop --rights read,write
+pnpm --filter @grenier/server dev                  # or: build, then start
+claude mcp add --transport http grenier http://localhost:3000/mcp \
+  --header "Authorization: Bearer <the key printed above>"
 ```
+
+`key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one.
 
 Configuration lives in one place: `vite.config.ts` at the root holds the `lint`, `fmt` and
 `test` blocks. The database URL comes from `DATABASE_URL` (see `.env.example`).

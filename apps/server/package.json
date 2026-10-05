@@ -8,9 +8,11 @@
     "dev": "vp dev",
     "build": "vp build",
     "start": "node --env-file-if-exists=../../.env src/serve.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "grenier": "node --env-file-if-exists=../../.env src/cli.ts"
   },
   "dependencies": {
+    "@effect/platform-node-shared": "4.0.0",
     "@grenier/core": "workspace:*",
     "@grenier/mcp": "workspace:*",
     "@tanstack/react-router": "1.170.41",
