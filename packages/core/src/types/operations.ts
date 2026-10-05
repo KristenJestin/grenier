@@ -26,7 +26,7 @@ const typeOf = Schema.decodeUnknownEffect(Row)
 const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
 /** What the event log keeps of a type: its label, its description and each field definition. */
-const snapshotOf = ({ label, description, fields }: TypeDefinition): Snapshot => ({
+export const snapshotOf = ({ label, description, fields }: TypeDefinition): Snapshot => ({
   label,
   description,
   ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
@@ -34,7 +34,8 @@ const snapshotOf = ({ label, description, fields }: TypeDefinition): Snapshot =>
 
 export const findType = Effect.fn('findType')(function* (name: string) {
   const sql = yield* SqlClient.SqlClient
-  const [row] = yield* sql`SELECT name, label, description, fields FROM types WHERE name = ${name}`
+  const [row] =
+    yield* sql`SELECT name, label, description, fields FROM types WHERE name = ${name} AND deleted_at IS NULL`
   return row === undefined ? undefined : yield* typeOf(row).pipe(Effect.orDie)
 })
 
@@ -49,7 +50,8 @@ export const getType = Effect.fn('getType')(function* (name: string) {
 /** Every type, by name. */
 export const listTypes = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
-  const rows = yield* sql`SELECT name, label, description, fields FROM types ORDER BY name`
+  const rows =
+    yield* sql`SELECT name, label, description, fields FROM types WHERE deleted_at IS NULL ORDER BY name`
   return yield* Effect.forEach(rows, (row) => typeOf(row).pipe(Effect.orDie))
 })
 
