@@ -46,7 +46,9 @@ export type Occurrence = typeof Occurrence.Type
 const dated = rowsOf(
   Schema.Struct({ ...EntrySummary.fields, fields: Schema.Record(Schema.String, Schema.Json) }),
 )
-const closures = rowsOf(Schema.Struct({ target: Schema.String, period: Schema.String }))
+const closures = rowsOf(
+  Schema.Struct({ target: Schema.String, field: Schema.String, period: Schema.String }),
+)
 const created = rowsOf(EntrySummary)
 const shown = rowsOf(
   Schema.Struct({ entry_id: Schema.String, field: Schema.String, period: Schema.String }),
@@ -88,8 +90,8 @@ const datesAndClosures = Effect.gen(function* () {
   )
   const closed = new Set(
     (yield* closures(
-      sql`SELECT target_id::text AS target, period FROM links WHERE relation = 'fulfills'`,
-    )).map(({ target, period }) => `${target} ${period}`),
+      sql`SELECT target_id::text AS target, field, period FROM links WHERE relation = 'fulfills'`,
+    )).map(({ target, field, period }) => `${target} ${field} ${period}`),
   )
   return { dates, closed }
 })
@@ -122,7 +124,10 @@ const occurrencesBetween = Effect.fn('occurrencesBetween')(function* (from: stri
       occurrence(today, each, date),
     ),
   )
-  return { all, isClosed: (each: Occurrence) => closed.has(`${each.entry.id} ${each.period}`) }
+  return {
+    all,
+    isClosed: (each: Occurrence) => closed.has(`${each.entry.id} ${each.field} ${each.period}`),
+  }
 })
 
 /** The occurrences between two dates that no entry fulfills yet, by date. */
@@ -147,7 +152,7 @@ export const headsUp = Effect.gen(function* () {
         .filter((date) => subtractDuration(date, each.rule.notice) <= today)
         .map((date) => occurrence(today, each, date)),
     )
-    .filter((each) => !closed.has(`${each.entry.id} ${each.period}`))
+    .filter((each) => !closed.has(`${each.entry.id} ${each.field} ${each.period}`))
   if (due.length === 0) return []
   const told = yield* shown(sql`
     INSERT INTO heads_up (actor, entry_id, field, period, day)
@@ -206,7 +211,7 @@ export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod)
       ).at(-1)
       return last === undefined ? [] : [occurrence(today, each, last)]
     })
-    .filter((each) => !closed.has(`${each.entry.id} ${each.period}`))
+    .filter((each) => !closed.has(`${each.entry.id} ${each.field} ${each.period}`))
     .toSorted(byDate)
   const [yearFrom, yearTo] = [addMonths(from, -12), addMonths(to, -12)]
   return {

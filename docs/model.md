@@ -167,18 +167,24 @@ occurrences without knowing what they mean:
 - `briefing(period)` gathers the occurrences, overdue deadlines, the items waiting to be
   processed and the past ("a year ago"); an agent picks what matters and says it.
 
-An occurrence is closed when an entry linked to it by `fulfills`, for that period, exists (a
-payment for this year's tax, a service for this year's inspection). A closed occurrence is no
-longer announced; an overdue, unclosed one is.
+An occurrence is closed when an entry linked to it by `fulfills`, for that date field and that
+period, exists (a payment for this year's tax, a service for this year's inspection). A closed
+occurrence is no longer announced; an overdue, unclosed one is. Closing one date of an entry
+leaves its other dates announced: paying a car's insurance does not close its inspection.
 
 How the server reads it: a `date` field with `due` is a deadline; with `recurs` it comes back
 every year, month or week from its value (a day the month does not have, such as 29 February or
 the 31st, falls on the month's last day); both may be set. The period of an occurrence is
 `2026` (yearly), `2026-10` (monthly), `2026-W41` (ISO week) or, for a single deadline, its date;
-a link `fulfills` carries that period, and only such a link has one. Overdue means a deadline
-whose last occurrence before today is not fulfilled. "Today" is the local date of the server
-(`TZ`). `briefing(weekend)` covers the coming Saturday and Sunday (on a Sunday, that Sunday).
-Every MCP answer carries `heads_up`; an empty list when nothing enters its notice period.
+a link `fulfills` carries that period and the name of the date field it closes, and only such a
+link has them. The field may be left out when the target's type has a single deadline or
+recurring date: it is then inferred and kept on the link, so the link stays right if the type
+gains another date later. A link `fulfills` without a field to a target with several such dates
+is refused with the list of them, and so is a field that is not a deadline or a recurring date
+of the target. Overdue means a deadline whose last occurrence before today is not fulfilled.
+"Today" is the local date of the server (`TZ`). `briefing(weekend)` covers the coming Saturday
+and Sunday (on a Sunday, that Sunday). Every MCP answer carries `heads_up`; an empty list when
+nothing enters its notice period.
 
 ## Search
 
