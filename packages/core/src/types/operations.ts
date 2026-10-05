@@ -32,16 +32,18 @@ export const snapshotOf = ({ label, description, fields }: TypeDefinition): Snap
   ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
 })
 
-export const findType = Effect.fn('findType')(function* (name: string) {
+/** The type of that name, if there is one; `locked`, until the transaction ends. */
+export const findType = Effect.fn('findType')(function* (name: string, locked = false) {
   const sql = yield* SqlClient.SqlClient
   const [row] =
-    yield* sql`SELECT name, label, description, fields FROM types WHERE name = ${name} AND deleted_at IS NULL`
+    yield* sql`SELECT name, label, description, fields FROM types WHERE name = ${name} AND deleted_at IS NULL
+      ${locked ? sql`FOR UPDATE` : sql``}`
   return row === undefined ? undefined : yield* typeOf(row).pipe(Effect.orDie)
 })
 
 /** The type of that name; refused when there is none. */
-export const getType = Effect.fn('getType')(function* (name: string) {
-  const type = yield* findType(name)
+export const getType = Effect.fn('getType')(function* (name: string, locked = false) {
+  const type = yield* findType(name, locked)
   if (type === undefined)
     return yield* new Refused({ message: `The type \`${name}\` does not exist.` })
   return type
@@ -97,7 +99,8 @@ export const addField = Effect.fn('addField')(function* (
   const actor = yield* currentActor
   return yield* sql.withTransaction(
     Effect.gen(function* () {
-      const type = yield* getType(typeName)
+      // Locked until the field is added: a concurrent change waits, then starts from this one.
+      const type = yield* getType(typeName, true)
       if (input.required === true) {
         return yield* new Refused({
           message: `The field \`${input.name}\` cannot be required when it is added to an existing type: add it as optional.`,

@@ -1,5 +1,6 @@
 import { Effect } from 'effect'
 import { describe, expect, test } from 'vite-plus/test'
+import { execute, whileLocked } from '../src/database/contention.ts'
 import { Refused } from '../src/refused.ts'
 import { addField, defineType, getType, listTypes } from '../src/types/index.ts'
 import type { FieldDefinition, TypeDefinition } from '../src/types/index.ts'
@@ -115,6 +116,22 @@ describe('an optional field is added to an existing type', () => {
     const extended = await run(addField('extended', field('size', 'integer')))
     expect(extended.fields).toEqual([field('note', 'text'), field('size', 'integer')])
     expect(await run(getType('extended'))).toEqual(extended)
+  })
+
+  test('two fields added at the same time are both kept', async () => {
+    await run(defineType(simple('widened')))
+    const ended = await run(
+      whileLocked(execute("SELECT 1 FROM types WHERE name = 'widened' FOR UPDATE"), [
+        addField('widened', field('width', 'integer')),
+        addField('widened', field('depth', 'integer')),
+      ]),
+    )
+    expect(ended.map(({ _tag }) => _tag)).toEqual(['Success', 'Success'])
+    expect((await run(getType('widened'))).fields.map(({ name }) => name).toSorted()).toEqual([
+      'depth',
+      'note',
+      'width',
+    ])
   })
 })
 
