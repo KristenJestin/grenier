@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite-plus'
+import { defineConfig, loadEnv } from 'vite-plus'
 
 /** Generated output is not part of the workspace: never linted, formatted, type checked or tested. */
 const OUTSIDE_THE_WORKSPACE = ['reports/**', 'dist/**', '**/dist/**']
@@ -78,6 +78,8 @@ export default defineConfig({
           // Some of these start a process (git and its hooks, tsc), and on a runner that has
           // just been created that takes seconds, not the five a test is given by default.
           testTimeout: 30_000,
+          // `DATABASE_URL` and the other variables of `.env`; the environment of the process wins.
+          env: loadEnv('test', import.meta.dirname, ''),
         },
       },
     ],
