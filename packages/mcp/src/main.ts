@@ -12,7 +12,8 @@ import * as NodeStdio from '@effect/platform-node-shared/NodeStdio'
 import { layer as database, migrate } from '@grenier/core/database'
 import { Actor } from '@grenier/core/events'
 import { Config, Effect, Layer, Logger, Schema } from 'effect'
-import { McpProtocol, McpServer } from 'effect/ai'
+import { McpServer } from 'effect/ai'
+import { PROTOCOLS } from './protocols.ts'
 import { GrenierHandlers, GrenierTools } from './tools.ts'
 
 class ActorMissing extends Schema.TaggedError<ActorMissing>()('ActorMissing', {}) {
@@ -23,12 +24,7 @@ class ActorMissing extends Schema.TaggedError<ActorMissing>()('ActorMissing', {}
 const server = McpServer.layerStdio({
   name: 'grenier',
   version: '0.0.0',
-  protocols: [
-    McpProtocol.v2025_11_25,
-    McpProtocol.v2025_06_18,
-    McpProtocol.v2025_03_26,
-    McpProtocol.v2024_11_05,
-  ],
+  protocols: PROTOCOLS,
 }).pipe(Layer.provide(NodeStdio.layer))
 
 const program = Effect.gen(function* () {
