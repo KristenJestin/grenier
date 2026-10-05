@@ -206,6 +206,17 @@ describe('Messages shown to people', () => {
       'The field `port` must be a number.',
     )
   })
+
+  test('a check that names its own problem is reported at the field it points to', () => {
+    const Range = Schema.Struct({ low: Schema.Number, high: Schema.Number }).check(
+      Schema.makeFilter(
+        ({ low, high }) => low <= high || { path: ['high'], issue: 'must not be below `low`' },
+      ),
+    )
+    const result = Schema.decodeUnknownResult(Range)({ low: 2, high: 1 })
+    if (Result.isSuccess(result)) throw new Error('the input was expected to fail')
+    expect(formatSchemaError(result.failure)).toBe('The field `high` must not be below `low`.')
+  })
 })
 
 describe('Binary data and dates in the JSON codec', () => {
