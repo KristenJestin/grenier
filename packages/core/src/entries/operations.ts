@@ -284,7 +284,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
           'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
         )
       }
-      if (input.verified === true && !(yield* Rights).includes('owner')) {
+      const byOwner = (yield* Rights).includes('owner')
+      if (input.verified === true && !byOwner) {
         problems.push('The field `verified` can be set to true by the owner only.')
       }
       const owner = yield* idOf(slug)
@@ -341,22 +342,27 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
             body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
           }
         : decoded.success
-      const changes = changesBetween(
-        existing === undefined ? {} : snapshotOf(existing),
-        snapshotOf({
-          ...entry,
-          parent_id: parentId,
-          fields: references,
-          superseded_by: supersededBy,
-          archived_at: existing?.archived_at ?? null,
-        }),
-      )
+      const changesWith = (verified: boolean) =>
+        changesBetween(
+          existing === undefined ? {} : snapshotOf(existing),
+          snapshotOf({
+            ...entry,
+            verified,
+            parent_id: parentId,
+            fields: references,
+            superseded_by: supersededBy,
+            archived_at: existing?.archived_at ?? null,
+          }),
+        )
+      // What the owner verified is no longer verified once a writer without `owner` changes it.
+      const verified = entry.verified && (byOwner || changesWith(true).length === 0)
+      const changes = changesWith(verified)
       if (existing !== undefined && changes.length === 0) return existing
       const values = sql`
         ${entry.type}, ${entry.title}, ${entry.slug}, ${JSON.stringify(entry.aliases)}::jsonb,
         ${JSON.stringify(entry.tags)}::jsonb, ${parentId}::uuid, ${JSON.stringify(references)}::jsonb,
         ${JSON.stringify(entry.provenance)}::jsonb, ${entry.body}, ${entry.summary},
-        ${entry.verified}, ${entry.valid_from}::date, ${entry.valid_until}::date,
+        ${verified}, ${entry.valid_from}::date, ${entry.valid_until}::date,
         ${supersededBy}::uuid, ${configuration}::regconfig`
       const columns = sql.literal(`type, title, slug, aliases, tags, parent_id, fields, provenance,
         body, summary, verified, valid_from, valid_until, superseded_by, search_language`)

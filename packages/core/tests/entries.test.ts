@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, test } from 'vite-plus/test'
 import { execute, whileLocked } from '../src/database/contention.ts'
 import { archiveEntry, readEntry, writeEntry } from '../src/entries/index.ts'
 import { Rights } from '../src/auth/index.ts'
+import { entryHistory } from '../src/events/index.ts'
 import { Refused } from '../src/refused.ts'
 import { search } from '../src/search/index.ts'
 import { defineType } from '../src/types/index.ts'
@@ -370,5 +371,34 @@ describe('the tree never holds a cycle, and a cycle never hangs a read', () => {
     expect(read.path).toEqual(['Loop lower'])
     const found = await run(Effect.timeout(search('loop', { under: 'loop-upper' }), '5 seconds'))
     expect(found.map(({ slug }) => slug)).toContain('loop-lower')
+  })
+})
+
+describe('an entry the owner verified is no longer verified once a writer without owner changes it', () => {
+  const asOwner = Effect.provideService(Rights, ['read', 'write', 'owner'])
+
+  test('an update by an agent sets verified back to false, in the same event', async () => {
+    await run(writeEntry({ ...contract, slug: 'reviewed-by-owner', verified: true }).pipe(asOwner))
+    const updated = await run(writeEntry({ entry: 'reviewed-by-owner', summary: 'Changed.' }))
+    expect(updated.verified).toBe(false)
+    const last = (await run(entryHistory('reviewed-by-owner'))).at(-1)
+    expect(last?.changes).toEqual([
+      { field: 'summary', before: '', after: 'Changed.' },
+      { field: 'verified', before: true, after: false },
+    ])
+  })
+
+  test('an update by the owner keeps verified as given', async () => {
+    await run(writeEntry({ ...contract, slug: 'kept-by-owner', verified: true }).pipe(asOwner))
+    const updated = await run(
+      writeEntry({ entry: 'kept-by-owner', summary: 'Changed.' }).pipe(asOwner),
+    )
+    expect(updated.verified).toBe(true)
+  })
+
+  test('a write by an agent that changes nothing leaves it verified', async () => {
+    await run(writeEntry({ ...contract, slug: 'untouched-by-agent', verified: true }).pipe(asOwner))
+    const written = await run(writeEntry({ entry: 'untouched-by-agent', title: contract.title }))
+    expect(written.verified).toBe(true)
   })
 })
