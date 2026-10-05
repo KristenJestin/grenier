@@ -167,6 +167,10 @@ describe('merging types', () => {
     const { entry } = await run(readEntry('silent-reel'))
     expect(entry).toMatchObject({ type: 'movie', fields: { made_by: 'D. Maker' } })
     expect(await run(refusalOf(getType('film')))).toBe('The type `film` does not exist.')
+    expect((await run(typeHistory('film'))).map(({ action }) => action)).toEqual([
+      'define',
+      'merge',
+    ])
   })
 
   test('two owners confirming one proposal at once: it is applied once', async () => {
