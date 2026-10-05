@@ -53,6 +53,12 @@ Field kinds: `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `durati
 allowed `values`, and may be `sensitive` (never sent to an external model, optionally left out
 of exports).
 
+A type's name is unique and in lowercase kebab-case (`bank-account`); its description is
+required. Field names are unique within a type and in snake_case (`monthly_cost`). `values` is
+required on an `enum` field and refused on any other kind. Only a `date` field may carry `due:
+{ notice }` or `recurs: { every: yearly | monthly | weekly, notice }`, the notice being an ISO
+8601 duration. A definition with an unknown key is refused.
+
 Every write of an entry is validated against its type. A refused write returns one sentence per
 problem, naming the field and what is expected (through `formatSchemaError`).
 
