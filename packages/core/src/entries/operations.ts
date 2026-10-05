@@ -67,6 +67,15 @@ export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
   return yield* entryNamed(reference, false)
 })
 
+/**
+ * How deep a walk of the tree goes, far beyond any real tree. With the `CYCLE` clause of each
+ * walk, it keeps a damaged tree from hanging a read.
+ */
+export const TREE_DEPTH = 1000
+
+/** Serialises the writes that move an entry, so that two moves cannot close a cycle together. */
+const TREE_LOCK = 7_418_309
+
 /** The entry and its ancestors, from the root down to the entry itself. */
 export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
   const sql = yield* SqlClient.SqlClient
@@ -75,8 +84,9 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
       SELECT id, parent_id, title, 0 AS depth FROM entries WHERE id = ${id}::uuid
       UNION ALL
       SELECT e.id, e.parent_id, e.title, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
-    )
-    SELECT id::text AS id, title FROM up ORDER BY depth DESC`)
+      WHERE up.depth < ${TREE_DEPTH}
+    ) CYCLE id SET looped USING trail
+    SELECT id::text AS id, title FROM up WHERE NOT looped ORDER BY depth DESC`)
 })
 
 /**
@@ -200,6 +210,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
   const configuration = yield* searchConfiguration
   return yield* sql.withTransaction(
     Effect.gen(function* () {
+      // Taken before any row lock, and only by a move: the cycle check below reads a tree that
+      // no other move changes until this one commits.
+      if (input.entry !== undefined && Predicate.isString(input.parent)) {
+        yield* sql`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
+      }
       // Locked until the write commits: a concurrent write waits, then starts from this one. The
       // lock lets other writes still point to the entry (as a parent, through a foreign key).
       const existing = input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
