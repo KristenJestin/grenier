@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
 import { Rights } from '../src/auth/index.ts'
 import { readEntry, writeEntry } from '../src/entries/index.ts'
@@ -167,6 +167,45 @@ describe('merging types', () => {
     const { entry } = await run(readEntry('silent-reel'))
     expect(entry).toMatchObject({ type: 'movie', fields: { made_by: 'D. Maker' } })
     expect(await run(refusalOf(getType('film')))).toBe('The type `film` does not exist.')
+  })
+
+  test('two owners confirming one proposal at once: it is applied once', async () => {
+    await run(
+      Effect.all([
+        defineType({ name: 'clip', label: 'Clip', description: 'A short film.', fields: [] }),
+        defineType({ name: 'reel', label: 'Reel', description: 'A film reel.', fields: [] }),
+      ]),
+    )
+    await run(writeEntry({ type: 'clip', title: 'Short one' }))
+    const { id } = await run(proposeTypeMerge('clip', 'reel', {}))
+    const outcomes = await Promise.all(
+      [1, 2].map(() => run(asOwner(Effect.result(confirmProposal(id))))),
+    )
+    expect(outcomes.filter(Result.isSuccess)).toHaveLength(1)
+    const events = await run(entryHistory('short-one'))
+    const moves = events.filter(
+      ({ action, changes }) => action === 'update' && changes.some(({ field }) => field === 'type'),
+    )
+    expect(moves).toHaveLength(1)
+  })
+
+  test('a field named like a property of every object is not taken as mapped', async () => {
+    await run(
+      Effect.all([
+        defineType({
+          name: 'gadget',
+          label: 'Gadget',
+          description: 'A small device.',
+          fields: [{ name: 'constructor', kind: 'text' }],
+        }),
+        defineType({ name: 'device', label: 'Device', description: 'A device.', fields: [] }),
+      ]),
+    )
+    await run(writeEntry({ type: 'gadget', title: 'Clicker', fields: { constructor: 'Acme' } }))
+    const { id } = await run(proposeTypeMerge('gadget', 'device', {}))
+    expect(await run(refusalOf(asOwner(confirmProposal(id))))).toBe(
+      'The merge would lose values: `clicker`: the field `constructor` has no place in `device`. Map these fields first.',
+    )
   })
 
   test('a deletion is refused while entries of the type exist', async () => {

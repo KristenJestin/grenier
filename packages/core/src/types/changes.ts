@@ -50,6 +50,10 @@ const asClause = (error: Schema.SchemaError) =>
 const renamed = <V>(record: { readonly [key: string]: V }, from: string, to: string) =>
   Object.fromEntries(Object.entries(record).map(([key, value]) => [key === from ? to : key, value]))
 
+/** The value a mapping gives a key, read in its own keys only: `constructor` is a key like any other. */
+const mappedOf = <V>(mapping: { readonly [key: string]: V }, key: string): V | undefined =>
+  Object.hasOwn(mapping, key) ? mapping[key] : undefined
+
 /** The key a value is mapped by: the text itself, or the JSON of anything else. */
 const keyOf = (value: Schema.Json) => (Predicate.isString(value) ? value : JSON.stringify(value))
 
@@ -143,7 +147,8 @@ export const changeField = Effect.fn('changeField')(function* (input: ChangeFiel
   const proposed = entries.map((entry) => {
     const fields: Record<string, Schema.Json> = renamed(entry.fields, old.name, name)
     const value = fields[name]
-    if (value !== undefined && keyOf(value) in mapping) fields[name] = mapping[keyOf(value)] ?? null
+    const mapped = value === undefined ? undefined : mappedOf(mapping, keyOf(value))
+    if (mapped !== undefined) fields[name] = mapped
     if (value === undefined && required && input.default !== undefined) fields[name] = input.default
     return {
       before: entry,
@@ -199,10 +204,11 @@ const PROPOSAL_COLUMNS = `id::text AS id, action, type_name AS type, into_type A
   status, proposed_by,
   to_char(proposed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS proposed_at`
 
-const findProposal = Effect.fn('findProposal')(function* (id: string) {
+const findProposal = Effect.fn('findProposal')(function* (id: string, locked: boolean) {
   const sql = yield* SqlClient.SqlClient
   const [row] = yield* proposals(
-    sql`SELECT ${sql.literal(PROPOSAL_COLUMNS)} FROM type_proposals WHERE id::text = ${id}`,
+    sql`SELECT ${sql.literal(PROPOSAL_COLUMNS)} FROM type_proposals WHERE id::text = ${id}
+      ${locked ? sql`FOR UPDATE` : sql``}`,
   )
   if (row === undefined) return yield* new Refused({ message: `There is no proposal \`${id}\`.` })
   return row
@@ -291,19 +297,20 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
     })
   }
   const actor = yield* currentActor
-  const proposal = yield* findProposal(id)
-  if (proposal.status !== 'pending') {
-    return yield* new Refused({ message: `The proposal \`${id}\` is already confirmed.` })
-  }
   return yield* sql.withTransaction(
     Effect.gen(function* () {
+      // Read under a lock: of two confirmations at once, the second sees the first one's work.
+      const proposal = yield* findProposal(id, true)
+      if (proposal.status !== 'pending') {
+        return yield* new Refused({ message: `The proposal \`${id}\` is already confirmed.` })
+      }
       if (proposal.action === 'merge' && proposal.into !== null) {
         const into = yield* getType(proposal.into)
         const mapping = proposal.mapping ?? {}
         const entries = yield* entriesOf(proposal.type)
         const lost = entries.flatMap(({ slug, fields }) =>
           Object.keys(fields)
-            .filter((field) => !(field in mapping))
+            .filter((field) => mappedOf(mapping, field) === undefined)
             .map((field) => `\`${slug}\`: the field \`${field}\` has no place in \`${into.name}\``),
         )
         if (lost.length > 0) {
@@ -316,11 +323,14 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
           slug: entry.slug,
           type: into.name,
           fields: Object.fromEntries(
-            Object.entries(entry.fields).map(([field, value]) => [mapping[field] ?? field, value]),
+            Object.entries(entry.fields).map(([field, value]) => [
+              mappedOf(mapping, field) ?? field,
+              value,
+            ]),
           ),
           provenance: Object.fromEntries(
             Object.entries(entry.provenance).flatMap(([field, value]) =>
-              mapping[field] === undefined ? [] : [[mapping[field], value]],
+              mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
             ),
           ),
         }))
