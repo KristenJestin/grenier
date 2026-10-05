@@ -54,7 +54,12 @@ export async function handleMcp(request: Request): Promise<Response> {
 export async function handleMedia(request: Request, hash: string): Promise<Response> {
   const verified = await verify(request)
   if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
-  if (!verified.success.rights.includes('read')) return unauthorized('This key may not read.')
+  if (!verified.success.rights.includes('read')) {
+    return Response.json(
+      { error: 'This key may not read: ask the owner of Grenier for a key with the right `read`.' },
+      { status: 403 },
+    )
+  }
   const found = await server.runPromise(Effect.result(readMedia(hash)))
   if (Result.isFailure(found))
     return Response.json({ error: found.failure.message }, { status: 404 })

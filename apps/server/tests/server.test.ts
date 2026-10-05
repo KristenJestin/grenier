@@ -300,6 +300,12 @@ describe('media over HTTP', () => {
     expect(served.headers.get('content-type')).toBe('image/png')
     expect(Buffer.from(await served.arrayBuffer()).toString('base64')).toBe(pixel)
     expect((await fetch(`${base}${media.url}`)).status).toBe(401)
+    const writeOnly = await createKey('agent-write-only', ['write'])
+    const refused = await fetch(`${base}${media.url}`, { headers: bearer(writeOnly) })
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toEqual({
+      error: 'This key may not read: ask the owner of Grenier for a key with the right `read`.',
+    })
   })
 })
 
