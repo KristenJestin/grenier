@@ -5,6 +5,7 @@ import { rowsOf } from '../database/rows.ts'
 /** A link seen from one of its ends: the relation, and the entry at the other end. */
 export const Link = Schema.Struct({
   relation: Schema.String,
+  period: Schema.NullOr(Schema.String),
   id: Schema.String,
   slug: Schema.String,
   title: Schema.String,
@@ -20,7 +21,7 @@ export const MENTIONS = 'mentions'
 export const outgoing = Effect.fn('outgoing')(function* (id: string) {
   const sql = yield* SqlClient.SqlClient
   return yield* links(sql`
-    SELECT l.relation, e.id::text AS id, e.slug, e.title
+    SELECT l.relation, nullif(l.period, '') AS period, e.id::text AS id, e.slug, e.title
     FROM links l JOIN entries e ON e.id = l.target_id
     WHERE l.source_id = ${id}::uuid ORDER BY l.relation, e.title`)
 })
@@ -29,7 +30,7 @@ export const outgoing = Effect.fn('outgoing')(function* (id: string) {
 export const incoming = Effect.fn('incoming')(function* (id: string) {
   const sql = yield* SqlClient.SqlClient
   return yield* links(sql`
-    SELECT l.relation, e.id::text AS id, e.slug, e.title
+    SELECT l.relation, nullif(l.period, '') AS period, e.id::text AS id, e.slug, e.title
     FROM links l JOIN entries e ON e.id = l.source_id
     WHERE l.target_id = ${id}::uuid ORDER BY l.relation, e.title`)
 })
