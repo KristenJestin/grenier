@@ -9,6 +9,7 @@
     "./entries": "./src/entries/index.ts",
     "./events": "./src/events/index.ts",
     "./links": "./src/links/index.ts",
+    "./refused": "./src/refused.ts",
     "./schema": "./src/schema/index.ts",
     "./search": "./src/search/index.ts",
     "./testing": "./src/testing.ts",
