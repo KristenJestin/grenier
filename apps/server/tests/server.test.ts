@@ -1,4 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import { createServer, connect as connectTcp } from 'node:net'
 import type { Server, Socket } from 'node:net'
@@ -32,6 +35,7 @@ const createKey = (name: string, rights: ReadonlyArray<string>) =>
 
 const bearer = (secret: string) => ({ authorization: `Bearer ${secret}` })
 let writer = ''
+const mediaDirectory = mkdtempSync(join(tmpdir(), 'grenier-server-media-'))
 
 /** A TCP proxy to the database, which the test can cut to take the database down. */
 function proxyTo(target: URL) {
@@ -110,6 +114,7 @@ beforeAll(async () => {
       DATABASE_URL: url.toString(),
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
+      MEDIA_DIR: mediaDirectory,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -134,6 +139,7 @@ afterAll(async () => {
   server?.kill()
   await proxy?.cut()
   await database.dispose()
+  rmSync(mediaDirectory, { recursive: true, force: true })
 })
 
 const Tools = Schema.Struct({ tools: Schema.Array(Schema.Struct({ name: Schema.String })) })
@@ -276,6 +282,24 @@ describe('changing types through keys', () => {
     expect(await agent.call('read', { entry: 'old-reel' })).toMatchObject({
       result: { entry: { type: 'movie' } },
     })
+  })
+})
+
+describe('media over HTTP', () => {
+  test('an image attached through MCP is served back identical to a valid key only', async () => {
+    const pixel =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    const agent = await connect(`${base}/mcp`, bearer(writer))
+    await agent.call('write', { type: 'note', title: 'With a picture' })
+    const attached = await agent.call('attach_media', { entry: 'with-a-picture', data: pixel })
+    const { media } = Schema.decodeUnknownSync(
+      Schema.Struct({ media: Schema.Struct({ url: Schema.String }) }),
+    )('result' in attached ? attached.result : null)
+    const served = await fetch(`${base}${media.url}`, { headers: bearer(writer) })
+    expect(served.status).toBe(200)
+    expect(served.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await served.arrayBuffer()).toString('base64')).toBe(pixel)
+    expect((await fetch(`${base}${media.url}`)).status).toBe(401)
   })
 })
 

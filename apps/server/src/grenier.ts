@@ -1,5 +1,6 @@
 import { Auth } from '@grenier/core/auth'
 import { databaseReachable, layer as database, migrate } from '@grenier/core/database'
+import { readMedia } from '@grenier/core/media'
 import { makeMcpHttpHandler } from '@grenier/mcp/http'
 import { Effect, Layer, ManagedRuntime, Result } from 'effect'
 
@@ -17,24 +18,26 @@ const handlers = new Map<string, ReturnType<typeof makeMcpHttpHandler>>()
 const bearerOf = (request: Request) =>
   /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1]
 
-/**
- * Answers an MCP request on `/mcp`, for a valid key only: a request without one, or with an
- * unknown, expired or revoked one, is refused with 401 and one sentence.
- */
-export async function handleMcp(request: Request): Promise<Response> {
-  const verified = await server.runPromise(
+/** The key of a request, verified: its name and rights, or the response that refuses it. */
+const verify = (request: Request) =>
+  server.runPromise(
     Effect.result(
       Effect.gen(function* () {
         return yield* (yield* Auth).verifyKey(bearerOf(request))
       }),
     ),
   )
-  if (Result.isFailure(verified)) {
-    return Response.json(
-      { error: verified.failure.message },
-      { status: 401, headers: { 'www-authenticate': 'Bearer' } },
-    )
-  }
+
+const unauthorized = (message: string) =>
+  Response.json({ error: message }, { status: 401, headers: { 'www-authenticate': 'Bearer' } })
+
+/**
+ * Answers an MCP request on `/mcp`, for a valid key only: a request without one, or with an
+ * unknown, expired or revoked one, is refused with 401 and one sentence.
+ */
+export async function handleMcp(request: Request): Promise<Response> {
+  const verified = await verify(request)
+  if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
   const { name, rights } = verified.success
   const id = `${name} ${rights.join(',')}`
   const handler =
@@ -42,6 +45,27 @@ export async function handleMcp(request: Request): Promise<Response> {
     makeMcpHttpHandler({ actor: name, rights, path: '/mcp', database: await server.context() })
   handlers.set(id, handler)
   return handler.handler(request)
+}
+
+/**
+ * A file attached to an entry, for a valid key with the right `read`. A file never changes
+ * under its hash, so it may be cached for good.
+ */
+export async function handleMedia(request: Request, hash: string): Promise<Response> {
+  const verified = await verify(request)
+  if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
+  if (!verified.success.rights.includes('read')) return unauthorized('This key may not read.')
+  const found = await server.runPromise(Effect.result(readMedia(hash)))
+  if (Result.isFailure(found))
+    return Response.json({ error: found.failure.message }, { status: 404 })
+  return new Response(found.success.bytes, {
+    headers: {
+      'content-type': found.success.mime,
+      'cache-control': 'private, max-age=31536000, immutable',
+      etag: `"${hash}"`,
+      'x-content-type-options': 'nosniff',
+    },
+  })
 }
 
 /** Better Auth's own endpoints, under `/api/auth`. */
