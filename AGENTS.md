@@ -37,7 +37,8 @@ packages/core     @grenier/core    The model, the database (Effect SQL, migratio
                                    search, the event log. The only package that reaches the
                                    database. Schemas and their conventions: `@grenier/core/schema`.
 packages/mcp      @grenier/mcp     The MCP tools, on top of core; stdio for development, mounted
-                                   over HTTP by apps/server. (not created yet)
+                                   over HTTP by apps/server. Started and declared to an MCP
+                                   client as its README says.
 apps/server       @grenier/server  TanStack Start: the web interface (Mantine), the HTTP API and
                                    the MCP endpoint, in one process. (not created yet)
 apps/import       @grenier/import  Imports a folder of Markdown notes with YAML front matter.
