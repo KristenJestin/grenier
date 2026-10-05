@@ -1,0 +1,19 @@
+{
+  "name": "@grenier/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/tools.ts"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=../../.env src/main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@effect/platform-node-shared": "4.0.0",
+    "@grenier/core": "workspace:*",
+    "effect": "4.0.0"
+  }
+}
