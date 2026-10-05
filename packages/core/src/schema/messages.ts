@@ -10,7 +10,11 @@ import type { StandardSchemaV1 } from 'effect/StandardSchema'
 const problemOf: SchemaIssue.LeafHook = (issue) =>
   Match.value(issue).pipe(
     Match.tag('MissingKey', () => 'is missing'),
-    Match.tag('InvalidType', ({ ast }) => mustBe(ast)),
+    Match.tag('InvalidType', ({ ast }) =>
+      Predicate.isString(ast.annotations?.expected)
+        ? `must be ${ast.annotations.expected}`
+        : mustBe(ast),
+    ),
     Match.tag('UnexpectedKey', () => 'is not expected'),
     Match.tag('InvalidValue', ({ annotations }) =>
       Predicate.isString(annotations?.message) ? annotations.message : 'is not valid',

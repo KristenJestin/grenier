@@ -207,6 +207,17 @@ describe('Messages shown to people', () => {
     )
   })
 
+  test('a value of the wrong type is told what its schema expects, when the schema says it', () => {
+    const Event = Schema.Struct({
+      on: Schema.String.annotate({ expected: 'a date such as `2026-10-05`' }),
+    })
+    const result = Schema.decodeUnknownResult(Event)({ on: 20261005 })
+    if (Result.isSuccess(result)) throw new Error('the input was expected to fail')
+    expect(formatSchemaError(result.failure)).toBe(
+      'The field `on` must be a date such as `2026-10-05`.',
+    )
+  })
+
   test('a check that names its own problem is reported at the field it points to', () => {
     const Range = Schema.Struct({ low: Schema.Number, high: Schema.Number }).check(
       Schema.makeFilter(
