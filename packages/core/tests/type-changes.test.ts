@@ -252,3 +252,42 @@ describe('a merge mapping two fields to one', () => {
     })
   })
 })
+
+describe('changing the kind of a field', () => {
+  test('refuses allowed values given for a kind that is not enum', async () => {
+    await run(
+      defineType({
+        name: 'lamp',
+        label: 'Lamp',
+        description: 'A lamp in a room.',
+        fields: [{ name: 'colour', kind: 'text' }],
+      }),
+    )
+    expect(
+      await run(
+        refusalOf(changeField({ type: 'lamp', field: 'colour', kind: 'url', values: ['red'] })),
+      ),
+    ).toBe('The field `fields.0.values` is allowed only on an enum field.')
+    expect((await run(getType('lamp'))).fields).toEqual([{ name: 'colour', kind: 'text' }])
+  })
+
+  test('from date to another kind drops its deadline and its recurrence', async () => {
+    await run(
+      defineType({
+        name: 'permit',
+        label: 'Permit',
+        description: 'A permit that runs out.',
+        fields: [
+          { name: 'ends', kind: 'date', due: { notice: 'P30D' } },
+          { name: 'renewed', kind: 'date', recurs: { every: 'yearly', notice: 'P7D' } },
+        ],
+      }),
+    )
+    await run(changeField({ type: 'permit', field: 'ends', kind: 'text' }))
+    await run(changeField({ type: 'permit', field: 'renewed', kind: 'text' }))
+    expect((await run(getType('permit'))).fields).toEqual([
+      { name: 'ends', kind: 'text' },
+      { name: 'renewed', kind: 'text' },
+    ])
+  })
+})

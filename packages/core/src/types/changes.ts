@@ -130,10 +130,13 @@ export const changeField = Effect.fn('changeField')(function* (input: ChangeFiel
   const name = input.rename ?? old.name
   const kind = input.kind ?? old.kind
   const required = input.required ?? old.required === true
-  const values = kind === 'enum' ? (input.values ?? old.values) : undefined
+  // Values given for another kind than enum stay, so the definition refuses them.
+  const values = kind === 'enum' ? (input.values ?? old.values) : input.values
   const { values: _, required: __, ...kept } = old
+  // A deadline and a recurrence belong to a date: a field that stops being one drops them.
+  const carried = kind === 'date' ? kept : { ...kept, due: undefined, recurs: undefined }
   const field = Object.fromEntries(
-    Object.entries({ ...kept, name, kind, required: required || undefined, values }).filter(
+    Object.entries({ ...carried, name, kind, required: required || undefined, values }).filter(
       ([, value]) => value !== undefined,
     ),
   )
