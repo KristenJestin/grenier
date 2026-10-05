@@ -2,7 +2,7 @@ import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { findEntry } from '../entries/operations.ts'
-import { getType } from '../types/operations.ts'
+import { Refused } from '../refused.ts'
 import { Change } from './record.ts'
 
 /** A write as the history tells it: when, by whom, what it did and what it changed. */
@@ -25,6 +25,7 @@ export type FieldChange = typeof FieldChange.Type
 
 const events = rowsOf(Event)
 const fieldChanges = rowsOf(FieldChange)
+const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
 /** The time of an event, in ISO 8601 and UTC. */
 const AT = `to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at`
@@ -51,10 +52,13 @@ export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: stri
     ORDER BY e.id`)
 })
 
-/** Every change of a type, oldest first. */
+/** Every change of a type, oldest first; a deleted or merged type keeps its history. */
 export const typeHistory = Effect.fn('typeHistory')(function* (name: string) {
   const sql = yield* SqlClient.SqlClient
-  yield* getType(name)
+  const known = yield* names(sql`SELECT name FROM types WHERE name = ${name}`)
+  if (known.length === 0) {
+    return yield* new Refused({ message: `The type \`${name}\` does not exist.` })
+  }
   return yield* events(sql`SELECT ${sql.literal(AT)}, actor, action, changes FROM events
     WHERE type_name = ${name} ORDER BY id`)
 })

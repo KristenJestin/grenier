@@ -1,9 +1,10 @@
-import { Effect, Result } from 'effect'
+import { Deferred, Effect, Fiber, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
 import { Rights } from '../src/auth/index.ts'
 import { readEntry, writeEntry } from '../src/entries/index.ts'
 import { entryHistory, typeHistory } from '../src/events/index.ts'
 import { Refused } from '../src/refused.ts'
+import { committedOnceAwaited } from '../src/testing.ts'
 import {
   changeField,
   confirmProposal,
@@ -167,6 +168,10 @@ describe('merging types', () => {
     const { entry } = await run(readEntry('silent-reel'))
     expect(entry).toMatchObject({ type: 'movie', fields: { made_by: 'D. Maker' } })
     expect(await run(refusalOf(getType('film')))).toBe('The type `film` does not exist.')
+    expect((await run(typeHistory('film'))).map(({ action }) => action)).toEqual([
+      'define',
+      'merge',
+    ])
   })
 
   test('two owners confirming one proposal at once: it is applied once', async () => {
@@ -212,5 +217,202 @@ describe('merging types', () => {
     expect(await run(refusalOf(proposeTypeDeletion('book')))).toBe(
       'The type `book` still has 5 entries: merge them into another type before deleting it.',
     )
+  })
+})
+
+describe('a merge mapping two fields to one', () => {
+  test('is refused, naming the fields, and loses no value', async () => {
+    await run(
+      Effect.all([
+        defineType({
+          name: 'pair',
+          label: 'Pair',
+          description: 'Two notes side by side.',
+          fields: [
+            { name: 'left', kind: 'text' },
+            { name: 'right', kind: 'text' },
+          ],
+        }),
+        defineType({
+          name: 'single',
+          label: 'Single',
+          description: 'One note.',
+          fields: [{ name: 'note', kind: 'text' }],
+        }),
+      ]),
+    )
+    await run(writeEntry({ type: 'pair', title: 'Both sides', fields: { left: 'L', right: 'R' } }))
+    expect(
+      await run(refusalOf(proposeTypeMerge('pair', 'single', { left: 'note', right: 'note' }))),
+    ).toBe(
+      'The fields `left` and `right` of `pair` are all mapped to `note`: map each one to a field of its own.',
+    )
+    expect((await run(readEntry('both-sides'))).entry).toMatchObject({
+      type: 'pair',
+      fields: { left: 'L', right: 'R' },
+    })
+  })
+})
+
+describe('changing the kind of a field', () => {
+  test('refuses allowed values given for a kind that is not enum', async () => {
+    await run(
+      defineType({
+        name: 'lamp',
+        label: 'Lamp',
+        description: 'A lamp in a room.',
+        fields: [{ name: 'colour', kind: 'text' }],
+      }),
+    )
+    expect(
+      await run(
+        refusalOf(changeField({ type: 'lamp', field: 'colour', kind: 'url', values: ['red'] })),
+      ),
+    ).toBe('The field `fields.0.values` is allowed only on an enum field.')
+    expect((await run(getType('lamp'))).fields).toEqual([{ name: 'colour', kind: 'text' }])
+  })
+
+  test('from date to another kind drops its deadline and its recurrence', async () => {
+    await run(
+      defineType({
+        name: 'permit',
+        label: 'Permit',
+        description: 'A permit that runs out.',
+        fields: [
+          { name: 'ends', kind: 'date', due: { notice: 'P30D' } },
+          { name: 'renewed', kind: 'date', recurs: { every: 'yearly', notice: 'P7D' } },
+        ],
+      }),
+    )
+    await run(changeField({ type: 'permit', field: 'ends', kind: 'text' }))
+    await run(changeField({ type: 'permit', field: 'renewed', kind: 'text' }))
+    expect((await run(getType('permit'))).fields).toEqual([
+      { name: 'ends', kind: 'text' },
+      { name: 'renewed', kind: 'text' },
+    ])
+  })
+})
+
+describe('a change of a type while an entry of it is being written', () => {
+  test('keeps the value that write gives the entry', async () => {
+    await run(
+      defineType({
+        name: 'shelf',
+        label: 'Shelf',
+        description: 'A shelf in a room.',
+        fields: [
+          { name: 'label', kind: 'text' },
+          { name: 'place', kind: 'text' },
+        ],
+      }),
+    )
+    await run(writeEntry({ type: 'shelf', title: 'Top shelf', fields: { label: 'A' } }))
+    await run(
+      Effect.gen(function* () {
+        const written = yield* Deferred.make<void>()
+        // The write stays uncommitted until the change waits on it.
+        const write = yield* Effect.forkChild(
+          committedOnceAwaited(
+            writeEntry({ entry: 'top-shelf', fields: { place: 'attic' } }).pipe(
+              Effect.tap(() => Deferred.succeed(written, undefined)),
+            ),
+          ),
+        )
+        yield* Deferred.await(written)
+        yield* changeField({ type: 'shelf', field: 'label', rename: 'name' })
+        yield* Fiber.join(write)
+      }),
+    )
+    expect((await run(readEntry('top-shelf'))).entry.fields).toEqual({ name: 'A', place: 'attic' })
+  })
+})
+
+describe('a field that becomes a link to an entry', () => {
+  test('stores the id of the entry each value names, and is refused for a value naming none', async () => {
+    await run(
+      defineType({
+        name: 'loan',
+        label: 'Loan',
+        description: 'Something lent.',
+        fields: [{ name: 'item', kind: 'text' }],
+      }),
+    )
+    await run(writeEntry({ type: 'lamp', title: 'Desk lamp' }))
+    const { id } = (await run(readEntry('desk-lamp'))).entry
+    await run(writeEntry({ type: 'loan', title: 'Loan one', fields: { item: 'nobody' } }))
+    await run(writeEntry({ type: 'loan', title: 'Loan two', fields: { item: 'desk-lamp' } }))
+    const refusal =
+      'The change would leave 1 entries invalid: `loan-one`: the field `fields.item` must name an ' +
+      'existing entry: `nobody` does not exist. Give a `default` for the missing values, or a ' +
+      '`mapping` for the others.'
+    expect(await run(refusalOf(changeField({ type: 'loan', field: 'item', kind: 'entry' })))).toBe(
+      refusal,
+    )
+    const dry = await run(
+      changeField({ type: 'loan', field: 'item', kind: 'entry', dry_run: true }),
+    )
+    expect(dry).toMatchObject({
+      invalid: [
+        {
+          slug: 'loan-one',
+          problem: 'the field `fields.item` must name an existing entry: `nobody` does not exist',
+        },
+      ],
+      repaired: ['loan-two'],
+    })
+    expect(
+      await run(
+        refusalOf(
+          changeField({
+            type: 'loan',
+            field: 'item',
+            kind: 'entry',
+            mapping: { nobody: 'no-one' },
+          }),
+        ),
+      ),
+    ).toBe(refusal.replace('`nobody` does not exist', '`no-one` does not exist'))
+    await run(
+      changeField({ type: 'loan', field: 'item', kind: 'entry', mapping: { nobody: 'desk-lamp' } }),
+    )
+    const loans = await Promise.all(['loan-one', 'loan-two'].map((slug) => run(readEntry(slug))))
+    expect(loans.map(({ entry }) => entry.fields['item'])).toEqual([id, id])
+    await run(writeEntry({ entry: 'loan-one', title: 'Loan one, returned' }))
+    expect((await run(readEntry('loan-one'))).entry.title).toBe('Loan one, returned')
+  })
+
+  test('in a merge, stores the id of the entry each value names, and is refused for a value naming none', async () => {
+    await run(
+      Effect.all([
+        defineType({
+          name: 'card',
+          label: 'Card',
+          description: 'A card about something.',
+          fields: [{ name: 'about', kind: 'text' }],
+        }),
+        defineType({
+          name: 'label',
+          label: 'Label',
+          description: 'A label stuck on something.',
+          fields: [{ name: 'on', kind: 'entry' }],
+        }),
+      ]),
+    )
+    const { id } = (await run(readEntry('desk-lamp'))).entry
+    await run(writeEntry({ type: 'card', title: 'Card one', fields: { about: 'desk-lamp' } }))
+    await run(writeEntry({ type: 'card', title: 'Card two', fields: { about: 'nowhere' } }))
+    const proposal = await run(proposeTypeMerge('card', 'label', { about: 'on' }))
+    expect(await run(refusalOf(asOwner(confirmProposal(proposal.id))))).toBe(
+      'The change would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
+        'existing entry: `nowhere` does not exist. Give a `default` for the missing values, or a ' +
+        '`mapping` for the others.',
+    )
+    await run(writeEntry({ entry: 'card-two', fields: { about: id } }))
+    await run(asOwner(confirmProposal(proposal.id)))
+    const cards = await Promise.all(['card-one', 'card-two'].map((slug) => run(readEntry(slug))))
+    expect(cards.map(({ entry }) => [entry.type, entry.fields['on']])).toEqual([
+      ['label', id],
+      ['label', id],
+    ])
   })
 })
