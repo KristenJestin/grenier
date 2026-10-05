@@ -85,6 +85,23 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 
 `key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one.
 
+Grenier with Docker, server and database in one command (the image is built from
+`apps/server/Dockerfile`, runs as the `node` user, migrates the database before it listens, and
+keeps data in the `postgres` and `media` volumes):
+
+```
+cp .env.production.example .env.production        # then set BETTER_AUTH_SECRET in it
+docker compose up -d                              # /health answers 200 once it is up
+docker compose exec grenier node src/cli.ts key:create --name local --rights read,write \
+  --owner owner@example.org                       # prints the key, once
+claude mcp add --transport http grenier http://localhost:3000/mcp \
+  --header "Authorization: Bearer <the key printed above>"
+```
+
+`docker compose up -d postgres` starts the database alone, for development and the tests.
+`GRENIER_PORT` and `POSTGRES_PORT` change the published ports; `GRENIER_BIND=0.0.0.0` publishes
+the server to the network.
+
 Configuration lives in one place: `vite.config.ts` at the root holds the `lint`, `fmt` and
 `test` blocks. The database URL comes from `DATABASE_URL` (see `.env.example`).
 

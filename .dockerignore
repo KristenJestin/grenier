@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/tests
+.git
+.githooks
+.github
+.env
+.env.*
+!.env.production.example
+reports
+docs
