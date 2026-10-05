@@ -184,6 +184,26 @@ export const changeField = Effect.fn('changeField')(function* (input: ChangeFiel
   return { type: next, invalid, repaired: repaired.map(({ slug }) => slug) }
 })
 
+/**
+ * The sentences refusing a merge mapping that sends several fields to one: only one value of
+ * each entry could stay there.
+ */
+const sharedTargets = (source: string, mapping: { readonly [field: string]: string }) =>
+  Object.entries(Object.groupBy(Object.entries(mapping), ([, target]) => target)).flatMap(
+    ([target, pairs = []]) =>
+      pairs.length < 2
+        ? []
+        : [
+            `The fields ${pairs
+              .map(([field]) => `\`${field}\``)
+              .join(', ')
+              .replace(
+                /, ([^,]*)$/,
+                ' and $1',
+              )} of \`${source}\` are all mapped to \`${target}\`: map each one to a field of its own.`,
+          ],
+  )
+
 /** A deletion or a merge of types, waiting for the owner. */
 export const Proposal = Schema.Struct({
   id: Schema.String,
@@ -271,6 +291,7 @@ export const proposeTypeMerge = Effect.fn('proposeTypeMerge')(function* (
     ...Object.values(mapping)
       .filter((field) => !target.fields.some(({ name }) => name === field))
       .map((field) => `The type \`${target.name}\` has no field \`${field}\` to map to.`),
+    ...sharedTargets(source.name, mapping),
   ]
   if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
   return yield* propose('merge', source.name, target.name, mapping)
@@ -307,6 +328,8 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
       if (proposal.action === 'merge' && proposal.into !== null) {
         const into = yield* getType(proposal.into)
         const mapping = proposal.mapping ?? {}
+        const shared = sharedTargets(proposal.type, mapping)
+        if (shared.length > 0) return yield* new Refused({ message: shared.join(' ') })
         const entries = yield* entriesOf(proposal.type)
         const lost = entries.flatMap(({ slug, fields }) =>
           Object.keys(fields)

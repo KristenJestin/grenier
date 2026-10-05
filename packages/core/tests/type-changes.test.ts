@@ -214,3 +214,37 @@ describe('merging types', () => {
     )
   })
 })
+
+describe('a merge mapping two fields to one', () => {
+  test('is refused, naming the fields, and loses no value', async () => {
+    await run(
+      Effect.all([
+        defineType({
+          name: 'pair',
+          label: 'Pair',
+          description: 'Two notes side by side.',
+          fields: [
+            { name: 'left', kind: 'text' },
+            { name: 'right', kind: 'text' },
+          ],
+        }),
+        defineType({
+          name: 'single',
+          label: 'Single',
+          description: 'One note.',
+          fields: [{ name: 'note', kind: 'text' }],
+        }),
+      ]),
+    )
+    await run(writeEntry({ type: 'pair', title: 'Both sides', fields: { left: 'L', right: 'R' } }))
+    expect(
+      await run(refusalOf(proposeTypeMerge('pair', 'single', { left: 'note', right: 'note' }))),
+    ).toBe(
+      'The fields `left` and `right` of `pair` are all mapped to `note`: map each one to a field of its own.',
+    )
+    expect((await run(readEntry('both-sides'))).entry).toMatchObject({
+      type: 'pair',
+      fields: { left: 'L', right: 'R' },
+    })
+  })
+})
