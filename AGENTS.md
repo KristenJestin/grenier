@@ -41,8 +41,8 @@ packages/mcp      @grenier/mcp     The MCP tools, on top of core; stdio for deve
                                    client as its README says.
 apps/server       @grenier/server  TanStack Start: the web interface (Mantine), the HTTP API and
                                    the MCP endpoint, in one process. (not created yet)
-apps/import       @grenier/import  Imports a folder of Markdown notes with YAML front matter.
-                                   (not created yet)
+apps/import       @grenier/import  Imports a folder of Markdown notes with YAML front matter;
+                                   its README says how to run it and how notes are read.
 tools/            —                commit-message, branch-guard, install-hooks, boundaries, and
                                    the vendored lint rules. TypeScript run by Node, tested by
                                    Vitest.

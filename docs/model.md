@@ -129,6 +129,11 @@ The source registry records what an import read and which entries it produced, w
 identifier at the source (for example the identifier of a post). A second import of the same
 source processes only what is new, and an item is never imported twice.
 
+Each item is recorded by its source name and its identifier at the source (for a folder of
+notes, the relative path of the file), with the entry it gave and a hash of its content: an
+unchanged item is skipped, a changed one updates the entry it gave. An import may give an entry
+its `created` and `updated` times, and only when it creates the entry.
+
 ## Time
 
 A `date` field may be declared as a **deadline** (`due`) or as **recurring** (`recurs: yearly`,

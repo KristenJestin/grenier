@@ -1,0 +1,17 @@
+{
+  "name": "@grenier/import",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=../../.env src/main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@effect/platform-node-shared": "4.0.0",
+    "@grenier/core": "workspace:*",
+    "effect": "4.0.0",
+    "yaml": "2.9.1"
+  }
+}
