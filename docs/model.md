@@ -124,7 +124,8 @@ size, hash, dimensions or duration, source URL, alternative text). Media never g
 
 How the server does it: a file comes as base64 (20 MB at most) or as an http(s) URL the server
 fetches (200 MB, 30 seconds, every redirect checked, never a private address unless
-`MEDIA_ALLOW_PRIVATE=true`). Its type is read from its content, never from what the caller
+`MEDIA_ALLOW_PRIVATE=true`; the connection goes to the very address that was checked, so a
+name that resolves elsewhere a moment later cannot lead it to the private network). Its type is read from its content, never from what the caller
 declares; images, videos, sounds, PDF and HTML are kept, anything else is refused. It is written
 once under `MEDIA_DIR`, at a path made of its SHA-256, however many entries it is attached to,
 and served at `/media/<sha256>` to a valid key. The alternative text is searched with the entry

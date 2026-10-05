@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
+import { get as httpGet } from 'node:http'
+import { get as httpsGet } from 'node:https'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { BlockList, isIP } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Config, Effect } from 'effect'
+import { Config, Context, Effect } from 'effect'
 import { fileTypeFromBuffer } from 'file-type'
 import { Refused } from '../refused.ts'
 
@@ -106,26 +108,73 @@ const PRIVATE = (() => {
 })()
 
 const LIMIT = 200 * 1024 * 1024
+const TIMEOUT = 30_000
 
-/** The body of a response, read as it comes and dropped past `limit` bytes. */
-async function readAtMost(response: Response, limit: number): Promise<Uint8Array | undefined> {
-  const reader = response.body?.getReader()
-  if (reader === undefined) return new Uint8Array()
-  const chunks: Array<Uint8Array> = []
-  const next = async (total: number): Promise<Uint8Array | undefined> => {
-    const { done, value } = await reader.read()
-    if (done) return Buffer.concat(chunks)
-    if (total + value.length > limit) {
-      await reader.cancel()
-      return undefined
-    }
-    chunks.push(value)
-    return next(total + value.length)
-  }
-  return next(0)
+/** An address a host name resolves to. */
+export type ResolvedAddress = { readonly address: string; readonly family: number }
+
+/**
+ * How a host name becomes addresses: the system's DNS. A test gives its own, to see which address a
+ * fetch connects to.
+ */
+export const HostResolver = Context.Reference<
+  (host: string) => Promise<ReadonlyArray<ResolvedAddress>>
+>('@grenier/core/media/HostResolver', {
+  defaultValue: () => (host) => lookup(host, { all: true }),
+})
+
+/** What a request answered: its status, where it redirects, and its body if it is to be read. */
+interface Answer {
+  readonly status: number
+  readonly location: string | undefined
+  readonly bytes: Uint8Array | undefined
+  readonly tooLarge: boolean
 }
 
-const TIMEOUT = 30_000
+/**
+ * One GET, connected to `pinned`, the address that was checked, whatever the name resolves to now:
+ * a DNS answer that changes between the check and the connection cannot lead it elsewhere. TLS
+ * still checks the certificate against the name of the URL.
+ */
+const getPinned = (url: URL, pinned: ResolvedAddress, limit: number) =>
+  new Promise<Answer>((resolve, reject) => {
+    const request = (url.protocol === 'https:' ? httpsGet : httpGet)(
+      url,
+      {
+        timeout: TIMEOUT,
+        lookup: (_host, options, callback) =>
+          options.all === true
+            ? callback(null, [pinned])
+            : callback(null, pinned.address, pinned.family),
+      },
+      (response) => {
+        const status = response.statusCode ?? 0
+        const location = response.headers.location
+        if ((status >= 300 && status < 400) || status < 200 || status >= 300) {
+          response.resume()
+          resolve({ status, location, bytes: undefined, tooLarge: false })
+          return
+        }
+        const chunks: Array<Buffer> = []
+        let total = 0
+        response.on('data', (chunk: Buffer) => {
+          total += chunk.length
+          if (total > limit) {
+            response.destroy()
+            resolve({ status, location, bytes: undefined, tooLarge: true })
+            return
+          }
+          chunks.push(chunk)
+        })
+        response.on('end', () =>
+          resolve({ status, location, bytes: Buffer.concat(chunks), tooLarge: false }),
+        )
+        response.on('error', reject)
+      },
+    )
+    request.on('timeout', () => request.destroy(new Error('timed out')))
+    request.on('error', reject)
+  })
 
 /**
  * Fetches a file from the Internet: http or https only, 200 MB at most, 30 seconds at most, and
@@ -141,42 +190,39 @@ export const fetchFile = Effect.fn('fetchFile')(function* (address: string) {
       return yield* refuse(`The URL \`${current}\` must be an http or https address.`)
     }
     const host = url.hostname.replace(/^\[|\]$/g, '')
+    const resolve = yield* HostResolver
     const addresses =
       isIP(host) === 0
         ? yield* Effect.tryPromise({
-            try: () => lookup(host, { all: true }),
+            try: () => resolve(host),
             catch: () => new Refused({ message: `The host of \`${current}\` cannot be found.` }),
           })
         : [{ address: host, family: isIP(host) }]
     const reachesPrivate = addresses.some(({ address: each, family }) =>
       PRIVATE.check(each, family === 6 ? 'ipv6' : 'ipv4'),
     )
+    const [pinned] = addresses
+    if (pinned === undefined) {
+      return yield* refuse(`The host of \`${current}\` cannot be found.`)
+    }
     if (reachesPrivate && !allowPrivate) {
       return yield* refuse(
         `The URL \`${current}\` leads to a private address: Grenier fetches only from the Internet.`,
       )
     }
-    const response = yield* Effect.tryPromise({
-      try: () => fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT) }),
+    const answer = yield* Effect.tryPromise({
+      try: () => getPinned(url, pinned, LIMIT),
       catch: () => new Refused({ message: `The URL \`${current}\` could not be fetched.` }),
     })
-    const next = response.headers.get('location')
-    if (response.status >= 300 && response.status < 400 && next !== null) {
-      current = new URL(next, url).toString()
+    if (answer.status >= 300 && answer.status < 400 && answer.location !== undefined) {
+      current = new URL(answer.location, url).toString()
       continue
     }
-    if (!response.ok) {
-      return yield* refuse(`The URL \`${current}\` answered ${response.status}.`)
+    if (answer.tooLarge) return yield* refuse(`The file at \`${current}\` is larger than 200 MB.`)
+    if (answer.bytes === undefined) {
+      return yield* refuse(`The URL \`${current}\` answered ${answer.status}.`)
     }
-    const declared = Number(response.headers.get('content-length') ?? 0)
-    if (declared > LIMIT) return yield* refuse(`The file at \`${current}\` is larger than 200 MB.`)
-    const bytes = yield* Effect.tryPromise({
-      try: () => readAtMost(response, LIMIT),
-      catch: () => new Refused({ message: `The URL \`${current}\` could not be read.` }),
-    })
-    if (bytes === undefined)
-      return yield* refuse(`The file at \`${current}\` is larger than 200 MB.`)
-    return bytes
+    return new Uint8Array(answer.bytes)
   }
   return yield* refuse(`The URL \`${address}\` redirects too many times.`)
 })

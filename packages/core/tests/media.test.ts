@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { ConfigProvider, Effect, Predicate } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vite-plus/test'
 import { readEntry, writeEntry } from '../src/entries/index.ts'
-import { attachMedia, describeMedia, readMedia } from '../src/media/index.ts'
+import { attachMedia, describeMedia, HostResolver, readMedia } from '../src/media/index.ts'
 import { Refused } from '../src/refused.ts'
 import { search } from '../src/search/index.ts'
 import { defineType } from '../src/types/index.ts'
@@ -145,6 +145,32 @@ describe('a file fetched from a URL', () => {
       attachMedia({ entry: 'manual', url: `${origin}/pixel` }).pipe(withMedia(true)),
     )
     expect(media).toMatchObject({ mime: 'image/png', source_url: `${origin}/pixel` })
+  })
+
+  test('a fetch connects to the address it checked, and never asks the name again', async () => {
+    // `files.invalid` resolves nowhere: only the address the check saw can reach the server.
+    const resolver = () => Promise.resolve([{ address: '127.0.0.1', family: 4 }])
+    const url = origin.replace('127.0.0.1', 'files.invalid')
+    const { media } = await run(
+      attachMedia({ entry: 'manual', url: `${url}/pixel` }).pipe(
+        withMedia(true),
+        Effect.provideService(HostResolver, resolver),
+      ),
+    )
+    expect(media).toMatchObject({ mime: 'image/png' })
+    const rebinding = () => Promise.resolve([{ address: '10.0.0.7', family: 4 }])
+    expect(
+      await run(
+        refusalOf(
+          attachMedia({ entry: 'manual', url: `${url}/pixel` }).pipe(
+            withMedia(),
+            Effect.provideService(HostResolver, rebinding),
+          ),
+        ),
+      ),
+    ).toBe(
+      `The URL \`${url}/pixel\` leads to a private address: Grenier fetches only from the Internet.`,
+    )
   })
 
   test('only http and https are fetched', async () => {
