@@ -7,6 +7,7 @@ import search from './0006_search.ts'
 import sources from './0007_sources.ts'
 import auth from './0008_auth.ts'
 import time from './0009_time.ts'
+import typeChanges from './0010_type_changes.ts'
 
 /** Every migration, keyed `<id>_<name>`; the runner applies them in id order, once each. */
 export const migrations = {
@@ -19,4 +20,5 @@ export const migrations = {
   '0007_sources': sources,
   '0008_auth': auth,
   '0009_time': time,
+  '0010_type_changes': typeChanges,
 }

@@ -1,5 +1,6 @@
 import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
@@ -259,7 +260,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
           'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
         )
       }
-      if (input.verified === true) {
+      if (input.verified === true && !(yield* Rights).includes('owner')) {
         problems.push('The field `verified` can be set to true by the owner only.')
       }
       const owner = yield* idOf(slug)

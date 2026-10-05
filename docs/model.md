@@ -79,6 +79,17 @@ problem, naming the field and what is expected (through `formatSchemaError`).
 
 Every change of a type is recorded in the event log like any other write.
 
+How the server does it: `change_field` makes a field required (or optional), changes its kind,
+renames it (its values and their provenance move with it) or changes its allowed values. It
+checks every entry of the type, archived ones included, and refuses while one would become
+invalid, naming each; a `default` fills the entries that lack a field made required, a `mapping`
+turns old values into new ones, and every entry repaired gets an `update` event. `dry_run`
+answers what would happen and writes nothing. Deleting or merging a type is a proposal; only a
+key with the right `owner` confirms it, and no agent key has that right. A merge moves the
+entries to the other type, their fields renamed by its mapping, and is refused if a value would
+be lost or an entry left invalid. A deleted type is marked, not removed, so its history stays;
+its name cannot be used again.
+
 ## The tree
 
 Each entry has at most one parent (`parent_id`): the entries form a tree, like folders. There is

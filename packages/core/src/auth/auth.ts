@@ -7,11 +7,7 @@ import { rowsOf } from '../database/rows.ts'
 import { Refused } from '../refused.ts'
 import { grenierAuthAdapter } from './adapter.ts'
 import { sqlBridge } from './bridge.ts'
-
-/** What a key may do: read, write, and read the fields a type marks `sensitive`. */
-export const RIGHTS = ['read', 'write', 'sensitive'] as const
-export type Right = (typeof RIGHTS)[number]
-const Right = Schema.Literals(RIGHTS)
+import { Right, RIGHTS } from './rights.ts'
 
 /** The permissions of a key, as Better Auth keeps them: the rights of the statement `grenier`. */
 const Permissions = Schema.Struct({ grenier: Schema.Array(Right) })
@@ -191,7 +187,7 @@ export class Auth extends Context.Service<
               .filter((right) => !RIGHTS.some((known) => known === right))
               .map(
                 (right) =>
-                  `The right \`${right}\` is not one of \`read\`, \`write\`, \`sensitive\`.`,
+                  `The right \`${right}\` is not one of \`read\`, \`write\`, \`sensitive\`, \`owner\`.`,
               ),
             ...(expiresInDays !== undefined &&
             !(Number.isInteger(expiresInDays) && expiresInDays >= 1)

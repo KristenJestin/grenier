@@ -238,6 +238,47 @@ describe('each key writes under its own name', () => {
   })
 })
 
+describe('changing types through keys', () => {
+  test('an agent key proposes a merge but cannot confirm it; an owner key confirms it', async () => {
+    const agent = await connect(`${base}/mcp`, bearer(writer))
+    await agent.call('define_type', {
+      name: 'film',
+      label: 'Film',
+      description: 'A film.',
+      fields: [],
+    })
+    await agent.call('define_type', {
+      name: 'movie',
+      label: 'Movie',
+      description: 'A film too.',
+      fields: [],
+    })
+    await agent.call('write', { type: 'film', title: 'Old reel' })
+    const proposed = await agent.call('propose_type_change', {
+      action: 'merge',
+      type: 'film',
+      into: 'movie',
+    })
+    const { id } = Schema.decodeUnknownSync(
+      Schema.Struct({ proposal: Schema.Struct({ id: Schema.String }) }),
+    )('result' in proposed ? proposed.result : null).proposal
+    expect(await agent.call('confirm_proposal', { id })).toEqual({
+      error:
+        'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
+    })
+    const owner = await connect(
+      `${base}/mcp`,
+      bearer(await createKey('owner-desk', ['read', 'write', 'owner'])),
+    )
+    expect(await owner.call('confirm_proposal', { id })).toMatchObject({
+      result: { proposal: { status: 'confirmed' } },
+    })
+    expect(await agent.call('read', { entry: 'old-reel' })).toMatchObject({
+      result: { entry: { type: 'movie' } },
+    })
+  })
+})
+
 describe('/health', () => {
   test('answers 200 with the database up, then 503 with it down', async () => {
     expect((await fetch(`${base}/health`)).status).toBe(200)

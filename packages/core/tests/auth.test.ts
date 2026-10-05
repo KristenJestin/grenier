@@ -86,7 +86,7 @@ describe('keys are created on the command line', () => {
       ),
     ).toBe(
       'The name `Agent Tablet` must be lowercase letters, digits and dashes, 32 at most, such as `agent-laptop`. ' +
-        'The right `delete` is not one of `read`, `write`, `sensitive`.',
+        'The right `delete` is not one of `read`, `write`, `sensitive`, `owner`.',
     )
   })
 
