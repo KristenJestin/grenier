@@ -38,6 +38,7 @@ describe('the server answers over stdio', () => {
     expect(tools.map(({ name }) => name).toSorted()).toEqual([
       'add_field',
       'archive',
+      'briefing',
       'define_type',
       'get_type',
       'history',
@@ -46,6 +47,7 @@ describe('the server answers over stdio', () => {
       'read',
       'search',
       'unlink',
+      'upcoming',
       'write',
     ])
     for (const { inputSchema } of tools) expect(inputSchema.type).toBe('object')
@@ -164,6 +166,7 @@ describe('an agent works through MCP calls only', () => {
     await mcp().call('write', { type: 'note', title: 'Week', body })
     expect(await mcp().call('read', { entry: 'week', headings: true })).toEqual({
       result: {
+        heads_up: [],
         headings: [
           { level: 1, text: 'Journal' },
           { level: 2, text: 'Monday' },
@@ -172,10 +175,47 @@ describe('an agent works through MCP calls only', () => {
       },
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Monday' })).toEqual({
-      result: { section: '## Monday\nRain all day.\n```\n# not a heading\n```' },
+      result: { heads_up: [], section: '## Monday\nRain all day.\n```\n# not a heading\n```' },
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Friday' })).toEqual({
       error: 'The entry `week` has no heading `Friday`: read its headings first.',
+    })
+  })
+})
+
+describe('dates come to the agent', () => {
+  test('a date in its notice period is in the next answer, once a day; upcoming lists it until fulfilled', async () => {
+    await mcp().call('define_type', {
+      name: 'warranty',
+      label: 'Warranty',
+      description: 'A warranty that ends.',
+      fields: [{ name: 'ends', kind: 'date', due: { notice: 'P10Y' } }],
+    })
+    const ends = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10)
+    const written = await mcp().call('write', {
+      type: 'warranty',
+      title: 'Kettle warranty',
+      fields: { ends },
+    })
+    expect(written).toMatchObject({
+      result: { heads_up: [{ entry: { slug: 'kettle-warranty' }, date: ends }] },
+    })
+    expect(await mcp().call('list_types', {})).toMatchObject({ result: { heads_up: [] } })
+    const coming = await mcp().call('upcoming', { to: ends })
+    expect(coming).toMatchObject({
+      result: { occurrences: [{ entry: { slug: 'kettle-warranty' }, deadline: true }] },
+    })
+    await mcp().call('write', { type: 'note', title: 'Kettle replaced' })
+    expect(
+      await mcp().call('link', {
+        source: 'kettle-replaced',
+        target: 'kettle-warranty',
+        relation: 'fulfills',
+        period: ends,
+      }),
+    ).toMatchObject({ result: { relation: 'fulfills', period: ends } })
+    expect(await mcp().call('upcoming', { to: ends })).toMatchObject({
+      result: { occurrences: [] },
     })
   })
 })

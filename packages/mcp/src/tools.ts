@@ -4,6 +4,7 @@ import { link, unlink } from '@grenier/core/links'
 import { Refused } from '@grenier/core/refused'
 import { toToolInputSchema } from '@grenier/core/schema'
 import { search, SearchOptions } from '@grenier/core/search'
+import { addDays, BRIEFING_PERIODS, briefing, headsUp, Today, upcoming } from '@grenier/core/time'
 import {
   addField,
   defineType,
@@ -51,10 +52,29 @@ const ReadInput = Schema.Struct({
   }),
 })
 const SearchInput = Schema.Struct({ query: Schema.String, ...SearchOptions.fields })
+const Period = Schema.optionalKey(Schema.String).annotate({
+  description:
+    'For `fulfills` only: the period of the occurrence it closes, `2026` (yearly), `2026-10` (monthly), `2026-W41` (weekly) or the date of a single deadline.',
+})
 const LinkInput = Schema.Struct({
   source: Reference,
   target: Reference,
   relation: Schema.String.annotate({ description: 'A snake_case relation such as `about`.' }),
+  period: Period,
+})
+const IsoDate = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/, { expected: 'a date such as `2026-10-05`' }),
+)
+const UpcomingInput = Schema.Struct({
+  from: Schema.optionalKey(IsoDate).annotate({ description: 'The first day, today by default.' }),
+  to: Schema.optionalKey(IsoDate).annotate({
+    description: 'The last day, 30 days after `from` by default.',
+  }),
+})
+const BriefingInput = Schema.Struct({
+  period: Schema.Literals(BRIEFING_PERIODS).annotate({
+    description: '`today`, `week` (the seven days from today) or `weekend` (the coming one).',
+  }),
 })
 const HistoryInput = Schema.Struct({
   entry: Reference,
@@ -83,6 +103,16 @@ export const GrenierTools = Toolkit.make(
   tool('link', 'Links two entries with a relation.', LinkInput),
   tool('unlink', 'Removes a link between two entries.', LinkInput),
   tool('history', 'Reads the history of an entry, or of one of its fields.', HistoryInput),
+  tool(
+    'upcoming',
+    'Lists the dates coming in a period (deadlines, birthdays, renewals), with the days left; what a link `fulfills` closed is left out.',
+    UpcomingInput,
+  ),
+  tool(
+    'briefing',
+    'Gathers what matters for today, the week or the weekend: coming dates, overdue deadlines, and a year ago.',
+    BriefingInput,
+  ),
 )
 
 /**
@@ -128,6 +158,8 @@ export const GrenierHandlers = GrenierTools.toLayer(
             }).pipe(Effect.mapError(Refused.fromSchemaError)),
           ),
           Effect.flatMap(run),
+          // Every answer carries the dates entering their notice period, once a day per actor.
+          Effect.flatMap((answer) => Effect.map(headsUp, (heads_up) => ({ ...answer, heads_up }))),
           Effect.catch((error) =>
             error instanceof Refused ? Effect.fail(error) : Effect.die(error),
           ),
@@ -168,17 +200,24 @@ export const GrenierHandlers = GrenierTools.toLayer(
       search: handler('read', SearchInput, ({ query, ...options }) =>
         Effect.map(search(query, options), (results) => ({ results })),
       ),
-      link: handler('write', LinkInput, ({ source, target, relation }) =>
-        Effect.as(link(source, target, relation), { source, target, relation }),
+      link: handler('write', LinkInput, ({ source, target, relation, period = '' }) =>
+        Effect.as(link(source, target, relation, period), { source, target, relation, period }),
       ),
-      unlink: handler('write', LinkInput, ({ source, target, relation }) =>
-        Effect.as(unlink(source, target, relation), { source, target, relation }),
+      unlink: handler('write', LinkInput, ({ source, target, relation, period = '' }) =>
+        Effect.as(unlink(source, target, relation, period), { source, target, relation, period }),
       ),
       history: handler('read', HistoryInput, ({ entry, field }) =>
         field === undefined
           ? Effect.map(entryHistory(entry), (events) => ({ events }))
           : Effect.map(fieldHistory(entry, field), (changes) => ({ changes })),
       ),
+      upcoming: handler('read', UpcomingInput, ({ from, to }) =>
+        Effect.gen(function* () {
+          const start = from ?? (yield* Today)()
+          return { occurrences: yield* upcoming(start, to ?? addDays(start, 30)) }
+        }),
+      ),
+      briefing: handler('read', BriefingInput, ({ period }) => briefing(period)),
     }
   }),
 )
