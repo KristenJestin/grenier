@@ -12,8 +12,10 @@ import {
   listTypes,
   TypeDefinition,
 } from '@grenier/core/types'
+import { RIGHTS } from '@grenier/core/auth'
+import type { Right } from '@grenier/core/auth'
 import type { layer as database } from '@grenier/core/database'
-import { Effect, Schema, Struct } from 'effect'
+import { Context, Effect, Schema, Struct } from 'effect'
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/ai'
 import { headingsOf, sectionOf } from './sections.ts'
@@ -83,6 +85,14 @@ export const GrenierTools = Toolkit.make(
   tool('history', 'Reads the history of an entry, or of one of its fields.', HistoryInput),
 )
 
+/**
+ * What the agent's key may do. Over stdio, where there is no key, every right is granted; over
+ * HTTP, the server provides the rights of the key the request came with.
+ */
+export const KeyRights = Context.Reference<ReadonlyArray<Right>>('@grenier/mcp/KeyRights', {
+  defaultValue: () => RIGHTS,
+})
+
 /** The database every tool reaches through the core. */
 type Database = Layer.Success<typeof database>
 
@@ -95,17 +105,28 @@ export const GrenierHandlers = GrenierTools.toLayer(
      * The handler of a tool: decodes its input with the tool's schema, runs it, and answers a
      * refusal with its sentences. Any other failure is a defect, reported as an internal error.
      */
+    const rights = yield* KeyRights
     const handler =
       <I, E>(
+        right: Right,
         input: Schema.Codec<I, I>,
         run: (value: I) => Effect.Effect<Schema.JsonObject, E, Database>,
       ) =>
       <P>(parameters: P) =>
-        Schema.decodeUnknownEffect(input)(parameters, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        }).pipe(
-          Effect.mapError(Refused.fromSchemaError),
+        (rights.includes(right)
+          ? Effect.void
+          : Effect.fail(
+              new Refused({
+                message: `This key may not ${right}: ask the owner of Grenier for a key with the right \`${right}\`.`,
+              }),
+            )
+        ).pipe(
+          Effect.andThen(
+            Schema.decodeUnknownEffect(input)(parameters, {
+              errors: 'all',
+              onExcessProperty: 'error',
+            }).pipe(Effect.mapError(Refused.fromSchemaError)),
+          ),
           Effect.flatMap(run),
           Effect.catch((error) =>
             error instanceof Refused ? Effect.fail(error) : Effect.die(error),
@@ -114,17 +135,19 @@ export const GrenierHandlers = GrenierTools.toLayer(
         )
 
     return {
-      define_type: handler(TypeDefinition, (type) => defineType(type)),
-      add_field: handler(AddFieldInput, ({ type, field }) =>
+      define_type: handler('write', TypeDefinition, (type) => defineType(type)),
+      add_field: handler('write', AddFieldInput, ({ type, field }) =>
         Effect.map(addField(type, field), (extended) => ({ type: extended })),
       ),
-      get_type: handler(NameInput, ({ name }) => Effect.map(getType(name), (type) => ({ type }))),
-      list_types: handler(NoInput, () => Effect.map(listTypes, (types) => ({ types }))),
+      get_type: handler('read', NameInput, ({ name }) =>
+        Effect.map(getType(name), (type) => ({ type })),
+      ),
+      list_types: handler('read', NoInput, () => Effect.map(listTypes, (types) => ({ types }))),
       // The body is left out of the answer: the agent just sent it, and it may be long.
-      write: handler(WriteEntryInput, (input) =>
+      write: handler('write', WriteEntryInput, (input) =>
         Effect.map(writeEntry(input), (entry) => ({ entry: Struct.omit(entry, ['body']) })),
       ),
-      read: handler(ReadInput, ({ entry, headings, section }) =>
+      read: handler('read', ReadInput, ({ entry, headings, section }) =>
         Effect.gen(function* () {
           const read = yield* readEntry(entry)
           if (section !== undefined) {
@@ -139,19 +162,19 @@ export const GrenierHandlers = GrenierTools.toLayer(
           return headings === true ? { headings: headingsOf(read.entry.body) } : read
         }),
       ),
-      archive: handler(EntryInput, ({ entry }) =>
+      archive: handler('write', EntryInput, ({ entry }) =>
         Effect.map(archiveEntry(entry), (archived) => ({ entry: archived })),
       ),
-      search: handler(SearchInput, ({ query, ...options }) =>
+      search: handler('read', SearchInput, ({ query, ...options }) =>
         Effect.map(search(query, options), (results) => ({ results })),
       ),
-      link: handler(LinkInput, ({ source, target, relation }) =>
+      link: handler('write', LinkInput, ({ source, target, relation }) =>
         Effect.as(link(source, target, relation), { source, target, relation }),
       ),
-      unlink: handler(LinkInput, ({ source, target, relation }) =>
+      unlink: handler('write', LinkInput, ({ source, target, relation }) =>
         Effect.as(unlink(source, target, relation), { source, target, relation }),
       ),
-      history: handler(HistoryInput, ({ entry, field }) =>
+      history: handler('read', HistoryInput, ({ entry, field }) =>
         field === undefined
           ? Effect.map(entryHistory(entry), (events) => ({ events }))
           : Effect.map(fieldHistory(entry, field), (changes) => ({ changes })),
