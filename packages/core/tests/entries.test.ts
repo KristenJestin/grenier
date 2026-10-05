@@ -1,5 +1,6 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vite-plus/test'
+import { execute, whileLocked } from '../src/database/contention.ts'
 import { archiveEntry, readEntry, writeEntry } from '../src/entries/index.ts'
 import { Rights } from '../src/auth/index.ts'
 import { Refused } from '../src/refused.ts'
@@ -307,5 +308,23 @@ describe('an import keeps when an entry was first written', () => {
     expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(
       'The field `created` can be given only when the entry is created.',
     )
+  })
+})
+
+describe('concurrent updates of different fields of one entry both survive', () => {
+  test('two updates that read the entry before either writes', async () => {
+    const entry = await run(writeEntry({ ...contract, slug: 'shared-contract' }))
+    const ended = await run(
+      whileLocked(execute('SELECT 1 FROM entries WHERE id = $1::uuid FOR UPDATE', entry.id), [
+        writeEntry({ entry: 'shared-contract', fields: { renewal: 'manual' } }),
+        writeEntry({ entry: 'shared-contract', fields: { seats: 3 } }),
+      ]),
+    )
+    expect(ended.map(({ _tag }) => _tag)).toEqual(['Success', 'Success'])
+    expect((await run(readEntry('shared-contract'))).entry.fields).toEqual({
+      ...contract.fields,
+      renewal: 'manual',
+      seats: 3,
+    })
   })
 })

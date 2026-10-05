@@ -50,16 +50,21 @@ export const idOf = Effect.fn('idOf')(function* (reference: string) {
   return row?.id
 })
 
-/** The entry named by its id or its slug; refused when there is none. */
-export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
+const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked: boolean) {
   const sql = yield* SqlClient.SqlClient
   const [row] = yield* entries(
-    sql`SELECT ${sql.literal(COLUMNS)} FROM entries WHERE slug = ${reference} OR id::text = ${reference}`,
+    sql`SELECT ${sql.literal(COLUMNS)} FROM entries WHERE slug = ${reference} OR id::text = ${reference}
+      ${locked ? sql`FOR NO KEY UPDATE` : sql``}`,
   )
   if (row === undefined) {
     return yield* new Refused({ message: `The entry \`${reference}\` does not exist.` })
   }
   return toEntry(row)
+})
+
+/** The entry named by its id or its slug; refused when there is none. */
+export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
+  return yield* entryNamed(reference, false)
 })
 
 /** The entry and its ancestors, from the root down to the entry itself. */
@@ -195,7 +200,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
   const configuration = yield* searchConfiguration
   return yield* sql.withTransaction(
     Effect.gen(function* () {
-      const existing = input.entry === undefined ? undefined : yield* findEntry(input.entry)
+      // Locked until the write commits: a concurrent write waits, then starts from this one. The
+      // lock lets other writes still point to the entry (as a parent, through a foreign key).
+      const existing = input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
       const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
       const base = existing === undefined ? CREATED : stateOf(existing)
       const state = {
