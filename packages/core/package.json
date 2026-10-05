@@ -10,6 +10,7 @@
     "./entries": "./src/entries/index.ts",
     "./events": "./src/events/index.ts",
     "./links": "./src/links/index.ts",
+    "./media": "./src/media/index.ts",
     "./refused": "./src/refused.ts",
     "./schema": "./src/schema/index.ts",
     "./search": "./src/search/index.ts",
@@ -25,7 +26,8 @@
     "@better-auth/api-key": "1.7.7",
     "@effect/sql-pg": "4.0.0",
     "better-auth": "1.7.7",
-    "effect": "4.0.0"
+    "effect": "4.0.0",
+    "file-type": "22.1.1"
   },
   "devDependencies": {
     "@better-auth/memory-adapter": "1.7.7"

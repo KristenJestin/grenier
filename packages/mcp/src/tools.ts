@@ -1,6 +1,7 @@
 import { readEntry, archiveEntry, writeEntry, WriteEntryInput } from '@grenier/core/entries'
 import { entryHistory, fieldHistory } from '@grenier/core/events'
 import { link, unlink } from '@grenier/core/links'
+import { attachMedia, describeMedia } from '@grenier/core/media'
 import { Refused } from '@grenier/core/refused'
 import { toToolInputSchema } from '@grenier/core/schema'
 import { search, SearchOptions } from '@grenier/core/search'
@@ -93,6 +94,25 @@ const ProposeInput = Schema.Struct({
   }),
 })
 const ProposalInput = Schema.Struct({ id: Schema.String })
+const AttachInput = Schema.Struct({
+  entry: Reference,
+  data: Schema.optionalKey(Schema.String).annotate({
+    description: 'The file in base64, 20 MB at most. Give `data` or `url`.',
+  }),
+  url: Schema.optionalKey(Schema.String).annotate({
+    description: 'An http or https address the server fetches, 200 MB at most.',
+  }),
+  alt: Schema.optionalKey(Schema.String).annotate({ description: 'What the file shows.' }),
+  mime: Schema.optionalKey(Schema.String).annotate({
+    description: 'The type you believe it has; the server reads the real one from the content.',
+  }),
+})
+const DescribeInput = Schema.Struct({
+  media: Schema.String.annotate({ description: 'The id of the medium.' }),
+  alt: Schema.String.annotate({
+    description: 'What the medium shows, in words: it is searched with the entry.',
+  }),
+})
 const HistoryInput = Schema.Struct({
   entry: Reference,
   field: Schema.optionalKey(Schema.String).annotate({
@@ -132,6 +152,16 @@ export const GrenierTools = Toolkit.make(
   ),
   tool('list_proposals', 'Lists the proposed deletions and merges of types.', NoInput),
   tool('confirm_proposal', 'Confirms a proposal. For the owner only.', ProposalInput),
+  tool(
+    'attach_media',
+    'Attaches an image, a video, a sound, a PDF or a copy of a page to an entry, from base64 or from a URL. The file is kept even if its source disappears.',
+    AttachInput,
+  ),
+  tool(
+    'describe_media',
+    'Describes a medium in words; the description is searched.',
+    DescribeInput,
+  ),
   tool(
     'upcoming',
     'Lists the dates coming in a period (deadlines, birthdays, renewals), with the days left; what a link `fulfills` closed is left out.',
@@ -248,6 +278,10 @@ export const GrenierHandlers = GrenierTools.toLayer(
       ),
       confirm_proposal: handler('write', ProposalInput, ({ id }) =>
         Effect.map(confirmProposal(id), (proposal) => ({ proposal })),
+      ),
+      attach_media: handler('write', AttachInput, (input) => attachMedia(input)),
+      describe_media: handler('write', DescribeInput, ({ media, alt }) =>
+        describeMedia(media, alt),
       ),
       upcoming: handler('read', UpcomingInput, ({ from, to }) =>
         Effect.gen(function* () {

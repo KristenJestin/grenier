@@ -38,10 +38,12 @@ describe('the server answers over stdio', () => {
     expect(tools.map(({ name }) => name).toSorted()).toEqual([
       'add_field',
       'archive',
+      'attach_media',
       'briefing',
       'change_field',
       'confirm_proposal',
       'define_type',
+      'describe_media',
       'get_type',
       'history',
       'link',

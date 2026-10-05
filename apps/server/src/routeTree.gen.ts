@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as McpRouteImport } from './routes/mcp'
+import { Route as MediaHashRouteImport } from './routes/media/$hash'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const HealthRoute = HealthRouteImport.update({
@@ -23,6 +24,11 @@ const McpRoute = McpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MediaHashRoute = MediaHashRouteImport.update({
+  id: '/media/$hash',
+  path: '/media/$hash',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -32,30 +38,34 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/health': typeof HealthRoute
   '/mcp': typeof McpRoute
+  '/media/$hash': typeof MediaHashRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/mcp': typeof McpRoute
+  '/media/$hash': typeof MediaHashRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/health': typeof HealthRoute
   '/mcp': typeof McpRoute
+  '/media/$hash': typeof MediaHashRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/health' | '/mcp' | '/api/auth/$'
+  fullPaths: '/health' | '/mcp' | '/media/$hash' | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/health' | '/mcp' | '/api/auth/$'
-  id: '__root__' | '/health' | '/mcp' | '/api/auth/$'
+  to: '/health' | '/mcp' | '/media/$hash' | '/api/auth/$'
+  id: '__root__' | '/health' | '/mcp' | '/media/$hash' | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   HealthRoute: typeof HealthRoute
   McpRoute: typeof McpRoute
+  MediaHashRoute: typeof MediaHashRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/media/$hash': {
+      id: '/media/$hash'
+      path: '/media/$hash'
+      fullPath: '/media/$hash'
+      preLoaderRoute: typeof MediaHashRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   HealthRoute: HealthRoute,
   McpRoute: McpRoute,
+  MediaHashRoute: MediaHashRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
