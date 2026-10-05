@@ -98,6 +98,13 @@ at every write and kept as links:
 - a link to a slug that does not exist is refused;
 - renaming a slug rewrites the references in every body that points to it.
 
+A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link
+points to the slug either way. The references of a body are kept as links of relation
+`mentions`, replaced at every write of the body; `mentions` is not used for explicit links.
+Relation names are snake_case (`done_by`). Linking and unlinking are recorded in the event log
+on the source entry (`links.<relation>`), and a rewrite of a body after a rename is recorded as
+a change of that body. Links never change the tree.
+
 ## Media
 
 A medium is a file attached to an entry: an image, a video, a copy of a web page. The file lives
