@@ -4,10 +4,11 @@ import { SqlClient } from 'effect/sql'
 import { databaseUrl } from './database/client.ts'
 import { migrate } from './database/migrate.ts'
 
-/** The name of the database a suite was given. */
-export class ScratchDatabase extends Context.Service<ScratchDatabase, { readonly name: string }>()(
-  '@grenier/core/testing/ScratchDatabase',
-) {}
+/** The database a suite was given: its name, and its URL for a program the suite starts. */
+export class ScratchDatabase extends Context.Service<
+  ScratchDatabase,
+  { readonly name: string; readonly url: string }
+>()('@grenier/core/testing/ScratchDatabase') {}
 
 /** Runs a statement on the server of `DATABASE_URL`, through a connection of its own. */
 const onServer = <A, E>(statement: Effect.Effect<A, E, SqlClient.SqlClient>) =>
@@ -46,7 +47,7 @@ export const scratchDatabase = Layer.unwrap(
     const client = PgClient.layer({ url: Redacted.make(server.toString()) })
     return Layer.effectDiscard(migrate).pipe(
       Layer.provideMerge(client),
-      Layer.merge(Layer.succeed(ScratchDatabase, { name })),
+      Layer.merge(Layer.succeed(ScratchDatabase, { name, url: server.toString() })),
     )
   }),
 )
