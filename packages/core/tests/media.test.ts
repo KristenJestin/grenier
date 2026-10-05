@@ -241,6 +241,55 @@ describe('the addresses a fetch may reach', () => {
     ])
   })
 
+  test('the unspecified, CGNAT and benchmarking IPv4 ranges are refused', () => {
+    expect(['0.0.0.0', '0.1.2.3', '100.64.0.1', '100.100.100.100', '198.18.0.1'].map(v4)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ])
+    expect(['198.19.255.255', '198.20.0.1', '100.128.0.1'].map(v4)).toEqual([true, false, false])
+  })
+
+  test('the IPv4 multicast, reserved and broadcast ranges are refused', () => {
+    expect(['224.0.0.1', '239.255.255.250', '240.0.0.1', '255.255.255.255'].map(v4)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ])
+    expect(v4('223.255.255.255')).toBe(false)
+  })
+
+  test('the IPv4-compatible IPv6 range is refused', () => {
+    expect(['::', '::1', '::127.0.0.1', '::8.8.8.8'].map(v6)).toEqual([true, true, true, true])
+  })
+
+  test('the NAT64 IPv6 ranges are refused', () => {
+    expect(['64:ff9b::a00:7', '64:ff9b::8.8.8.8', '64:ff9b:1::1'].map(v6)).toEqual([
+      true,
+      true,
+      true,
+    ])
+  })
+
+  test('the 6to4 IPv6 range is refused', () => {
+    expect(v6('2002:a00:7::1')).toBe(true)
+  })
+
+  test('the site-local and multicast IPv6 ranges are refused', () => {
+    expect(['fec0::1', 'feff::1', 'ff02::1', 'ff0e::1'].map(v6)).toEqual([true, true, true, true])
+  })
+
+  test('the loopback, unique local and link-local IPv6 ranges are still refused', () => {
+    expect(['::1', 'fd00::1', 'fe80::1'].map(v6)).toEqual([true, true, true])
+  })
+
+  test('a public IPv6 address is accepted', () => {
+    expect(['2001:4860:4860::8888', '2606:4700:4700::1111'].map(v6)).toEqual([false, false])
+  })
+
   test('a host resolving to an IPv4-mapped private address is refused before any connection', async () => {
     const resolver = () => Promise.resolve([{ address: '::ffff:10.0.0.7', family: 6 }])
     expect(
