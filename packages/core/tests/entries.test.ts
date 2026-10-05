@@ -275,6 +275,23 @@ describe('an import keeps when an entry was first written', () => {
     expect((await run(readEntry('old-note'))).entry.created).toBe('2019-03-01T00:00:00.000Z')
   })
 
+  test('updated before created is refused', async () => {
+    expect(
+      await run(refusalOf(writeEntry({ type: 'note', title: 'Late', updated: '2021-06-30' }))),
+    ).toBe(
+      'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
+    )
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({ type: 'note', title: 'Late', created: '2022-01-01', updated: '2021-06-30' }),
+        ),
+      ),
+    ).toBe(
+      'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
+    )
+  })
+
   test('they are refused on an update', async () => {
     await run(writeEntry({ type: 'note', title: 'Kept' }))
     expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(

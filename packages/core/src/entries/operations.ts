@@ -247,6 +247,18 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
           )
         }
       }
+      const createdAt = instantOf(created) ?? new Date().toISOString()
+      const updatedAt = instantOf(updated)
+      if (
+        existing === undefined &&
+        updatedAt !== undefined &&
+        updatedAt !== null &&
+        updatedAt < createdAt
+      ) {
+        problems.push(
+          'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
+        )
+      }
       if (input.verified === true) {
         problems.push('The field `verified` can be set to true by the owner only.')
       }
