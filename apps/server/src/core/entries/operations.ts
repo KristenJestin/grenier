@@ -12,8 +12,8 @@ import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
-import { Child, Entry } from './entry.ts'
-import type { WriteEntryInput } from './entry.ts'
+import { Child, Entry } from '@grenier/api/model'
+import type { WriteEntryInput } from '@grenier/api/model'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
 
 const Row = Schema.Struct({

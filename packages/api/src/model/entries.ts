@@ -1,5 +1,7 @@
 import { Schema } from 'effect'
-import { PROVENANCES } from './values.ts'
+
+/** How a field's value was obtained: read in a source, inferred from it, or left unsure. */
+export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
 /** An entry as it is read: the base fields of `docs/model.md` and the values of its type. */
 export const Entry = Schema.Struct({
@@ -62,3 +64,48 @@ export const WriteEntryInput = Schema.Struct({
   updated: Schema.optionalKey(Schema.String),
 })
 export type WriteEntryInput = typeof WriteEntryInput.Type
+
+/**
+ * A link seen from one of its ends: the relation, the period and date field a link `fulfills`
+ * closes, and the entry at the other end.
+ */
+export const Link = Schema.Struct({
+  relation: Schema.String,
+  period: Schema.NullOr(Schema.String),
+  field: Schema.NullOr(Schema.String),
+  id: Schema.String,
+  slug: Schema.String,
+  title: Schema.String,
+})
+export type Link = typeof Link.Type
+
+/** A file attached to an entry, as the entry is read: its record, and where to fetch it. */
+export const Medium = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.String,
+  mime: Schema.String,
+  size: Schema.Number,
+  sha256: Schema.String,
+  width: Schema.NullOr(Schema.Number),
+  height: Schema.NullOr(Schema.Number),
+  duration: Schema.NullOr(Schema.Number),
+  source_url: Schema.NullOr(Schema.String),
+  alt: Schema.String,
+  position: Schema.Number,
+  url: Schema.String,
+})
+export type Medium = typeof Medium.Type
+
+/**
+ * An entry as `read` returns it: the titles of its ancestors from the root, its links both ways,
+ * its media, and its children that are not archived.
+ */
+export const EntryRead = Schema.Struct({
+  entry: Entry,
+  path: Schema.Array(Schema.String),
+  links: Schema.Array(Link),
+  media: Schema.Array(Medium),
+  backlinks: Schema.Array(Link),
+  children: Schema.Array(Child),
+})
+export type EntryRead = typeof EntryRead.Type

@@ -1,4 +1,5 @@
-import { writeEntry, WriteEntryInput } from '../../core/entries/index.ts'
+import { WriteEntryInput } from '@grenier/api/model'
+import { writeEntry } from '../../core/entries/index.ts'
 import { Effect, Struct } from 'effect'
 import { defineTool } from '../tool.ts'
 

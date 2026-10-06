@@ -1,4 +1,5 @@
-import { addField, FieldDefinition } from '../../core/types/index.ts'
+import { FieldDefinition } from '@grenier/api/model'
+import { addField } from '../../core/types/index.ts'
 import { Effect, Schema } from 'effect'
 import { defineTool } from '../tool.ts'
 

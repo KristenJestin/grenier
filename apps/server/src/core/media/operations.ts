@@ -6,7 +6,8 @@ import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { fetchFile, readFileOf, storeFile, typeOf } from './files.ts'
-import { Medium, MEDIUM_COLUMNS } from './store.ts'
+import { Medium } from '@grenier/api/model'
+import { MEDIUM_COLUMNS } from './store.ts'
 
 const BYTES_LIMIT = 20 * 1024 * 1024
 
