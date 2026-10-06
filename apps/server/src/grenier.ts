@@ -32,13 +32,24 @@ const verify = (request: HttpServerRequest.HttpServerRequest) =>
     return yield* Effect.result((yield* Auth).verifyKey(bearerOf(request)))
   })
 
-/** 200 when the database answers, 503 when it does not. */
-const health = HttpRouter.add(
-  'GET',
-  '/health',
-  Effect.map(databaseReachable, (up) =>
-    HttpServerResponse.jsonUnsafe({ database: up ? 'up' : 'down' }, { status: up ? 200 : 503 }),
-  ),
+/**
+ * 200 when the database answers, 503 when it does not; either way with the instance, the version
+ * and the commit of the server.
+ */
+const health = HttpRouter.use((router) =>
+  Effect.gen(function* () {
+    const { name, version, commit } = yield* Instance
+    yield* router.add(
+      'GET',
+      '/health',
+      Effect.map(databaseReachable, (up) =>
+        HttpServerResponse.jsonUnsafe(
+          { status: up ? 'up' : 'down', instance: name, version, commit },
+          { status: up ? 200 : 503 },
+        ),
+      ),
+    )
+  }),
 )
 
 /**

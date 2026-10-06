@@ -120,6 +120,7 @@ beforeAll(async () => {
       BETTER_AUTH_SECRET: SECRET,
       MEDIA_DIR: mediaDirectory,
       GRENIER_INSTANCE: 'development',
+      GRENIER_INSTANCE_LABEL: 'Test bench',
       GRENIER_VERSION: '1.2.3-test',
       GRENIER_COMMIT: 'abc1234',
     },
@@ -510,6 +511,19 @@ describe('the read API', () => {
     })
   })
 
+  test('GET /api/about tells the instance, its label, version and commit, to a key that may read', async () => {
+    expect(await get('/api/about')).toEqual({
+      status: 200,
+      body: {
+        instance: 'development',
+        label: 'Test bench',
+        version: '1.2.3-test',
+        commit: 'abc1234',
+      },
+    })
+    expect((await get('/api/about', {})).status).toBe(401)
+  })
+
   test('through the typed client: the same entry, and Unauthorized without a key', async () => {
     const overMcp = await connectStateless(`${base}/mcp`, bearer(writer)).call('read', {
       entry: 'over-the-wire',
@@ -530,7 +544,7 @@ describe('the read API', () => {
 })
 
 describe('the API documentation', () => {
-  test('/api/openapi.json is a valid OpenAPI document of the four read routes, behind a bearer key', async () => {
+  test('/api/openapi.json is a valid OpenAPI document of the five read routes, behind a bearer key', async () => {
     const document = await fetch(`${base}/api/openapi.json`).then((response) => response.json())
     expect(await new Validator().validate(document)).toMatchObject({ valid: true })
     const Document = Schema.Struct({
@@ -551,6 +565,7 @@ describe('the API documentation', () => {
     })
     const { paths, components } = Schema.decodeUnknownSync(Document)(document)
     expect(Object.keys(paths).toSorted()).toEqual([
+      '/api/about',
       '/api/entries',
       '/api/entries/{entry}',
       '/api/search',
@@ -569,7 +584,13 @@ describe('the API documentation', () => {
     expect(page.status).toBe(200)
     expect(page.headers.get('content-type')).toContain('text/html')
     const html = await page.text()
-    for (const path of ['/api/types', '/api/entries', '/api/entries/{entry}', '/api/search'])
+    for (const path of [
+      '/api/about',
+      '/api/types',
+      '/api/entries',
+      '/api/entries/{entry}',
+      '/api/search',
+    ])
       expect(html).toContain(path)
   })
 })
@@ -684,9 +705,14 @@ describe('the server knows which instance it is', () => {
 })
 
 describe('/health', () => {
-  test('answers 200 with the database up, then 503 with it down', async () => {
-    expect((await fetch(`${base}/health`)).status).toBe(200)
+  test('answers 200 with the database up, then 503 with it down, with the instance and version', async () => {
+    const instance = { instance: 'development', version: '1.2.3-test', commit: 'abc1234' }
+    const up = await fetch(`${base}/health`)
+    expect(up.status).toBe(200)
+    expect(await up.json()).toEqual({ status: 'up', ...instance })
     await proxy?.cut()
-    expect((await fetch(`${base}/health`)).status).toBe(503)
+    const down = await fetch(`${base}/health`)
+    expect(down.status).toBe(503)
+    expect(await down.json()).toEqual({ status: 'down', ...instance })
   })
 })

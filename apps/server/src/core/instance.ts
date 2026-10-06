@@ -1,7 +1,6 @@
+import { INSTANCES } from '@grenier/api/model'
 import { Config, Context, Effect, Schema } from 'effect'
 
-/** What a Grenier server is: the owner's real data, or test data. */
-export const INSTANCES = ['production', 'development'] as const
 export const InstanceName = Schema.Literals(INSTANCES)
 export type InstanceName = typeof InstanceName.Type
 

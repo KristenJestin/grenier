@@ -8,6 +8,7 @@ import {
 } from '@grenier/api/http'
 import { Auth, Rights } from './core/auth/index.ts'
 import { listEntries, readEntry } from './core/entries/index.ts'
+import { Instance } from './core/instance.ts'
 import { Refused } from './core/refused.ts'
 import { search } from './core/search/index.ts'
 import { listTypes } from './core/types/index.ts'
@@ -34,6 +35,15 @@ const AuthorizationLayer = Layer.effect(
           return yield* Effect.provideService(route, Rights, rights)
         }),
     })
+  }),
+)
+
+const about = HttpApiBuilder.group(GrenierApi, 'about', (handlers) =>
+  Effect.gen(function* () {
+    const { name, label, version, commit } = yield* Instance
+    return handlers.handle('about', () =>
+      Effect.succeed({ instance: name, label, version, commit }),
+    )
   }),
 )
 
@@ -90,4 +100,4 @@ const searching = HttpApiBuilder.group(GrenierApi, 'search', (handlers) =>
  */
 export const ApiRoutes = HttpApiBuilder.layer(GrenierApi, {
   openapiPath: '/api/openapi.json',
-}).pipe(Layer.provide([types, entries, searching]), Layer.provide(AuthorizationLayer))
+}).pipe(Layer.provide([about, types, entries, searching]), Layer.provide(AuthorizationLayer))

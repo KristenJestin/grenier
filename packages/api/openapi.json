@@ -5,6 +5,52 @@
     "version": "0.0.0"
   },
   "paths": {
+    "/api/about": {
+      "get": {
+        "tags": [
+          "About"
+        ],
+        "operationId": "about.about",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "About",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/About"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/types": {
       "get": {
         "tags": [
@@ -1036,6 +1082,45 @@
           "kind"
         ],
         "additionalProperties": false
+      },
+      "About": {
+        "type": "object",
+        "properties": {
+          "instance": {
+            "type": "string",
+            "enum": [
+              "production",
+              "development"
+            ],
+            "description": "`production` holds the owner's real data; `development` holds test data only."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A name to show for the instance, when the owner gave one."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version of the server, or `unknown`."
+          },
+          "commit": {
+            "type": "string",
+            "description": "The commit it was built from, or `unknown`."
+          }
+        },
+        "required": [
+          "instance",
+          "label",
+          "version",
+          "commit"
+        ],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -1047,6 +1132,10 @@
   },
   "security": [],
   "tags": [
+    {
+      "name": "About",
+      "description": "Which Grenier this is: production or development, its version and commit."
+    },
     {
       "name": "Types",
       "description": "The types of entry."

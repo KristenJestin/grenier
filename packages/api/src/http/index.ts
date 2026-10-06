@@ -13,6 +13,7 @@ import {
   OpenApi,
 } from 'effect/http-api'
 import {
+  About,
   EntryRead,
   SearchOptions,
   SearchResult,
@@ -57,6 +58,15 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization>()(
     error: [Unauthorized, Forbidden],
   },
 ) {}
+
+const about = HttpApiGroup.make('about')
+  .add(HttpApiEndpoint.get('about', '/api/about', { success: About }))
+  .annotateMerge(
+    OpenApi.annotations({
+      title: 'About',
+      description: 'Which Grenier this is: production or development, its version and commit.',
+    }),
+  )
 
 const types = HttpApiGroup.make('types')
   .add(
@@ -110,6 +120,7 @@ const search = HttpApiGroup.make('search')
 
 /** The read API of Grenier. Writing goes through MCP. */
 export class GrenierApi extends HttpApi.make('grenier')
+  .add(about)
   .add(types)
   .add(entries)
   .add(search)
