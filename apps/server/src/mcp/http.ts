@@ -7,7 +7,7 @@ import type { Context } from 'effect'
 import { McpServer } from 'effect/ai'
 import { HttpRouter } from 'effect/http'
 import { PROTOCOLS } from './protocols.ts'
-import { GrenierHandlers, GrenierTools } from './tools.ts'
+import { GrenierServer } from './tools.ts'
 
 /** The database services the tools run on, built once by the server and shared by its handlers. */
 export type Database = Context.Context<Layer.Success<typeof database>>
@@ -25,8 +25,7 @@ export function mcpHttpHandlerFor(options: {
   readonly instructions: string
   readonly database: Database
 }) {
-  const app = McpServer.toolkit(GrenierTools).pipe(
-    Layer.provide(GrenierHandlers),
+  const app = GrenierServer.pipe(
     Layer.provide(Layer.succeed(Actor, options.actor)),
     Layer.provide(Layer.succeed(Rights, options.rights)),
     Layer.provide(

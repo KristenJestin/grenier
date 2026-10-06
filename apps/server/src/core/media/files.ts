@@ -104,6 +104,10 @@ const KEPT = 'images, videos, sounds, PDF and HTML only.'
 const looksLikeHtml = (bytes: Uint8Array) =>
   /^\s*(<!doctype html|<html)/i.test(new TextDecoder().decode(bytes.slice(0, 512)))
 
+/** The type of any file, read from its content, when its content tells it. */
+export const mimeOf = (bytes: Uint8Array) =>
+  Effect.promise(() => fileTypeFromBuffer(bytes)).pipe(Effect.map((detected) => detected?.mime))
+
 /** The type of a file, read from its content, never from what the caller says. */
 export const typeOf = Effect.fn('typeOf')(function* (bytes: Uint8Array) {
   const detected = yield* Effect.promise(() => fileTypeFromBuffer(bytes))

@@ -380,3 +380,26 @@ describe('an agent works through the inbox', () => {
     })
   })
 })
+
+describe('an image taken from the inbox', () => {
+  test('comes as an image the agent sees, beside the item', async () => {
+    const pixel =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    await mcp().call('inbox_add', { kind: 'file', name: 'dot.png', data: pixel })
+    const { result } = await mcp().request('tools/call', { name: 'inbox_take', arguments: {} })
+    const { content } = Schema.decodeUnknownSync(
+      Schema.Struct({
+        content: Schema.Array(
+          Schema.Struct({
+            type: Schema.String,
+            text: Schema.optionalKey(Schema.String),
+            mimeType: Schema.optionalKey(Schema.String),
+          }),
+        ),
+      }),
+    )(result)
+    expect(content.map(({ type }) => type)).toEqual(['text', 'image'])
+    expect(content[0]?.text).toContain('"name":"dot.png"')
+    expect(content[1]?.mimeType).toBe('image/png')
+  })
+})

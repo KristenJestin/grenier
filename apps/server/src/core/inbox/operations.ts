@@ -6,7 +6,7 @@ import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { findEntry, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
-import { storeFile } from '../media/files.ts'
+import { mimeOf, storeFile } from '../media/files.ts'
 import { Refused } from '../refused.ts'
 import { INBOX } from './store.ts'
 
@@ -37,6 +37,7 @@ export const InboxItem = Schema.Struct({
   kind: Schema.Literals(['text', 'url', 'file']),
   name: Schema.NullOr(Schema.String),
   size: Schema.NullOr(Schema.Number),
+  mime: Schema.NullOr(Schema.String),
   origin: Schema.String,
   received_at: Schema.String,
   status: Schema.Literals(ITEM_STATUSES),
@@ -51,6 +52,8 @@ const Full = Schema.Struct({
   text: Schema.NullOr(Schema.String),
   url: Schema.NullOr(Schema.String),
   sha256: Schema.NullOr(Schema.String),
+  /** Where a file kept on disk is fetched, with a key that may read. */
+  media_url: Schema.NullOr(Schema.String),
 })
 
 const { inbox } = tables
@@ -60,6 +63,7 @@ const SUMMARY = {
   kind: inbox.kind,
   name: inbox.name,
   size: inbox.size,
+  mime: inbox.mime,
   origin: inbox.origin,
   received_at: sql<string>`to_char(${inbox.received_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
   status: inbox.status,
@@ -72,6 +76,7 @@ const FULL = {
   text: sql<string | null>`CASE WHEN ${inbox.kind} = 'url' THEN NULL ELSE ${inbox.content} END`,
   url: sql<string | null>`CASE WHEN ${inbox.kind} = 'url' THEN ${inbox.content} END`,
   sha256: inbox.sha256,
+  media_url: sql<string | null>`'/media/' || ${inbox.sha256}`,
 }
 
 const summaries = rowsOf(InboxItem)
@@ -116,12 +121,14 @@ export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) 
       ? yield* Effect.gen(function* () {
           const bytes = new Uint8Array(Buffer.from(data, 'base64'))
           const text = textOf(bytes)
+          const binary = text === undefined
           return {
             kind: 'file',
             name: input.name ?? null,
             size: bytes.length,
             content: text ?? null,
-            sha256: text === undefined ? yield* storeFile(bytes) : null,
+            sha256: binary ? yield* storeFile(bytes) : null,
+            mime: binary ? ((yield* mimeOf(bytes)) ?? 'application/octet-stream') : null,
             origin,
           }
         })

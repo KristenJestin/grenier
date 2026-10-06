@@ -422,6 +422,8 @@ export const inbox = pgTable(
     closed_by: text(),
     closed_at: timestamp(at),
     reason: text(),
+    // The type of a file kept on disk, read from its content.
+    mime: text(),
   },
   (table) => [
     check('inbox_kind', sql`kind IN ('text', 'url', 'file')`),

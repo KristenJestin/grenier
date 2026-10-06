@@ -12,6 +12,7 @@ import {
   listInbox,
   takeItem,
 } from '../../src/core/inbox/index.ts'
+import { readMedia } from '../../src/core/media/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -102,5 +103,28 @@ describe('the inbox', () => {
       name: 'pancakes.md',
       text: '# Pancakes\n\nFlour, milk, eggs.\n',
     })
+  })
+})
+
+describe('a binary file in the inbox', () => {
+  const PIXEL =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+
+  test('is kept on disk with its type, given by address, and served back', async () => {
+    const item = await run(
+      as('agent-one')(addToInbox({ kind: 'file', name: 'dot.png', data: PIXEL })),
+    )
+    const taken = await run(as('agent-one')(takeItem({ id: item.id })))
+    expect(taken).toMatchObject({
+      kind: 'file',
+      name: 'dot.png',
+      mime: 'image/png',
+      size: 68,
+      text: null,
+    })
+    expect(taken.media_url).toBe(`/media/${taken.sha256}`)
+    const served = await run(as('agent-one')(readMedia(taken.sha256 ?? '')))
+    expect(served.mime).toBe('image/png')
+    expect(Buffer.from(served.bytes).toString('base64')).toBe(PIXEL)
   })
 })
