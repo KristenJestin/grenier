@@ -20,6 +20,7 @@ import { Child, Entry, HIDDEN, SourceGiven, SourceKept } from '@grenier/api/mode
 import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
 import { findSourceItem } from '../sources/operations.ts'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
+import { refusingContention } from './contention.ts'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
 
 const Row = Schema.Struct({
@@ -377,262 +378,277 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
   const db = yield* drizzle
   const actor = yield* currentActor
   const configuration = yield* searchConfiguration
-  return yield* client.withTransaction(
-    Effect.gen(function* () {
-      // Taken before any row lock, and only by a move: the cycle check below reads a tree that
-      // no other move changes until this one commits.
-      if (input.entry !== undefined && Predicate.isString(input.parent)) {
-        yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
-      }
-      // Locked until the write commits: a concurrent write waits, then starts from this one. The
-      // lock lets other writes still point to the entry (as a parent, through a foreign key).
-      const existing = input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
-      const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
-      const base = existing === undefined ? CREATED : stateOf(existing)
-      const state = {
-        ...base,
-        ...given,
-        fields: withoutNulls({ ...base.fields, ...fields }),
-        provenance: withoutNulls({ ...base.provenance, ...provenance }),
-      }
-      const slug = state.slug ?? (yield* freeSlugOf(state.title ?? ''))
-      const type = state.type === undefined ? undefined : yield* findType(state.type, 'share')
-      const hidden = yield* sensitivity
-      if (type !== undefined && hidden.hidesType(type.name)) {
-        return yield* new Refused({
-          message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right \`sensitive\`.`,
-        })
-      }
-      const byOwner = (yield* Rights).includes('owner')
-      if (existing !== undefined && type !== undefined && type.name !== existing.type) {
-        const refusal = yield* retypeRefusal(existing, type, state.fields, byOwner)
-        if (refusal !== undefined) return yield* new Refused({ message: refusal })
-      }
-      const forbidden =
-        type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
-      if (forbidden.length > 0) {
-        return yield* new Refused({
-          message: forbidden
-            .map(
-              (name) =>
-                `The field \`fields.${name}\` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
-            )
-            .join(' '),
-        })
-      }
-
-      const decoded = Schema.decodeUnknownResult(
-        Schema.Struct({
-          type: Schema.String,
-          title: Text,
-          slug: Slug,
-          aliases: Schema.Array(Text),
-          tags: Schema.Array(Text),
-          parent: Schema.NullOr(Schema.String),
-          fields: type === undefined ? Schema.Record(Schema.String, Schema.Json) : fieldsOf(type),
-          provenance: Schema.Record(Schema.String, Provenance),
-          body: Schema.String,
-          summary: Schema.String,
-          verified: Schema.Boolean,
-          valid_from: Schema.NullOr(DateText),
-          valid_until: Schema.NullOr(DateText),
-          superseded_by: Schema.NullOr(Schema.String),
-          sources: Schema.Array(SourceGiven),
-        }),
-      )({ ...state, slug }, { errors: 'all', onExcessProperty: 'error' })
-      const problems = Result.isFailure(decoded) ? [formatSchemaError(decoded.failure)] : []
-
-      if (state.type !== undefined && type === undefined) {
-        problems.push(
-          `The field \`type\` must name an existing type: \`${state.type}\` does not exist.`,
-        )
-      }
-      for (const name of Object.keys(state.provenance)) {
-        if (type !== undefined && !type.fields.some((field) => field.name === name)) {
-          problems.push(
-            `The field \`provenance.${name}\` must name a field of the type \`${type.name}\`.`,
-          )
+  return yield* refusingContention(
+    client.withTransaction(
+      Effect.gen(function* () {
+        // Taken before any row lock, and only by a move: the cycle check below reads a tree that
+        // no other move changes until this one commits.
+        if (input.entry !== undefined && Predicate.isString(input.parent)) {
+          yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
-      }
-      const instants = { created, updated }
-      for (const [field, value] of Object.entries(instants)) {
-        if (value === undefined) continue
-        if (existing !== undefined) {
-          problems.push(`The field \`${field}\` can be given only when the entry is created.`)
-        } else if (instantOf(value) === undefined) {
-          problems.push(
-            `The field \`${field}\` must be a date such as \`2026-10-05\` or a date and time such as \`2026-10-05T14:30:00Z\`.`,
-          )
+        // The types first, then the entry, in the order a change of a type takes them: two writes
+        // never wait for each other in a circle.
+        const current =
+          input.entry === undefined
+            ? undefined
+            : (yield* typed(
+                db.select({ id: table.id, type: table.type }).from(table).where(named(input.entry)),
+              ))[0]?.type
+        const locked = [...new Set([current, input.type].filter(Predicate.isString))].toSorted()
+        yield* Effect.forEach(locked, (name) => findType(name, 'share'))
+        // Locked until the write commits: a concurrent write waits, then starts from this one. The
+        // lock lets other writes still point to the entry (as a parent, through a foreign key).
+        const existing =
+          input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
+        const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
+        const base = existing === undefined ? CREATED : stateOf(existing)
+        const state = {
+          ...base,
+          ...given,
+          fields: withoutNulls({ ...base.fields, ...fields }),
+          provenance: withoutNulls({ ...base.provenance, ...provenance }),
         }
-      }
-      const createdAt = instantOf(created) ?? new Date().toISOString()
-      const updatedAt = instantOf(updated)
-      if (
-        existing === undefined &&
-        updatedAt !== undefined &&
-        updatedAt !== null &&
-        updatedAt < createdAt
-      ) {
-        problems.push(
-          'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
-        )
-      }
-      if (input.verified === true && !byOwner) {
-        problems.push('The field `verified` can be set to true by the owner only.')
-      }
-      const owner = yield* idOf(slug)
-      if (owner !== undefined && owner !== existing?.id) {
-        // Said without confirming that an entry the caller may not see uses it.
-        problems.push(
-          (yield* visibleIdOf(slug)) === undefined
-            ? `The field \`slug\` cannot be \`${slug}\`: choose another slug.`
-            : `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
-        )
-      }
-
-      /** The id of the entry a field names, or a problem when there is none. */
-      const resolve = Effect.fn('resolve')(function* (field: string, reference: string | null) {
-        if (reference === null) return null
-        const id = yield* visibleIdOf(reference)
-        if (id !== undefined) return id
-        problems.push(
-          `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
-        )
-        return null
-      })
-
-      const parentId = yield* resolve('parent', state.parent)
-      if (parentId !== null && existing !== undefined) {
-        const lineage = yield* lineageOf(parentId)
-        if (lineage.some(({ id }) => id === existing.id)) {
-          problems.push(
-            `The field \`parent\` cannot be \`${state.parent}\`: an entry cannot be filed under itself or one of its descendants.`,
-          )
+        const slug = state.slug ?? (yield* freeSlugOf(state.title ?? ''))
+        const type = state.type === undefined ? undefined : yield* findType(state.type, 'share')
+        const hidden = yield* sensitivity
+        if (type !== undefined && hidden.hidesType(type.name)) {
+          return yield* new Refused({
+            message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+          })
         }
-      }
-      const supersededBy = yield* resolve('superseded_by', state.superseded_by)
-      const references = { ...state.fields }
-      for (const field of type?.fields ?? []) {
-        const value = state.fields[field.name]
-        if (field.kind === 'entry' && Predicate.isString(value)) {
-          references[field.name] = (yield* resolve(`fields.${field.name}`, value)) ?? value
+        const byOwner = (yield* Rights).includes('owner')
+        if (existing !== undefined && type !== undefined && type.name !== existing.type) {
+          const refusal = yield* retypeRefusal(existing, type, state.fields, byOwner)
+          if (refusal !== undefined) return yield* new Refused({ message: refusal })
         }
-      }
-
-      // The entries a source names, by id; a URL that is a web address; a registry item it holds.
-      const sources: Array<SourceKept> = []
-      for (const [index, source] of state.sources.entries()) {
-        const at = `\`sources.${index}\``
-        if ('entry' in source) {
-          const id = yield* visibleIdOf(source.entry)
-          if (id === undefined)
-            problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
-          else sources.push({ ...source, entry: id })
-        } else if (
-          'url' in source &&
-          !(/^https?:\/\//.test(source.url) && URL.canParse(source.url))
-        ) {
-          problems.push(`The source ${at} must be an http or https URL: \`${source.url}\` is not.`)
-        } else if (
-          'item' in source &&
-          !(source.source === INBOX
-            ? yield* inboxHolds(source.item)
-            : (yield* findSourceItem(source.source, source.item)) !== undefined)
-        ) {
-          problems.push(
-            `The source ${at} names the item \`${source.item}\` of \`${source.source}\`, which the registry does not hold.`,
-          )
-        } else sources.push(source)
-      }
-
-      for (const reference of referencesIn(state.body)) {
-        if (
-          reference !== slug &&
-          !coming.has(reference) &&
-          (yield* visibleIdOf(reference)) === undefined
-        ) {
-          problems.push(
-            `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
-          )
+        const forbidden =
+          type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
+        if (forbidden.length > 0) {
+          return yield* new Refused({
+            message: forbidden
+              .map(
+                (name) =>
+                  `The field \`fields.${name}\` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+              )
+              .join(' '),
+          })
         }
-      }
 
-      if (Result.isFailure(decoded) || problems.length > 0) {
-        return yield* new Refused({ message: problems.join(' ') })
-      }
-      const renamed = existing !== undefined && existing.slug !== decoded.success.slug
-      const entry = renamed
-        ? {
-            ...decoded.success,
-            body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
-          }
-        : decoded.success
-      const changesWith = (verified: boolean) =>
-        changesBetween(
-          existing === undefined ? {} : snapshotOf(existing),
-          snapshotOf({
-            ...entry,
-            verified,
-            parent_id: parentId,
-            fields: references,
-            sources,
-            superseded_by: supersededBy,
-            archived_at: existing?.archived_at ?? null,
+        const decoded = Schema.decodeUnknownResult(
+          Schema.Struct({
+            type: Schema.String,
+            title: Text,
+            slug: Slug,
+            aliases: Schema.Array(Text),
+            tags: Schema.Array(Text),
+            parent: Schema.NullOr(Schema.String),
+            fields: type === undefined ? Schema.Record(Schema.String, Schema.Json) : fieldsOf(type),
+            provenance: Schema.Record(Schema.String, Provenance),
+            body: Schema.String,
+            summary: Schema.String,
+            verified: Schema.Boolean,
+            valid_from: Schema.NullOr(DateText),
+            valid_until: Schema.NullOr(DateText),
+            superseded_by: Schema.NullOr(Schema.String),
+            sources: Schema.Array(SourceGiven),
           }),
+        )({ ...state, slug }, { errors: 'all', onExcessProperty: 'error' })
+        const problems = Result.isFailure(decoded) ? [formatSchemaError(decoded.failure)] : []
+
+        if (state.type !== undefined && type === undefined) {
+          problems.push(
+            `The field \`type\` must name an existing type: \`${state.type}\` does not exist.`,
+          )
+        }
+        for (const name of Object.keys(state.provenance)) {
+          if (type !== undefined && !type.fields.some((field) => field.name === name)) {
+            problems.push(
+              `The field \`provenance.${name}\` must name a field of the type \`${type.name}\`.`,
+            )
+          }
+        }
+        const instants = { created, updated }
+        for (const [field, value] of Object.entries(instants)) {
+          if (value === undefined) continue
+          if (existing !== undefined) {
+            problems.push(`The field \`${field}\` can be given only when the entry is created.`)
+          } else if (instantOf(value) === undefined) {
+            problems.push(
+              `The field \`${field}\` must be a date such as \`2026-10-05\` or a date and time such as \`2026-10-05T14:30:00Z\`.`,
+            )
+          }
+        }
+        const createdAt = instantOf(created) ?? new Date().toISOString()
+        const updatedAt = instantOf(updated)
+        if (
+          existing === undefined &&
+          updatedAt !== undefined &&
+          updatedAt !== null &&
+          updatedAt < createdAt
+        ) {
+          problems.push(
+            'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
+          )
+        }
+        if (input.verified === true && !byOwner) {
+          problems.push('The field `verified` can be set to true by the owner only.')
+        }
+        const owner = yield* idOf(slug)
+        if (owner !== undefined && owner !== existing?.id) {
+          // Said without confirming that an entry the caller may not see uses it.
+          problems.push(
+            (yield* visibleIdOf(slug)) === undefined
+              ? `The field \`slug\` cannot be \`${slug}\`: choose another slug.`
+              : `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
+          )
+        }
+
+        /** The id of the entry a field names, or a problem when there is none. */
+        const resolve = Effect.fn('resolve')(function* (field: string, reference: string | null) {
+          if (reference === null) return null
+          const id = yield* visibleIdOf(reference)
+          if (id !== undefined) return id
+          problems.push(
+            `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
+          )
+          return null
+        })
+
+        const parentId = yield* resolve('parent', state.parent)
+        if (parentId !== null && existing !== undefined) {
+          const lineage = yield* lineageOf(parentId)
+          if (lineage.some(({ id }) => id === existing.id)) {
+            problems.push(
+              `The field \`parent\` cannot be \`${state.parent}\`: an entry cannot be filed under itself or one of its descendants.`,
+            )
+          }
+        }
+        const supersededBy = yield* resolve('superseded_by', state.superseded_by)
+        const references = { ...state.fields }
+        for (const field of type?.fields ?? []) {
+          const value = state.fields[field.name]
+          if (field.kind === 'entry' && Predicate.isString(value)) {
+            references[field.name] = (yield* resolve(`fields.${field.name}`, value)) ?? value
+          }
+        }
+
+        // The entries a source names, by id; a URL that is a web address; a registry item it holds.
+        const sources: Array<SourceKept> = []
+        for (const [index, source] of state.sources.entries()) {
+          const at = `\`sources.${index}\``
+          if ('entry' in source) {
+            const id = yield* visibleIdOf(source.entry)
+            if (id === undefined)
+              problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
+            else sources.push({ ...source, entry: id })
+          } else if (
+            'url' in source &&
+            !(/^https?:\/\//.test(source.url) && URL.canParse(source.url))
+          ) {
+            problems.push(
+              `The source ${at} must be an http or https URL: \`${source.url}\` is not.`,
+            )
+          } else if (
+            'item' in source &&
+            !(source.source === INBOX
+              ? yield* inboxHolds(source.item)
+              : (yield* findSourceItem(source.source, source.item)) !== undefined)
+          ) {
+            problems.push(
+              `The source ${at} names the item \`${source.item}\` of \`${source.source}\`, which the registry does not hold.`,
+            )
+          } else sources.push(source)
+        }
+
+        for (const reference of referencesIn(state.body)) {
+          if (
+            reference !== slug &&
+            !coming.has(reference) &&
+            (yield* visibleIdOf(reference)) === undefined
+          ) {
+            problems.push(
+              `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
+            )
+          }
+        }
+
+        if (Result.isFailure(decoded) || problems.length > 0) {
+          return yield* new Refused({ message: problems.join(' ') })
+        }
+        const renamed = existing !== undefined && existing.slug !== decoded.success.slug
+        const entry = renamed
+          ? {
+              ...decoded.success,
+              body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
+            }
+          : decoded.success
+        const changesWith = (verified: boolean) =>
+          changesBetween(
+            existing === undefined ? {} : snapshotOf(existing),
+            snapshotOf({
+              ...entry,
+              verified,
+              parent_id: parentId,
+              fields: references,
+              sources,
+              superseded_by: supersededBy,
+              archived_at: existing?.archived_at ?? null,
+            }),
+          )
+        // What the owner verified is no longer verified once a writer without `owner` changes it.
+        const verified = entry.verified && (byOwner || changesWith(true).length === 0)
+        const changes = changesWith(verified)
+        if (existing !== undefined && changes.length === 0) return yield* masked(existing)
+        const values = {
+          type: entry.type,
+          title: entry.title,
+          slug: entry.slug,
+          aliases: entry.aliases,
+          tags: entry.tags,
+          parent_id: parentId,
+          fields: references,
+          provenance: entry.provenance,
+          sources,
+          body: entry.body,
+          summary: entry.summary,
+          verified,
+          valid_from: entry.valid_from,
+          valid_until: entry.valid_until,
+          superseded_by: supersededBy,
+          search_language: configuration,
+        }
+        const [written] =
+          existing === undefined
+            ? yield* ids(
+                db
+                  .insert(table)
+                  .values({
+                    ...values,
+                    created: sql`coalesce(${instantOf(created)}::timestamptz, now())`,
+                    updated: sql`coalesce(${instantOf(updated ?? created)}::timestamptz, now())`,
+                  })
+                  .returning({ id: table.id }),
+              )
+            : yield* ids(
+                db
+                  .update(table)
+                  .set({ ...values, updated: sql`now()` })
+                  .where(eq(table.id, existing.id))
+                  .returning({ id: table.id }),
+              )
+        const id = written?.id ?? ''
+        yield* recordEvent(
+          actor,
+          { entryId: id, typeName: null },
+          existing === undefined ? 'create' : 'update',
+          changes,
         )
-      // What the owner verified is no longer verified once a writer without `owner` changes it.
-      const verified = entry.verified && (byOwner || changesWith(true).length === 0)
-      const changes = changesWith(verified)
-      if (existing !== undefined && changes.length === 0) return yield* masked(existing)
-      const values = {
-        type: entry.type,
-        title: entry.title,
-        slug: entry.slug,
-        aliases: entry.aliases,
-        tags: entry.tags,
-        parent_id: parentId,
-        fields: references,
-        provenance: entry.provenance,
-        sources,
-        body: entry.body,
-        summary: entry.summary,
-        verified,
-        valid_from: entry.valid_from,
-        valid_until: entry.valid_until,
-        superseded_by: supersededBy,
-        search_language: configuration,
-      }
-      const [written] =
-        existing === undefined
-          ? yield* ids(
-              db
-                .insert(table)
-                .values({
-                  ...values,
-                  created: sql`coalesce(${instantOf(created)}::timestamptz, now())`,
-                  updated: sql`coalesce(${instantOf(updated ?? created)}::timestamptz, now())`,
-                })
-                .returning({ id: table.id }),
-            )
-          : yield* ids(
-              db
-                .update(table)
-                .set({ ...values, updated: sql`now()` })
-                .where(eq(table.id, existing.id))
-                .returning({ id: table.id }),
-            )
-      const id = written?.id ?? ''
-      yield* recordEvent(
-        actor,
-        { entryId: id, typeName: null },
-        existing === undefined ? 'create' : 'update',
-        changes,
-      )
-      const mentioned = yield* Effect.forEach(referencesIn(entry.body), idOf)
-      yield* replaceMentions(id, mentioned.filter(Predicate.isString))
-      if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
-      return yield* findEntry(id)
-    }),
+        const mentioned = yield* Effect.forEach(referencesIn(entry.body), idOf)
+        yield* replaceMentions(id, mentioned.filter(Predicate.isString))
+        if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
+        return yield* findEntry(id)
+      }),
+    ),
   )
 })
 
@@ -724,25 +740,27 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
       ...(entry === undefined && slug === undefined && title !== undefined ? [slugOf(title)] : []),
     ]),
   )
-  return yield* client.withTransaction(
-    Effect.gen(function* () {
-      // A refusal is kept as a value, so that every entry of the batch is checked.
-      const results = yield* Effect.forEach(batch, (input) =>
-        writeEntry(input, coming).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
-      )
-      const isRefused = Schema.is(Refused)
-      const refusals = results.flatMap((result, index) =>
-        isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],
-      )
-      if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
-      const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
-      // The references to entries written later in the batch are linked now that all exist.
-      yield* Effect.forEach(written, (entry) =>
-        Effect.flatMap(Effect.forEach(referencesIn(entry.body), idOf), (mentioned) =>
-          replaceMentions(entry.id, mentioned.filter(Predicate.isString)),
-        ),
-      )
-      return written
-    }),
+  return yield* refusingContention(
+    client.withTransaction(
+      Effect.gen(function* () {
+        // A refusal is kept as a value, so that every entry of the batch is checked.
+        const results = yield* Effect.forEach(batch, (input) =>
+          writeEntry(input, coming).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
+        )
+        const isRefused = Schema.is(Refused)
+        const refusals = results.flatMap((result, index) =>
+          isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],
+        )
+        if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
+        const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+        // The references to entries written later in the batch are linked now that all exist.
+        yield* Effect.forEach(written, (entry) =>
+          Effect.flatMap(Effect.forEach(referencesIn(entry.body), idOf), (mentioned) =>
+            replaceMentions(entry.id, mentioned.filter(Predicate.isString)),
+          ),
+        )
+        return written
+      }),
+    ),
   )
 })

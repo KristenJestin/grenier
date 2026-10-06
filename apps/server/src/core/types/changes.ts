@@ -2,6 +2,7 @@ import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
+import { refusingContention } from '../entries/contention.ts'
 import { visibleIdOf } from '../entries/operations.ts'
 import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
@@ -279,7 +280,8 @@ export const changeField = Effect.fn('changeField')(
     return { type: next, invalid, repaired: repaired.map(({ slug }) => slug) }
   },
   // The type and its entries are read under a lock, and checked as they stand when written.
-  (change) => Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(change)),
+  (change) =>
+    refusingContention(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(change))),
 )
 
 /**
@@ -416,70 +418,74 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
     })
   }
   const actor = yield* currentActor
-  return yield* sql.withTransaction(
-    Effect.gen(function* () {
-      // Read under a lock: of two confirmations at once, the second sees the first one's work.
-      const proposal = yield* findProposal(id, true)
-      if (proposal.status !== 'pending') {
-        return yield* new Refused({ message: `The proposal \`${id}\` is already confirmed.` })
-      }
-      if (proposal.action === 'merge' && proposal.into !== null) {
-        // Both types locked in the order of their names: two merges at once lock them alike.
-        yield* Effect.forEach([proposal.type, proposal.into].toSorted(), lockedType)
-        const into = yield* lockedType(proposal.into)
-        const mapping = proposal.mapping ?? {}
-        const shared = sharedTargets(proposal.type, mapping)
-        if (shared.length > 0) return yield* new Refused({ message: shared.join(' ') })
-        const entries = yield* entriesOf(proposal.type)
-        const lost = entries.flatMap(({ slug, fields }) =>
-          Object.keys(fields)
-            .filter((field) => mappedOf(mapping, field) === undefined)
-            .map((field) => `\`${slug}\`: the field \`${field}\` has no place in \`${into.name}\``),
-        )
-        if (lost.length > 0) {
-          return yield* new Refused({
-            message: `The merge would lose values: ${lost.join('; ')}. Map these fields first.`,
-          })
+  return yield* refusingContention(
+    sql.withTransaction(
+      Effect.gen(function* () {
+        // Read under a lock: of two confirmations at once, the second sees the first one's work.
+        const proposal = yield* findProposal(id, true)
+        if (proposal.status !== 'pending') {
+          return yield* new Refused({ message: `The proposal \`${id}\` is already confirmed.` })
         }
-        const rewrites = entries.map((entry) => ({
-          before: entry,
-          slug: entry.slug,
-          type: into.name,
-          fields: Object.fromEntries(
-            Object.entries(entry.fields).map(([field, value]) => [
-              mappedOf(mapping, field) ?? field,
-              value,
-            ]),
-          ),
-          provenance: Object.fromEntries(
-            Object.entries(entry.provenance).flatMap(([field, value]) =>
-              mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
-            ),
-          ),
-        }))
-        const { resolved: moved, unknown } = yield* withEntryIds(
-          rewrites,
-          into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
-        )
-        const invalid = problemsOf(into, moved, unknown)
-        if (invalid.length > 0) {
-          return yield* refusedFor(
-            invalid,
-            'merge',
-            'Fix these entries, or propose the merge again with a mapping that keeps them valid.',
+        if (proposal.action === 'merge' && proposal.into !== null) {
+          // Both types locked in the order of their names: two merges at once lock them alike.
+          yield* Effect.forEach([proposal.type, proposal.into].toSorted(), lockedType)
+          const into = yield* lockedType(proposal.into)
+          const mapping = proposal.mapping ?? {}
+          const shared = sharedTargets(proposal.type, mapping)
+          if (shared.length > 0) return yield* new Refused({ message: shared.join(' ') })
+          const entries = yield* entriesOf(proposal.type)
+          const lost = entries.flatMap(({ slug, fields }) =>
+            Object.keys(fields)
+              .filter((field) => mappedOf(mapping, field) === undefined)
+              .map(
+                (field) => `\`${slug}\`: the field \`${field}\` has no place in \`${into.name}\``,
+              ),
           )
+          if (lost.length > 0) {
+            return yield* new Refused({
+              message: `The merge would lose values: ${lost.join('; ')}. Map these fields first.`,
+            })
+          }
+          const rewrites = entries.map((entry) => ({
+            before: entry,
+            slug: entry.slug,
+            type: into.name,
+            fields: Object.fromEntries(
+              Object.entries(entry.fields).map(([field, value]) => [
+                mappedOf(mapping, field) ?? field,
+                value,
+              ]),
+            ),
+            provenance: Object.fromEntries(
+              Object.entries(entry.provenance).flatMap(([field, value]) =>
+                mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
+              ),
+            ),
+          }))
+          const { resolved: moved, unknown } = yield* withEntryIds(
+            rewrites,
+            into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
+          )
+          const invalid = problemsOf(into, moved, unknown)
+          if (invalid.length > 0) {
+            return yield* refusedFor(
+              invalid,
+              'merge',
+              'Fix these entries, or propose the merge again with a mapping that keeps them valid.',
+            )
+          }
+          yield* rewriteEntries(actor, moved)
+        } else {
+          yield* refuseWhileUsed(proposal.type)
         }
-        yield* rewriteEntries(actor, moved)
-      } else {
-        yield* refuseWhileUsed(proposal.type)
-      }
-      yield* sql`UPDATE types SET deleted_at = now() WHERE name = ${proposal.type}`
-      yield* sql`UPDATE type_proposals SET status = 'confirmed', decided_by = ${actor},
+        yield* sql`UPDATE types SET deleted_at = now() WHERE name = ${proposal.type}`
+        yield* sql`UPDATE type_proposals SET status = 'confirmed', decided_by = ${actor},
         decided_at = now() WHERE id = ${proposal.id}::uuid`
-      yield* recordEvent(actor, { entryId: null, typeName: proposal.type }, proposal.action, [
-        { field: 'deleted', before: null, after: proposal.into ?? true },
-      ])
-      return { ...proposal, status: 'confirmed' as const }
-    }),
+        yield* recordEvent(actor, { entryId: null, typeName: proposal.type }, proposal.action, [
+          { field: 'deleted', before: null, after: proposal.into ?? true },
+        ])
+        return { ...proposal, status: 'confirmed' as const }
+      }),
+    ),
   )
 })
