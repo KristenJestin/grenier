@@ -10,6 +10,7 @@ import { attachMediaTool } from './tools/attach-media.ts'
 import { briefingTool } from './tools/briefing.ts'
 import { changeFieldTool } from './tools/change-field.ts'
 import { changeTypeTool } from './tools/change-type.ts'
+import { unverifiedTool } from './tools/unverified.ts'
 import { confirmProposalTool } from './tools/confirm-proposal.ts'
 import { defineTypeTool } from './tools/define-type.ts'
 import { describeMediaTool } from './tools/describe-media.ts'
@@ -47,6 +48,7 @@ export const GrenierTools = Toolkit.make(
   describeMediaTool.tool,
   upcomingTool.tool,
   briefingTool.tool,
+  unverifiedTool.tool,
 )
 
 /**
@@ -135,6 +137,7 @@ export const GrenierHandlers = GrenierTools.toLayer(
       describe_media: handlerOf(describeMediaTool),
       upcoming: handlerOf(upcomingTool),
       briefing: handlerOf(briefingTool),
+      unverified: handlerOf(unverifiedTool),
     }
   }),
 )
