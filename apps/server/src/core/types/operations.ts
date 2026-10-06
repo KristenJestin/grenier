@@ -1,6 +1,9 @@
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
@@ -25,6 +28,15 @@ const Row = Schema.Struct({
 const typeOf = Schema.decodeUnknownEffect(Row)
 const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
+const { types } = tables
+
+const COLUMNS = {
+  name: types.name,
+  label: types.label,
+  description: types.description,
+  fields: types.fields,
+}
+
 /** What the event log keeps of a type: its label, its description and each field definition. */
 export const snapshotOf = ({ label, description, fields }: TypeDefinition): Snapshot => ({
   label,
@@ -34,10 +46,12 @@ export const snapshotOf = ({ label, description, fields }: TypeDefinition): Snap
 
 /** The type of that name, if there is one; `locked`, until the transaction ends. */
 export const findType = Effect.fn('findType')(function* (name: string, locked = false) {
-  const sql = yield* SqlClient.SqlClient
-  const [row] =
-    yield* sql`SELECT name, label, description, fields FROM types WHERE name = ${name} AND deleted_at IS NULL
-      ${locked ? sql`FOR UPDATE` : sql``}`
+  const db = yield* drizzle
+  const query = db
+    .select(COLUMNS)
+    .from(types)
+    .where(and(eq(types.name, name), isNull(types.deleted_at)))
+  const [row] = yield* locked ? query.for('update') : query
   return row === undefined ? undefined : yield* typeOf(row).pipe(Effect.orDie)
 })
 
@@ -51,9 +65,12 @@ export const getType = Effect.fn('getType')(function* (name: string, locked = fa
 
 /** Every type, by name. */
 export const listTypes = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient
-  const rows =
-    yield* sql`SELECT name, label, description, fields FROM types WHERE deleted_at IS NULL ORDER BY name`
+  const db = yield* drizzle
+  const rows = yield* db
+    .select(COLUMNS)
+    .from(types)
+    .where(isNull(types.deleted_at))
+    .orderBy(asc(types.name))
   return yield* Effect.forEach(rows, (row) => typeOf(row).pipe(Effect.orDie))
 })
 
@@ -62,17 +79,25 @@ export const listTypes = Effect.gen(function* () {
  * naming the existing type, since only the caller can tell whether it means the same thing.
  */
 export const defineType = Effect.fn('defineType')(function* (input: typeof TypeDefinition.Encoded) {
-  const sql = yield* SqlClient.SqlClient
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const actor = yield* currentActor
   const type = yield* decodeType(input)
-  return yield* sql.withTransaction(
+  return yield* client.withTransaction(
     Effect.gen(function* () {
-      const existing = (yield* names(sql`SELECT name FROM types`)).map(({ name }) => name)
+      // Deleted and merged types keep their name: it stays taken.
+      const existing = (yield* names(db.select({ name: types.name }).from(types))).map(
+        ({ name }) => name,
+      )
       if (existing.includes(type.name)) {
         return yield* new Refused({ message: `The type \`${type.name}\` already exists.` })
       }
-      yield* sql`INSERT INTO types (name, label, description, fields)
-        VALUES (${type.name}, ${type.label}, ${type.description}, ${JSON.stringify(type.fields)}::jsonb)`
+      yield* db.insert(types).values({
+        name: type.name,
+        label: type.label,
+        description: type.description,
+        fields: type.fields,
+      })
       yield* recordEvent(
         actor,
         { entryId: null, typeName: type.name },
@@ -95,9 +120,10 @@ export const addField = Effect.fn('addField')(function* (
   typeName: string,
   input: typeof FieldDefinition.Encoded,
 ) {
-  const sql = yield* SqlClient.SqlClient
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const actor = yield* currentActor
-  return yield* sql.withTransaction(
+  return yield* client.withTransaction(
     Effect.gen(function* () {
       // Locked until the field is added: a concurrent change waits, then starts from this one.
       const type = yield* getType(typeName, true)
@@ -107,8 +133,10 @@ export const addField = Effect.fn('addField')(function* (
         })
       }
       const extended = yield* decodeType({ ...type, fields: [...type.fields, input] })
-      yield* sql`UPDATE types SET fields = ${JSON.stringify(extended.fields)}::jsonb, updated = now()
-        WHERE name = ${type.name}`
+      yield* db
+        .update(types)
+        .set({ fields: extended.fields, updated: sql`now()` })
+        .where(eq(types.name, type.name))
       yield* recordEvent(
         actor,
         { entryId: null, typeName: type.name },
