@@ -31,7 +31,10 @@ An entry is never deleted by an agent; it is archived.
 
 Several entries can be written in one call (`write_many`, 100 at most), in one transaction, each
 by the rules of a single write; their bodies may cite one another with `[[slug]]` as if all
-existed. One refused entry refuses the whole batch, naming each refused entry with its sentences.
+existed. References are checked against the slugs the batch leaves: a reference to a slug the
+batch renames away is refused, and so is one to the slug a new title would take when that slug is
+used already (the refusal names the slug the entry takes instead). One refused entry refuses the
+whole batch, naming each refused entry with its sentences.
 
 The values of the field kinds, as they are written and read: `date` as `2026-10-05`,
 `datetime` as `2026-10-05T14:30:00Z` (with an offset), `duration` as an ISO 8601 duration,
@@ -79,7 +82,10 @@ date, their order or their count in a window would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
 its occurrences are left out. Such a key may not write a sensitive field
-nor an entry of a sensitive type. Sensitive data
+nor an entry of a sensitive type, nor change the type of an entry that holds a sensitive value,
+nor change a sensitive field or any field of a sensitive type; to its writes, an entry it may not
+see does not exist. Only the owner moves an entry to a type where a sensitive value it holds, or
+the entry itself, would no longer be sensitive. A refusal never quotes a stored value. Sensitive data
 is never sent to an external service, and an export leaves it out unless asked to include it.
 
 A type's name is unique and in lowercase kebab-case (`bank-account`); its description is
@@ -112,7 +118,7 @@ Every change of a type is recorded in the event log like any other write.
 How the server does it: `change_field` makes a field required (or optional), changes its kind (a
 field that stops being a date loses its `due` and `recurs`), renames it (its values and their
 provenance move with it) or changes its allowed values. It checks every entry of the type, archived
-ones included, and refuses while one would become invalid, naming each; a `default` fills the
+ones included, and refuses while one would become invalid, naming each (never its value); a `default` fills the
 entries that lack a field made required, a `mapping` turns old values into new ones, and every
 entry repaired gets an `update` event. `dry_run` answers what would happen and writes nothing. A
 value of a field that becomes a link to an entry, by a change or a merge, is stored as the id of
@@ -120,7 +126,9 @@ the entry its slug or id names; one that names no entry is refused. Deleting or 
 proposal; only a key with the right `owner` confirms it, and no agent key has that right. A merge
 moves the entries to the other type, their fields renamed by its mapping, and is refused if a value
 would be lost or an entry left invalid. A deleted type is marked, not removed, so its history
-stays; its name cannot be used again.
+stays; its name cannot be used again. A change of a type locks the type, then its entries; a write of an
+entry locks its type, then the entry, in the same order. A write PostgreSQL still breaks off
+because of another one at the same moment is refused with one sentence: try the write again.
 
 ## The tree
 
