@@ -8,6 +8,7 @@ import {
 } from '@grenier/api/http'
 import { Auth } from './core/auth/index.ts'
 import { readEntry } from './core/entries/index.ts'
+import { Refused } from './core/refused.ts'
 import { search } from './core/search/index.ts'
 import { listTypes } from './core/types/index.ts'
 import { Effect, Layer, Redacted } from 'effect'
@@ -51,8 +52,11 @@ const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
   Effect.succeed(
     handlers.handle('read', ({ params }) =>
       readEntry(params.entry).pipe(
-        Effect.catchTag('Refused', ({ message }) => Effect.fail(new NotFound({ message }))),
-        Effect.catchTag('SqlError', Effect.die),
+        Effect.catch((error) =>
+          error instanceof Refused
+            ? Effect.fail(new NotFound({ message: error.message }))
+            : Effect.die(error),
+        ),
       ),
     ),
   ),
@@ -63,12 +67,11 @@ const searching = HttpApiBuilder.group(GrenierApi, 'search', (handlers) =>
     handlers.handle('search', ({ query: { q, ...options } }) =>
       search(q, options).pipe(
         Effect.map((results) => ({ results })),
-        Effect.catchTag('Refused', ({ message }) => Effect.fail(new Invalid({ message }))),
-        Effect.catchTags({
-          ConfigError: Effect.die,
-          SearchLanguageUnknown: Effect.die,
-          SqlError: Effect.die,
-        }),
+        Effect.catch((error) =>
+          error instanceof Refused
+            ? Effect.fail(new Invalid({ message: error.message }))
+            : Effect.die(error),
+        ),
       ),
     ),
   ),

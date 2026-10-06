@@ -4,6 +4,7 @@ export {
   databaseReachable,
   databaseServices,
   databaseUrl,
+  drizzle,
   layer,
 } from './client.ts'
 export { latestVersion, migrate, MigrationsBehind, schemaVersion } from './migrate.ts'

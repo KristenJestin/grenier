@@ -1,5 +1,6 @@
 import { Effect, Schema } from 'effect'
-import { SqlClient } from 'effect/sql'
+import { drizzle } from '../database/client.ts'
+import * as tables from '../database/schema.ts'
 
 export const Change = Schema.Struct({
   field: Schema.String,
@@ -44,8 +45,12 @@ export const recordEvent = Effect.fn('recordEvent')(function* (
   action: Action,
   changes: ReadonlyArray<Change>,
 ) {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`INSERT INTO events (actor, entry_id, type_name, action, changes)
-    VALUES (${actor}, ${subject.entryId}::uuid, ${subject.typeName}, ${action},
-      ${JSON.stringify(changes)}::jsonb)`
+  const db = yield* drizzle
+  yield* db.insert(tables.events).values({
+    actor,
+    entry_id: subject.entryId,
+    type_name: subject.typeName,
+    action,
+    changes,
+  })
 })
