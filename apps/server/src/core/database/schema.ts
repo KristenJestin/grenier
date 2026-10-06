@@ -89,6 +89,10 @@ export const entries = pgTable(
       setweight(to_tsvector(search_language, tags::text || ' ' || summary), 'B') ||
       setweight(to_tsvector(search_language, body || ' ' || media_text), 'C')`,
     ),
+    // Where the entry comes from: entries by id, URLs, external identifiers, registry items.
+    sources: jsonb()
+      .notNull()
+      .default(sql`'[]'`),
   },
   (table) => [
     unique('entries_slug_key').on(table.slug),

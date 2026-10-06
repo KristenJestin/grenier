@@ -9,6 +9,37 @@ export const HIDDEN = '[hidden]'
 /** How a field's value was obtained: read in a source, inferred from it, or left unsure. */
 export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
+const About = { note: Schema.optionalKey(Schema.String) }
+
+/** A URL source, an external identifier, or an item of the source registry. */
+const Elsewhere = [
+  Schema.Struct({ url: Schema.String, ...About }),
+  Schema.Struct({ identifier: Schema.String, label: Schema.optionalKey(Schema.String), ...About }),
+  Schema.Struct({ source: Schema.String, item: Schema.String, ...About }),
+] as const
+
+/**
+ * Where an entry comes from, as a write gives it: another entry (by slug or id), a URL, an
+ * external identifier with an optional label, or an item of the source registry; each may say
+ * a short note.
+ */
+export const SourceGiven = Schema.Union([
+  Schema.Struct({ entry: Schema.String, ...About }),
+  ...Elsewhere,
+])
+export type SourceGiven = typeof SourceGiven.Type
+
+/** A source as it is kept: an entry by its id. */
+export const SourceKept = SourceGiven
+export type SourceKept = typeof SourceKept.Type
+
+/** A source as it is read: an entry with its slug and title. */
+export const Source = Schema.Union([
+  Schema.Struct({ entry: Schema.String, slug: Schema.String, title: Schema.String, ...About }),
+  ...Elsewhere,
+])
+export type Source = typeof Source.Type
+
 /** An entry as it is read: the base fields of `docs/model.md` and the values of its type. */
 export const Entry = Schema.Struct({
   id: Schema.String,
@@ -20,6 +51,7 @@ export const Entry = Schema.Struct({
   parent_id: Schema.NullOr(Schema.String),
   fields: Schema.Record(Schema.String, Schema.Json),
   provenance: Schema.Record(Schema.String, Schema.Literals(PROVENANCES)),
+  sources: Schema.Array(Source),
   body: Schema.String,
   summary: Schema.String,
   verified: Schema.Boolean,
@@ -60,6 +92,7 @@ export const WriteEntryInput = Schema.Struct({
   parent: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
   provenance: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
+  sources: Schema.optionalKey(Schema.Array(SourceGiven)),
   body: Schema.optionalKey(Schema.String),
   summary: Schema.optionalKey(Schema.String),
   verified: Schema.optionalKey(Schema.Boolean),
@@ -114,5 +147,8 @@ export const EntryRead = Schema.Struct({
   backlinks: Schema.Array(Link),
   children: Schema.Array(Child),
   hidden_children: Schema.Number,
+  cited_by: Schema.Array(
+    Schema.Struct({ id: Schema.String, slug: Schema.String, title: Schema.String }),
+  ),
 })
 export type EntryRead = typeof EntryRead.Type

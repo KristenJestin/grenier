@@ -19,6 +19,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `parent_id` | where the entry is filed (see "The tree") |
 | `fields` | the values of the type's fields, validated against the type |
 | `provenance` | per field: `extracted` (read from a source), `inferred` (deduced by an agent) or `ambiguous` (sources disagree) |
+| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the source registry (`{ "source": "notes", "item": "<identifier>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `verified` | false until the owner has reviewed the entry; only the owner sets it to true, and a write that changes the entry by a writer without the `owner` right sets it back to false (recorded in the event like any changed field) |
