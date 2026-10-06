@@ -68,7 +68,8 @@ records), at its definition or later with `change_type`.
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker
 `[hidden]` wherever an entry is read, its history shows the change with both values hidden, a
-search does not match it, and a date field that is sensitive shows only that something is due.
+search does not match it, and a date field that is sensitive shows only that something is due
+on that entry: no date, no days left, no age, since each would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
 its occurrences show neither its name nor its date. Such a key may not write a sensitive field

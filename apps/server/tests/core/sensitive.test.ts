@@ -51,6 +51,20 @@ beforeAll(() =>
         ],
       })
       yield* defineType({
+        name: 'member',
+        label: 'Member',
+        description: 'A member of a club.',
+        fields: [
+          {
+            name: 'born',
+            kind: 'date',
+            sensitive: true,
+            recurs: { every: 'yearly', notice: 'P30D' },
+          },
+        ],
+      })
+      yield* writeEntry({ type: 'member', title: 'Club member', fields: { born: '1990-03-25' } })
+      yield* defineType({
         name: 'diary',
         label: 'Diary',
         description: 'A page of a diary.',
@@ -122,16 +136,25 @@ describe('sensitive fields are shown only to keys that may see them', () => {
         'agent-plain',
       )
     const told = await plain(onDay(headsUp))
-    expect(told).toMatchObject([{ entry: { slug: 'current-account' }, field: 'renewal' }])
+    // That something is due, on which entry and field: not when, nor how old.
+    expect(told.map(({ entry, field }) => [entry.slug, field]).toSorted()).toEqual([
+      ['club-member', 'born'],
+      ['current-account', 'renewal'],
+    ])
+    for (const each of told)
+      expect(each).toMatchObject({ date: HIDDEN, period: HIDDEN, days_left: null, age: null })
     const shown = JSON.stringify([
       told,
       await plain(onDay(upcoming('2030-03-01', '2030-03-31'))),
       await plain(onDay(briefing('week'))),
     ])
     expect(shown).not.toContain('2030-03-20')
+    expect(shown).not.toContain('2030-03-25')
+    expect(shown).not.toContain('"age":40')
     expect(shown).not.toContain('zebracode')
     expect(await trusted(onDay(upcoming('2030-03-01', '2030-03-31')))).toMatchObject([
-      { date: '2030-03-20' },
+      { date: '2030-03-20', days_left: 19 },
+      { date: '2030-03-25', days_left: 24, age: 40 },
     ])
   })
 
