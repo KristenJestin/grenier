@@ -9,10 +9,16 @@ import { Auth } from './core/auth/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { Effect, Layer } from 'effect'
 import { HttpRouter } from 'effect/http'
-import { GrenierRoutes } from './grenier.ts'
+import { GrenierRoutes, MCP_BODY_LIMIT } from './grenier.ts'
 
 const server = HttpRouter.serve(GrenierRoutes, { disableLogger: true }).pipe(
-  Layer.provide(BunHttpServer.layer({ port: Number(process.env['PORT'] ?? 3000) })),
+  Layer.provide(
+    BunHttpServer.layer({
+      port: Number(process.env['PORT'] ?? 3000),
+      // A backstop for a body that does not say its length; the routes refuse the others.
+      maxRequestBodySize: MCP_BODY_LIMIT + 1024 * 1024,
+    }),
+  ),
 )
 
 const program = Effect.gen(function* () {
