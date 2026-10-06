@@ -36,6 +36,21 @@ pub mod text {
 
     pub const SMALL: Pixels = px(12.);
     pub const BODY: Pixels = px(14.);
+    pub const LEAD: Pixels = px(16.);
     pub const HEADING: Pixels = px(18.);
-    pub const TITLE: Pixels = px(24.);
+    pub const TITLE: Pixels = px(28.);
+}
+
+/// The widths of the layout.
+pub mod width {
+    use super::{Pixels, px};
+
+    /// The column a page reads in: long lines are hard to follow.
+    pub const READING: Pixels = px(760.);
+    /// The sidebar of the tree.
+    pub const SIDEBAR: Pixels = px(288.);
+    /// The labels of a list of fields.
+    pub const LABEL: Pixels = px(176.);
+    /// The search field.
+    pub const SEARCH: Pixels = px(520.);
 }

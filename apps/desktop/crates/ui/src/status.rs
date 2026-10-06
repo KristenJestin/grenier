@@ -4,9 +4,10 @@
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::skeleton::Skeleton;
-use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
-    App, ElementId, IntoElement, ParentElement as _, SharedString, Styled as _, div, relative,
+    App, ElementId, FontWeight, IntoElement, ParentElement as _, SharedString, Styled as _, div,
+    relative,
 };
 
 use crate::intent::{Intent, OnIntent};
@@ -25,7 +26,7 @@ pub fn loading(lines: usize) -> impl IntoElement {
         }))
 }
 
-/// What a screen shows when there is nothing: a short title and the next action.
+/// What a screen shows when there is nothing: an icon, a short title and the next action.
 pub fn empty(
     title: impl Into<SharedString>,
     detail: impl Into<SharedString>,
@@ -35,11 +36,26 @@ pub fn empty(
         .size_full()
         .items_center()
         .justify_center()
-        .gap(space::XS)
+        .gap(space::S)
         .p(space::XL)
-        .child(div().text_size(text::HEADING).child(title.into()))
+        .child(
+            div().p(space::M).rounded_full().bg(cx.theme().muted).child(
+                Icon::new(gpui_kit::assets::IconName::Inbox)
+                    .large()
+                    .text_color(cx.theme().muted_foreground),
+            ),
+        )
         .child(
             div()
+                .pt(space::XS)
+                .text_size(text::HEADING)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title.into()),
+        )
+        .child(
+            div()
+                .max_w(gpui_kit::px(360.))
+                .text_center()
                 .text_size(text::BODY)
                 .text_color(cx.theme().muted_foreground)
                 .child(detail.into()),

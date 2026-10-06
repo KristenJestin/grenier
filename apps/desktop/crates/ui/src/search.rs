@@ -3,6 +3,7 @@
 use api::SearchResult;
 use gpui_kit::base::Selectable as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::list::ListItem;
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
@@ -12,6 +13,7 @@ use gpui_kit::{
 
 use crate::intent::{Intent, OnIntent};
 use crate::load::Load;
+use crate::parts::page;
 use crate::status;
 use crate::theme::{space, text};
 
@@ -68,6 +70,10 @@ impl RenderOnce for SearchScreen {
             type_name,
             results,
         } = self.data;
+        let body_count = match &results {
+            Load::Ready(found) => Some(found.len()),
+            _ => None,
+        };
         let filters = h_flex().gap(space::XS).flex_wrap().children(
             std::iter::once(None)
                 .chain(types.into_iter().map(Some))
@@ -107,16 +113,7 @@ impl RenderOnce for SearchScreen {
                 status::failed("search-failed", &problem, on_intent.clone()).into_any_element()
             }
             Load::Ready(found) => v_flex()
-                .gap(space::M)
-                .child(
-                    div()
-                        .text_size(text::SMALL)
-                        .text_color(cx.theme().muted_foreground)
-                        .child(match found.len() {
-                            1 => "1 résultat".to_string(),
-                            count => format!("{count} résultats"),
-                        }),
-                )
+                .gap(space::XS)
                 .children(
                     found
                         .into_iter()
@@ -124,55 +121,78 @@ impl RenderOnce for SearchScreen {
                 )
                 .into_any_element(),
         };
-        v_flex()
+        let count = match &body_count {
+            Some(count) => format!("{count} résultat{}", if *count == 1 { "" } else { "s" }),
+            None => String::new(),
+        };
+        page(cx)
             .gap(space::L)
-            .p(space::L)
             .child(
-                div()
-                    .text_size(text::HEADING)
-                    .child(format!("Recherche : {query}")),
+                v_flex()
+                    .gap(space::XS)
+                    .child(
+                        div()
+                            .text_size(text::TITLE)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!("« {query} »")),
+                    )
+                    .child(
+                        div()
+                            .text_size(text::SMALL)
+                            .text_color(cx.theme().muted_foreground)
+                            .child(count),
+                    ),
             )
             .child(filters)
             .child(body)
     }
 }
 
-/// One result: its title as a link, its type, where it sits, and its excerpt.
+/// One result: its title, its type, where it sits, and its excerpt; the whole row opens it.
 fn result_row(result: SearchResult, on_intent: &OnIntent, cx: &App) -> impl IntoElement {
     let on_intent = on_intent.clone();
     let slug: SharedString = result.slug.clone().into();
     let (excerpt, ranges) = marked(&result.excerpt);
     let emphasis = HighlightStyle {
         font_weight: Some(FontWeight::SEMIBOLD),
-        background_color: Some(cx.theme().warning.opacity(0.25)),
+        background_color: Some(cx.theme().warning.opacity(0.22)),
         ..Default::default()
     };
-    v_flex()
-        .gap(space::XS)
+    let muted = cx.theme().muted_foreground;
+    ListItem::new(SharedString::from(format!("result-{}", result.id)))
+        .px(space::M)
+        .py(space::S)
+        .rounded(cx.theme().radius_lg)
+        .on_click(move |_, window, cx| on_intent(Intent::Open(slug.clone()), window, cx))
         .child(
-            h_flex()
-                .gap(space::S)
+            v_flex()
+                .w_full()
+                .gap(space::XS)
                 .child(
-                    Button::new(SharedString::from(format!("result-{}", result.id)))
-                        .link()
-                        .label(result.title.clone())
-                        .on_click(move |_, window, cx| {
-                            on_intent(Intent::Open(slug.clone()), window, cx)
-                        }),
+                    h_flex()
+                        .gap(space::S)
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(result.title.clone()),
+                        )
+                        .child(Tag::secondary().small().child(result.type_.clone())),
                 )
-                .child(Tag::secondary().small().child(result.type_.clone())),
-        )
-        .children((!result.path.is_empty()).then(|| {
-            div()
-                .text_size(text::SMALL)
-                .text_color(cx.theme().muted_foreground)
-                .child(result.path.join(" › "))
-        }))
-        .child(
-            div().text_size(text::BODY).child(
-                StyledText::new(excerpt)
-                    .with_highlights(ranges.into_iter().map(|range| (range, emphasis))),
-            ),
+                .children((!result.path.is_empty()).then(|| {
+                    div()
+                        .text_size(text::SMALL)
+                        .text_color(muted)
+                        .child(result.path.join(" › "))
+                }))
+                .child(
+                    div().text_color(muted).child(
+                        StyledText::new(excerpt)
+                            .with_highlights(ranges.into_iter().map(|range| (range, emphasis))),
+                    ),
+                ),
         )
 }
 

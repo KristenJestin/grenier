@@ -6,6 +6,7 @@
 pub mod entry;
 pub mod intent;
 pub mod load;
+pub mod parts;
 pub mod placeholder;
 pub mod search;
 pub mod status;

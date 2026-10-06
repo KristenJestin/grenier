@@ -5,13 +5,14 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::list::ListItem;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tree::{TreeItem, TreeState, tree};
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Render, SharedString,
     Styled as _, Subscription, Window, div, px,
 };
@@ -21,7 +22,7 @@ use crate::intent::{Back, FocusSearch, FollowLink, Forward, Intent, OnIntent, in
 use crate::load::Load;
 use crate::search::{SearchData, SearchScreen};
 use crate::status;
-use crate::theme::{space, text};
+use crate::theme::{space, text, width};
 
 const CONTEXT: &str = "Viewer";
 
@@ -209,26 +210,21 @@ impl Viewer {
             Load::Ready(()) => tree(&self.tree, move |index, entry, selected, _, _| {
                 let item = entry.item();
                 let type_name = types.get(&item.id).cloned().unwrap_or_default();
+                let icon = match (entry.is_folder(), entry.is_expanded()) {
+                    (true, true) => gpui_kit::assets::IconName::FolderOpen,
+                    (true, false) => gpui_kit::assets::IconName::Folder,
+                    (false, _) => gpui_kit::assets::IconName::FileText,
+                };
                 ListItem::new(index)
                     .selected(selected)
-                    .pl(px(12.) * entry.depth() as f32 + px(8.))
+                    .py(px(3.))
+                    .pl(px(14.) * entry.depth() as f32 + space::S)
+                    .pr(space::S)
                     .child(
                         h_flex()
                             .gap(space::S)
                             .w_full()
-                            .child(
-                                Icon::new(if entry.is_folder() {
-                                    if entry.is_expanded() {
-                                        IconName::ChevronDown
-                                    } else {
-                                        IconName::ChevronRight
-                                    }
-                                } else {
-                                    IconName::Minus
-                                })
-                                .xsmall()
-                                .text_color(muted),
-                            )
+                            .child(Icon::new(icon).small().text_color(muted))
                             .child(
                                 div()
                                     .flex_1()
@@ -238,6 +234,7 @@ impl Viewer {
                             )
                             .child(
                                 div()
+                                    .flex_none()
                                     .text_size(text::SMALL)
                                     .text_color(muted)
                                     .child(type_name),
@@ -248,13 +245,24 @@ impl Viewer {
             .into_any_element(),
         };
         v_flex()
-            .w(px(280.))
+            .w(width::SIDEBAR)
             .h_full()
             .flex_none()
             .border_r_1()
-            .border_color(cx.theme().border)
+            .border_color(cx.theme().sidebar_border)
             .bg(cx.theme().sidebar)
-            .child(body)
+            .text_color(cx.theme().sidebar_foreground)
+            .child(
+                div()
+                    .px(space::L)
+                    .pt(space::L)
+                    .pb(space::S)
+                    .text_size(text::SMALL)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(muted)
+                    .child("FICHES"),
+            )
+            .child(div().flex_1().min_h_0().px(space::S).child(body))
     }
 }
 
@@ -284,17 +292,55 @@ impl Render for Viewer {
             .text_size(text::BODY)
             .child(
                 h_flex()
+                    .h(px(48.))
+                    .flex_none()
+                    .px(space::M)
                     .gap(space::S)
-                    .p(space::S)
                     .border_b_1()
-                    .border_color(cx.theme().border)
+                    .border_color(cx.theme().title_bar_border)
+                    .bg(cx.theme().title_bar)
                     .child(
-                        div().w(px(480.)).child(
-                            Input::new(&self.search)
-                                .small()
-                                .prefix(Icon::new(IconName::Search).small()),
+                        h_flex()
+                            .w(width::SIDEBAR - space::M)
+                            .gap(space::XS)
+                            .child(
+                                Button::new("back")
+                                    .ghost()
+                                    .small()
+                                    .icon(gpui_kit::assets::IconName::ArrowLeft)
+                                    .tooltip("Retour (Alt+←)")
+                                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Intent::Back))),
+                            )
+                            .child(
+                                Button::new("forward")
+                                    .ghost()
+                                    .small()
+                                    .icon(gpui_kit::assets::IconName::ArrowRight)
+                                    .tooltip("Avancer (Alt+→)")
+                                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Intent::Forward))),
+                            )
+                            .child(
+                                div()
+                                    .pl(space::S)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Grenier"),
+                            ),
+                    )
+                    .child(
+                        h_flex().flex_1().justify_center().child(
+                            div().w(width::SEARCH).child(
+                                Input::new(&self.search)
+                                    .prefix(Icon::new(IconName::Search).small())
+                                    .suffix(
+                                        div()
+                                            .text_size(text::SMALL)
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Ctrl K"),
+                                    ),
+                            ),
                         ),
-                    ),
+                    )
+                    .child(div().w(width::SIDEBAR - space::M)),
             )
             .child(
                 h_flex()

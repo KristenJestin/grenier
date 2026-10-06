@@ -3,21 +3,21 @@
 use api::{EntryRead, FieldDefinitionKind, Source, TypeDefinition};
 use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::description_list::DescriptionList;
 use gpui_kit::component::link::Link;
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, App, IntoElement, ParentElement as _, RenderOnce, SharedString, Styled as _,
-    Window, div,
+    AnyElement, App, FontWeight, IntoElement, ParentElement as _, RenderOnce, SharedString,
+    Styled as _, Window, div,
 };
 use serde_json::Value;
 
 use crate::intent::{FollowLink, Intent, OnIntent, with_entry_links};
 use crate::load::Load;
+use crate::parts::{page, row, rows, section};
 use crate::status;
-use crate::theme::{space, text};
+use crate::theme::{space, text, width};
 
 /// What the server shows in place of a value the key may not see.
 pub const HIDDEN: &str = "[hidden]";
@@ -60,11 +60,24 @@ impl RenderOnce for EntryScreen {
     }
 }
 
-fn section(title: &'static str, cx: &App) -> impl IntoElement {
-    div()
-        .text_size(text::SMALL)
-        .text_color(cx.theme().muted_foreground)
-        .child(title)
+/// Opens an entry when called.
+fn opener(
+    on_intent: &OnIntent,
+    target: impl Into<SharedString>,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+    let on_intent = on_intent.clone();
+    let target = target.into();
+    move |_, window, cx| on_intent(Intent::Open(target.clone()), window, cx)
+}
+
+/// Opens a web address when called.
+fn browser(
+    on_intent: &OnIntent,
+    url: impl Into<SharedString>,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+    let on_intent = on_intent.clone();
+    let url = url.into();
+    move |_, window, cx| on_intent(Intent::OpenUrl(url.clone()), window, cx)
 }
 
 fn ready(data: EntryData, on_intent: &OnIntent, cx: &App) -> impl IntoElement {
@@ -73,76 +86,55 @@ fn ready(data: EntryData, on_intent: &OnIntent, cx: &App) -> impl IntoElement {
         type_definition,
     } = data;
     let entry = &read.entry;
-    let path = read.path.iter().enumerate().map(|(depth, title)| {
-        let on_intent = on_intent.clone();
-        BreadcrumbItem::new(title.clone())
-            .on_click(move |_, window, cx| on_intent(Intent::OpenAncestor(depth), window, cx))
+    let muted = cx.theme().muted_foreground;
+    let path = (!read.path.is_empty()).then(|| {
+        Breadcrumb::new().children(read.path.iter().enumerate().map(|(depth, title)| {
+            let on_intent = on_intent.clone();
+            BreadcrumbItem::new(title.clone())
+                .on_click(move |_, window, cx| on_intent(Intent::OpenAncestor(depth), window, cx))
+        }))
+    });
+    let unverified =
+        (!entry.verified).then(|| Tag::warning().small().outline().child("Non vérifiée"));
+    let summary = (!entry.summary.is_empty()).then(|| {
+        div()
+            .text_size(text::LEAD)
+            .text_color(muted)
+            .child(entry.summary.clone())
     });
     let header = v_flex()
-        .gap(space::S)
-        .when_some_path(read.path.is_empty().then_some(()), path)
+        .gap(space::M)
+        .children(path)
+        .child(
+            div()
+                .text_size(text::TITLE)
+                .font_weight(FontWeight::SEMIBOLD)
+                .line_height(gpui_kit::relative(1.2))
+                .child(entry.title.clone()),
+        )
         .child(
             h_flex()
                 .gap(space::S)
-                .items_start()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(text::TITLE)
-                        .child(entry.title.clone()),
-                )
+                .flex_wrap()
+                .text_size(text::SMALL)
+                .text_color(muted)
                 .child(Tag::secondary().small().child(entry.type_.clone()))
-                .when_unverified(!entry.verified),
+                .children(unverified)
+                .child(format!(
+                    "Modifiée le {}",
+                    date_in_words(&entry.updated[..entry.updated.len().min(10)])
+                ))
+                .children(entry.tags.iter().map(|tag| format!("#{tag}"))),
         )
-        .when_summary(&entry.summary, cx);
-    v_flex()
-        .gap(space::XL)
-        .p(space::L)
+        .children(summary);
+    page(cx)
         .child(header)
-        .child(fields(&read, type_definition.as_ref(), on_intent, cx))
-        .child(body(entry.id.clone(), &entry.body))
-        .child(related(&read, on_intent, cx))
-        .child(sources(&entry.sources, on_intent, cx))
-        .child(media(&read, cx))
-}
-
-/// Small helpers that keep the header readable.
-trait HeaderExt: Sized {
-    fn when_some_path(self, empty: Option<()>, path: impl Iterator<Item = BreadcrumbItem>) -> Self;
-    fn when_unverified(self, unverified: bool) -> Self;
-    fn when_summary(self, summary: &str, cx: &App) -> Self;
-}
-
-impl HeaderExt for gpui_kit::Div {
-    fn when_some_path(self, empty: Option<()>, path: impl Iterator<Item = BreadcrumbItem>) -> Self {
-        if empty.is_some() {
-            self
-        } else {
-            self.child(Breadcrumb::new().children(path))
-        }
-    }
-
-    fn when_unverified(self, unverified: bool) -> Self {
-        if unverified {
-            self.child(Tag::warning().small().outline().child("Non vérifiée"))
-        } else {
-            self
-        }
-    }
-
-    fn when_summary(self, summary: &str, cx: &App) -> Self {
-        if summary.is_empty() {
-            self
-        } else {
-            self.child(
-                div()
-                    .text_size(text::BODY)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(summary.to_string()),
-            )
-        }
-    }
+        .children(fields(&read, type_definition.as_ref(), on_intent, cx))
+        .children(body(entry.id.clone(), &entry.body))
+        .children(children(&read, on_intent, cx))
+        .children(links(&read, on_intent, cx))
+        .children(sources(&entry.sources, on_intent, cx))
+        .children(media(&read, cx))
 }
 
 /// The values of the entry's fields, in the order of its type, each shown by its kind.
@@ -151,12 +143,12 @@ fn fields(
     type_definition: Option<&TypeDefinition>,
     on_intent: &OnIntent,
     cx: &App,
-) -> AnyElement {
+) -> Option<AnyElement> {
     let values = &read.entry.fields;
     if values.is_empty() {
-        return div().into_any_element();
+        return None;
     }
-    let ordered: Vec<(String, Option<FieldDefinitionKind>)> = type_definition
+    let mut ordered: Vec<(String, Option<FieldDefinitionKind>)> = type_definition
         .map(|definition| {
             definition
                 .fields
@@ -171,18 +163,42 @@ fn fields(
         .filter(|name| !ordered.iter().any(|(known, _)| known == *name))
         .map(|name| (name.clone(), None))
         .collect();
-    let list = ordered.into_iter().chain(rest).fold(
-        DescriptionList::horizontal().bordered(true).columns(1),
-        |list, (name, kind)| {
-            let value = value_of(&values[&name], kind, read, on_intent, cx);
-            list.item(name.replace('_', " "), value, 1)
-        },
-    );
-    v_flex()
-        .gap(space::S)
-        .child(section("Champs", cx))
-        .child(list)
-        .into_any_element()
+    ordered.extend(rest);
+    let border = cx.theme().border;
+    let muted = cx.theme().muted_foreground;
+    let list = v_flex().children(ordered.into_iter().map(|(name, kind)| {
+        h_flex()
+            .items_start()
+            .gap(space::L)
+            .py(space::S)
+            .border_b_1()
+            .border_color(border)
+            .child(
+                div()
+                    .w(width::LABEL)
+                    .flex_none()
+                    .text_color(muted)
+                    .child(label_of(&name)),
+            )
+            .child(div().flex_1().min_w_0().child(value_of(
+                &values[&name],
+                kind,
+                read,
+                on_intent,
+                cx,
+            )))
+    }));
+    Some(section("Champs", None, list, cx))
+}
+
+/// A field name as a label: `monthly_cost` as `Monthly cost`.
+fn label_of(name: &str) -> String {
+    let spaced = name.replace('_', " ");
+    let mut letters = spaced.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
 }
 
 /// A value as its kind reads best: a hidden value as hidden, dates in words, links that open.
@@ -211,16 +227,15 @@ fn value_of(
         Some(FieldDefinitionKind::Date) => date_in_words(&text_value).into_any_element(),
         Some(FieldDefinitionKind::Money) => text_value.replace('.', ",").into_any_element(),
         Some(FieldDefinitionKind::Enum) => h_flex()
-            .child(Tag::new().small().child(text_value))
+            .child(Tag::secondary().small().child(text_value))
             .into_any_element(),
-        Some(FieldDefinitionKind::Url) => {
-            let on_intent = on_intent.clone();
-            let url: SharedString = text_value.clone().into();
-            Link::new(SharedString::from(format!("field-url-{text_value}")))
-                .child(text_value)
-                .on_click(move |_, window, cx| on_intent(Intent::OpenUrl(url.clone()), window, cx))
-                .into_any_element()
-        }
+        Some(FieldDefinitionKind::Url) => h_flex()
+            .child(
+                Link::new(SharedString::from(format!("field-url-{text_value}")))
+                    .child(text_value.clone())
+                    .on_click(browser(on_intent, text_value)),
+            )
+            .into_any_element(),
         Some(FieldDefinitionKind::Entry) => {
             let title = read
                 .links
@@ -229,12 +244,12 @@ fn value_of(
                 .find(|link| link.id == text_value)
                 .map_or_else(|| text_value.clone(), |link| link.title.clone());
             h_flex()
-                .child(entry_button(
-                    format!("field-entry-{text_value}"),
-                    title,
-                    text_value,
-                    on_intent,
-                ))
+                .child(
+                    Button::new(SharedString::from(format!("field-entry-{text_value}")))
+                        .link()
+                        .label(title)
+                        .on_click(opener(on_intent, text_value)),
+                )
                 .into_any_element()
         }
         _ => text_value.into_any_element(),
@@ -259,211 +274,197 @@ pub fn date_in_words(date: &str) -> String {
     }
 }
 
-fn entry_button(
-    id: String,
-    title: impl Into<SharedString>,
-    target: impl Into<SharedString>,
-    on_intent: &OnIntent,
-) -> AnyElement {
-    let on_intent = on_intent.clone();
-    let target = target.into();
-    Button::new(SharedString::from(id))
-        .link()
-        .label(title)
-        .on_click(move |_, window, cx| on_intent(Intent::Open(target.clone()), window, cx))
-        .into_any_element()
-}
-
 /// The body, from Markdown, with `[[slug]]` references as links that open the entry.
-fn body(id: String, body: &str) -> AnyElement {
+fn body(id: String, body: &str) -> Option<AnyElement> {
     if body.trim().is_empty() {
-        return div().into_any_element();
+        return None;
     }
-    TextView::markdown(
-        SharedString::from(format!("body-{id}")),
-        with_entry_links(body),
+    Some(
+        TextView::markdown(
+            SharedString::from(format!("body-{id}")),
+            with_entry_links(body),
+        )
+        .selectable(true)
+        .text_size(text::LEAD)
+        .on_link_click(|url, _, window, cx| {
+            window.dispatch_action(Box::new(FollowLink { url: url.clone() }), cx);
+        })
+        .into_any_element(),
     )
-    .selectable(true)
-    .on_link_click(|url, _, window, cx| {
-        window.dispatch_action(Box::new(FollowLink { url: url.clone() }), cx);
-    })
-    .into_any_element()
 }
 
-/// The children of the entry, then its links both ways.
-fn related(read: &EntryRead, on_intent: &OnIntent, cx: &App) -> AnyElement {
-    let mut blocks = v_flex().gap(space::L);
-    let mut any = false;
-    if !read.children.is_empty() || read.hidden_children > 0 {
-        any = true;
-        let hidden = (read.hidden_children > 0).then(|| {
-            div()
-                .text_size(text::SMALL)
-                .text_color(cx.theme().muted_foreground)
-                .child(match read.hidden_children {
-                    1 => "Et une fiche masquée.".to_string(),
-                    count => format!("Et {count} fiches masquées."),
-                })
-        });
-        blocks = blocks.child(
-            v_flex()
-                .gap(space::XS)
-                .child(section("Contient", cx))
-                .children(read.children.iter().map(|child| {
-                    h_flex()
-                        .gap(space::S)
-                        .child(entry_button(
-                            format!("child-{}", child.id),
-                            child.title.clone(),
-                            child.slug.clone(),
-                            on_intent,
-                        ))
-                        .child(Tag::secondary().small().child(child.type_.clone()))
-                }))
-                .children(hidden),
-        );
+/// The entries filed under this one; those the key may not see, counted.
+fn children(read: &EntryRead, on_intent: &OnIntent, cx: &App) -> Option<AnyElement> {
+    if read.children.is_empty() && read.hidden_children == 0 {
+        return None;
     }
-    for (title, links, key) in [
-        ("Liens", &read.links, "link"),
-        ("Cité par", &read.backlinks, "backlink"),
-    ] {
-        if links.is_empty() {
-            continue;
-        }
-        any = true;
-        blocks = blocks.child(v_flex().gap(space::XS).child(section(title, cx)).children(
-            links.iter().map(|link| {
-                h_flex()
-                    .gap(space::S)
-                    .child(
-                        div()
-                            .w(gpui_kit::px(120.))
-                            .text_size(text::SMALL)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(link.relation.replace('_', " ")),
-                    )
-                    .child(entry_button(
-                        format!("{key}-{}-{}", link.relation, link.id),
-                        link.title.clone(),
-                        link.slug.clone(),
-                        on_intent,
-                    ))
-            }),
-        ));
+    let hidden = (read.hidden_children > 0).then(|| {
+        div()
+            .px(space::S)
+            .pt(space::XS)
+            .text_size(text::SMALL)
+            .text_color(cx.theme().muted_foreground)
+            .child(match read.hidden_children {
+                1 => "Et une fiche masquée.".to_string(),
+                count => format!("Et {count} fiches masquées."),
+            })
+            .into_any_element()
+    });
+    let list = rows(
+        read.children
+            .iter()
+            .map(|child| {
+                row(
+                    SharedString::from(format!("child-{}", child.id)),
+                    gpui_kit::assets::IconName::FileText,
+                    child.title.clone(),
+                    Some(child.type_.clone().into()),
+                    opener(on_intent, child.slug.clone()),
+                    cx,
+                )
+            })
+            .chain(hidden),
+    );
+    Some(section(
+        "Contient",
+        Some(read.children.len() + read.hidden_children.max(0) as usize),
+        list,
+        cx,
+    ))
+}
+
+/// The links of the entry, both ways, by relation.
+fn links(read: &EntryRead, on_intent: &OnIntent, cx: &App) -> Option<AnyElement> {
+    if read.links.is_empty() && read.backlinks.is_empty() {
+        return None;
     }
-    if any {
-        blocks.into_any_element()
-    } else {
-        div().into_any_element()
-    }
+    let outgoing = read.links.iter().map(|link| ("out", link));
+    let incoming = read.backlinks.iter().map(|link| ("in", link));
+    let list = rows(outgoing.chain(incoming).map(|(way, link)| {
+        let relation = label_of(&link.relation);
+        row(
+            SharedString::from(format!("{way}-{}-{}", link.relation, link.id)),
+            if way == "out" {
+                gpui_kit::assets::IconName::ArrowRight
+            } else {
+                gpui_kit::assets::IconName::ArrowLeft
+            },
+            link.title.clone(),
+            Some(relation.into()),
+            opener(on_intent, link.slug.clone()),
+            cx,
+        )
+    }));
+    Some(section(
+        "Liens",
+        Some(read.links.len() + read.backlinks.len()),
+        list,
+        cx,
+    ))
 }
 
 /// Where the entry comes from.
-fn sources(sources: &[Source], on_intent: &OnIntent, cx: &App) -> AnyElement {
+fn sources(sources: &[Source], on_intent: &OnIntent, cx: &App) -> Option<AnyElement> {
     if sources.is_empty() {
-        return div().into_any_element();
+        return None;
     }
-    v_flex()
-        .gap(space::XS)
-        .child(section("Sources", cx))
-        .children(sources.iter().enumerate().map(|(index, source)| {
-            let (shown, note): (AnyElement, Option<&String>) = match source {
-                Source::Entry(entry) => (
-                    entry_button(
-                        format!("source-{index}"),
-                        entry.title.clone(),
-                        entry.entry.clone(),
-                        on_intent,
-                    ),
-                    entry.note.as_ref(),
-                ),
-                Source::Url(url) => {
-                    let on_intent = on_intent.clone();
-                    let address: SharedString = url.url.clone().into();
-                    (
-                        Link::new(SharedString::from(format!("source-{index}")))
-                            .child(url.url.clone())
-                            .on_click(move |_, window, cx| {
-                                on_intent(Intent::OpenUrl(address.clone()), window, cx)
-                            })
-                            .into_any_element(),
-                        url.note.as_ref(),
-                    )
-                }
-                Source::Identifier(identifier) => (
-                    match &identifier.label {
-                        Some(label) => format!("{label} ({})", identifier.identifier),
-                        None => identifier.identifier.clone(),
-                    }
-                    .into_any_element(),
-                    identifier.note.as_ref(),
-                ),
-                Source::Item(item) => (
-                    format!("{} : {}", item.source, item.item).into_any_element(),
-                    item.note.as_ref(),
-                ),
-            };
-            h_flex()
-                .gap(space::S)
-                .child(shown)
-                .children(note.map(|note| {
-                    div()
-                        .text_size(text::SMALL)
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!("— {note}"))
-                }))
-        }))
-        .into_any_element()
+    let list = rows(sources.iter().enumerate().map(|(index, source)| {
+        let id = SharedString::from(format!("source-{index}"));
+        let note = |note: &Option<String>| note.clone().map(SharedString::from);
+        match source {
+            Source::Entry(entry) => row(
+                id,
+                gpui_kit::assets::IconName::FileText,
+                entry.title.clone(),
+                note(&entry.note),
+                opener(on_intent, entry.entry.clone()),
+                cx,
+            ),
+            Source::Url(url) => row(
+                id,
+                gpui_kit::assets::IconName::Globe,
+                url.url.clone(),
+                note(&url.note),
+                browser(on_intent, url.url.clone()),
+                cx,
+            ),
+            Source::Identifier(identifier) => row(
+                id,
+                gpui_kit::assets::IconName::Hash,
+                identifier
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| identifier.identifier.clone()),
+                Some(identifier.identifier.clone().into()),
+                |_, _, _| {},
+                cx,
+            ),
+            Source::Item(item) => row(
+                id,
+                gpui_kit::assets::IconName::Inbox,
+                format!("Élément de « {} »", item.source),
+                note(&item.note),
+                |_, _, _| {},
+                cx,
+            ),
+        }
+    }));
+    Some(section("Sources", Some(sources.len()), list, cx))
 }
 
-/// The files of the entry, as tiles: what each is, and its description.
-fn media(read: &EntryRead, cx: &App) -> AnyElement {
+/// The files of the entry, as cards: what each is, and its description.
+fn media(read: &EntryRead, cx: &App) -> Option<AnyElement> {
     if read.media.is_empty() {
-        return div().into_any_element();
+        return None;
     }
-    v_flex()
-        .gap(space::XS)
-        .child(section("Médias", cx))
-        .child(
-            h_flex()
-                .gap(space::S)
-                .flex_wrap()
-                .children(read.media.iter().map(|medium| {
-                    let size = match (medium.width, medium.height) {
-                        (Some(width), Some(height)) => format!("{width} × {height}"),
-                        _ => medium.mime.clone(),
-                    };
+    let theme = cx.theme();
+    let cards = h_flex()
+        .gap(space::M)
+        .flex_wrap()
+        .children(read.media.iter().map(|medium| {
+            let size = match (medium.width, medium.height) {
+                (Some(width), Some(height)) => format!("{width} × {height}"),
+                _ => medium.mime.clone(),
+            };
+            let icon = if medium.kind == "image" {
+                gpui_kit::assets::IconName::Image
+            } else {
+                gpui_kit::assets::IconName::FileText
+            };
+            v_flex()
+                .w(gpui_kit::px(176.))
+                .rounded(theme.radius_lg)
+                .border_1()
+                .border_color(theme.border)
+                .overflow_hidden()
+                .child(
+                    div()
+                        .h(gpui_kit::px(112.))
+                        .w_full()
+                        .bg(theme.muted)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(Icon::new(icon).large().text_color(theme.muted_foreground)),
+                )
+                .child(
                     v_flex()
-                        .w(gpui_kit::px(160.))
-                        .gap(space::XS)
-                        .child(
-                            div()
-                                .h(gpui_kit::px(100.))
-                                .w_full()
-                                .rounded(cx.theme().radius)
-                                .bg(cx.theme().muted)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(medium.kind.clone()),
-                        )
+                        .p(space::S)
+                        .gap(gpui_kit::px(2.))
+                        .child(div().text_size(text::SMALL).truncate().child(
+                            if medium.alt.is_empty() {
+                                "Sans description".to_string()
+                            } else {
+                                medium.alt.clone()
+                            },
+                        ))
                         .child(
                             div()
                                 .text_size(text::SMALL)
-                                .child(if medium.alt.is_empty() {
-                                    "Sans description".to_string()
-                                } else {
-                                    medium.alt.clone()
-                                }),
-                        )
-                        .child(
-                            div()
-                                .text_size(text::SMALL)
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(theme.muted_foreground)
                                 .child(size),
-                        )
-                })),
-        )
-        .into_any_element()
+                        ),
+                )
+        }));
+    Some(section("Médias", Some(read.media.len()), cards, cx))
 }
