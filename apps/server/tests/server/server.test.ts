@@ -8,7 +8,7 @@ import type { Server, Socket } from 'node:net'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { TOOL_NAMES } from '../../src/mcp/tools.ts'
 import { Auth } from '../../src/core/auth/index.ts'
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN, TreeEntry } from '@grenier/api/model'
 import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
 import { Validator } from '@seriousme/openapi-schema-validator'
 import { ConfigProvider, Effect, Layer, ManagedRuntime, Predicate, Schema } from 'effect'
@@ -455,6 +455,20 @@ describe('the read API', () => {
     expect(Schema.decodeUnknownSync(NotFound)(unknown.body).message).toContain('nowhere-at-all')
   })
 
+  test('GET /api/entries lists the tree: every entry the key may see, with its parent', async () => {
+    const { status, body } = await get(
+      '/api/entries',
+      bearer(await createKey('tree-reader', ['read'])),
+    )
+    expect(status).toBe(200)
+    const { entries } = Schema.decodeUnknownSync(
+      Schema.Struct({ entries: Schema.Array(TreeEntry) }),
+    )(body)
+    expect(entries).toContainEqual(
+      expect.objectContaining({ slug: 'over-the-wire', type: 'note', parent_id: null }),
+    )
+  })
+
   test('types and search answer as list_types and search do over MCP', async () => {
     const agent = connectStateless(`${base}/mcp`, bearer(writer))
     const listed = await agent.call('list_types', {})
@@ -513,7 +527,7 @@ describe('the read API', () => {
 })
 
 describe('the API documentation', () => {
-  test('/api/openapi.json is a valid OpenAPI document of the three read routes, behind a bearer key', async () => {
+  test('/api/openapi.json is a valid OpenAPI document of the four read routes, behind a bearer key', async () => {
     const document = await fetch(`${base}/api/openapi.json`).then((response) => response.json())
     expect(await new Validator().validate(document)).toMatchObject({ valid: true })
     const Document = Schema.Struct({
@@ -534,6 +548,7 @@ describe('the API documentation', () => {
     })
     const { paths, components } = Schema.decodeUnknownSync(Document)(document)
     expect(Object.keys(paths).toSorted()).toEqual([
+      '/api/entries',
       '/api/entries/{entry}',
       '/api/search',
       '/api/types',
@@ -551,7 +566,7 @@ describe('the API documentation', () => {
     expect(page.status).toBe(200)
     expect(page.headers.get('content-type')).toContain('text/html')
     const html = await page.text()
-    for (const path of ['/api/types', '/api/entries/{entry}', '/api/search'])
+    for (const path of ['/api/types', '/api/entries', '/api/entries/{entry}', '/api/search'])
       expect(html).toContain(path)
   })
 })

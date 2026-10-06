@@ -35,6 +35,22 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+## Pointing the viewer at a server
+
+The application reads `grenier/desktop.json` in the system's configuration folder
+(`~/.config/grenier/desktop.json` on Linux, `%APPDATA%\grenier\desktop.json` on Windows), or
+the file `GRENIER_DESKTOP_CONFIG` names:
+
+```json
+{ "server": "http://127.0.0.1:3000", "key_file": "~/.config/grenier/key" }
+```
+
+`key_file` holds a key with the right `read` (`key:create --rights read`), alone on its line;
+give it to no one else (`chmod 600`). The key is read from that file at start and sent as
+`Authorization: Bearer`; it is never written in the configuration, nor printed, nor logged. A
+key without `sensitive` sees sensitive values as hidden. Without a configuration, the viewer says
+what to create.
+
 ## Screenshots of a story
 
 On Hyprland, capture only the story's window, never the whole screen: open the story, find its

@@ -1,7 +1,7 @@
 import { Effect, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
-import { archiveEntry, readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { archiveEntry, listEntries, readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { Rights } from '../../src/core/auth/index.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
 import { Refused } from '../../src/core/refused.ts'
@@ -254,6 +254,26 @@ describe('an archived entry stays in place', () => {
     await run(archiveEntry('old-contract'))
     const { entry } = await run(readEntry('old-contract'))
     expect(entry.archived_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+})
+
+describe('the tree is listed in one read: every entry with its parent, archived ones left out', () => {
+  test('a folder, what it holds, and not what was archived', async () => {
+    const garden = await run(writeEntry({ type: 'area', title: 'Garden', slug: 'garden' }))
+    const shed = await run(writeEntry({ type: 'note', title: 'Shed', parent: 'garden' }))
+    await run(writeEntry({ type: 'note', title: 'Old fence', parent: 'garden' }))
+    await run(archiveEntry('old-fence'))
+    const listed = await run(listEntries())
+    expect(listed.find(({ slug }) => slug === 'garden')).toEqual({
+      id: garden.id,
+      slug: 'garden',
+      type: 'area',
+      title: 'Garden',
+      parent_id: null,
+    })
+    expect(listed.filter(({ parent_id }) => parent_id === garden.id)).toEqual([
+      { id: shed.id, slug: 'shed', type: 'note', title: 'Shed', parent_id: garden.id },
+    ])
   })
 })
 

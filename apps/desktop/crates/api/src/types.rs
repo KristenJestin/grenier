@@ -41,6 +41,12 @@ pub struct Entry {
     pub valid_until: ::std::option::Option<::std::string::String>,
     pub verified: bool,
 }
+#[doc = "`EntryList`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct EntryList {
+    pub entries: ::std::vec::Vec<TreeEntry>,
+}
 #[doc = "`EntryProvenanceValue`"]
 #[derive(
     :: serde :: Deserialize,
@@ -620,6 +626,18 @@ pub struct SourceUrl {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
     pub url: ::std::string::String,
+}
+#[doc = "`TreeEntry`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TreeEntry {
+    pub id: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub parent_id: ::std::option::Option<::std::string::String>,
+    pub slug: ::std::string::String,
+    pub title: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`TypeDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

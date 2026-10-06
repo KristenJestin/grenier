@@ -12,7 +12,13 @@ import {
   HttpApiSecurity,
   OpenApi,
 } from 'effect/http-api'
-import { EntryRead, SearchOptions, SearchResult, TypeDefinition } from '../model/index.ts'
+import {
+  EntryRead,
+  SearchOptions,
+  SearchResult,
+  TreeEntry,
+  TypeDefinition,
+} from '../model/index.ts'
 
 /** A request without a key, or with a key Grenier does not accept. */
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
@@ -64,6 +70,13 @@ const types = HttpApiGroup.make('types')
 
 const entries = HttpApiGroup.make('entries')
   .add(
+    HttpApiEndpoint.get('list', '/api/entries', {
+      success: Schema.Struct({ entries: Schema.Array(TreeEntry) }).annotate({
+        identifier: 'EntryList',
+      }),
+    }),
+  )
+  .add(
     HttpApiEndpoint.get('read', '/api/entries/:entry', {
       params: { entry: Schema.String.annotate({ description: 'The slug or id of an entry.' }) },
       success: EntryRead,
@@ -73,7 +86,8 @@ const entries = HttpApiGroup.make('entries')
   .annotateMerge(
     OpenApi.annotations({
       title: 'Entries',
-      description: 'An entry with its place in the tree, its children and its links.',
+      description:
+        'The tree of entries, and an entry with its place in it, its children and its links.',
     }),
   )
 

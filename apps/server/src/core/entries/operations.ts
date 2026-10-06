@@ -16,7 +16,7 @@ import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
-import { Child, Entry, HIDDEN, SourceGiven, SourceKept } from '@grenier/api/model'
+import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@grenier/api/model'
 import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
 import { findSourceItem } from '../sources/operations.ts'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
@@ -33,6 +33,7 @@ const Row = Schema.Struct({
 
 const entries = rowsOf(Row)
 const children = rowsOf(Child)
+const listed = rowsOf(TreeEntry)
 const ids = rowsOf(Schema.Struct({ id: Schema.String }))
 const ancestors = rowsOf(
   Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
@@ -224,6 +225,29 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
       .filter(({ type }) => !hiddenTypes.includes(type))
       .map(({ id, slug, title }) => ({ id, slug, title })),
   }
+})
+
+/**
+ * The whole tree in one read: every entry the caller may see that is not archived, by title,
+ * with the id of the entry it is filed under.
+ */
+export const listEntries = Effect.fn('listEntries')(function* () {
+  const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
+  const all = yield* listed(
+    db
+      .select({
+        id: table.id,
+        slug: table.slug,
+        type: table.type,
+        title: table.title,
+        parent_id: table.parent_id,
+      })
+      .from(table)
+      .where(isNull(table.archived_at))
+      .orderBy(asc(table.title)),
+  )
+  return all.filter(({ type }) => !hidesType(type))
 })
 
 /** The slug of a title: `Château de Bois` gives `chateau-de-bois`. */

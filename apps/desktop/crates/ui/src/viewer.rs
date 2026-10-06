@@ -176,15 +176,31 @@ impl Viewer {
 
     /// Selects an entry of the tree, its ancestors unfolded, and opens it.
     pub fn select(&mut self, id: &SharedString, cx: &mut Context<Self>) {
+        if self.selected.as_ref() != Some(id) {
+            cx.emit(Intent::Open(id.clone()));
+        }
+        self.reveal(id, cx);
+    }
+
+    /// Marks an entry of the tree as the open one, its ancestors unfolded, without opening it:
+    /// for an entry opened another way, by a link or a search.
+    pub fn reveal(&mut self, id: &SharedString, cx: &mut Context<Self>) {
         let mut path = Vec::new();
         if path_to(&self.nodes, id, &mut path) {
             self.expanded.extend(path);
         }
-        if self.selected.as_ref() != Some(id) {
-            self.selected = Some(id.clone());
-            cx.emit(Intent::Open(id.clone()));
-        }
+        self.selected = Some(id.clone());
         cx.notify();
+    }
+
+    /// What the main pane shows.
+    pub fn pane(&self) -> &Pane {
+        &self.pane
+    }
+
+    /// The state of the tree.
+    pub fn tree_state(&self) -> &Load<()> {
+        &self.tree_load
     }
 
     /// The id of the entry the main pane shows, if it shows one.
@@ -339,6 +355,8 @@ impl Viewer {
                 let (title, detail) = match problem {
                     Problem::Unreachable => ("Hors ligne", "Le serveur ne répond pas."),
                     Problem::KeyRefused(_) => ("Clé refusée", "Demandez une nouvelle clé."),
+                    Problem::Refused(_) => ("Refusé", "Le serveur a refusé l'arbre."),
+                    Problem::Unconfigured(_) => ("Pas de serveur", "Voir la configuration."),
                 };
                 status::side_note(IconName::TriangleAlert, title, detail, true, cx)
                     .into_any_element()
