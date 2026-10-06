@@ -299,3 +299,24 @@ describe('the rights come from GRENIER_RIGHTS', () => {
     )
   })
 })
+
+describe('each session starts with the types of the instance', () => {
+  test('a session sees in its instructions the types defined before it, with their descriptions', async () => {
+    await mcp().call('define_type', {
+      name: 'gadget',
+      label: 'Gadget',
+      description: 'Use it when the user mentions a small device they own.',
+      fields: [],
+    })
+    const url = await database.runPromise(scratchUrl)
+    const next = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-next' })
+    try {
+      expect(next.instructions).toContain(
+        '- `gadget`: Use it when the user mentions a small device they own.',
+      )
+      expect(next.instructions).toContain('- `locker`: A locker and its code.')
+    } finally {
+      next.close()
+    }
+  })
+})

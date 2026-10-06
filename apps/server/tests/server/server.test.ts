@@ -537,6 +537,26 @@ describe('the server is Effect alone', () => {
   })
 })
 
+describe('each MCP session starts with the types of the instance', () => {
+  test('a type defined during a session is in the instructions of the next one', async () => {
+    const first = await connect(`${base}/mcp`, bearer(writer), '2025-11-25')
+    expect(first.instructions).not.toContain('`widget`')
+    await first.call('define_type', {
+      name: 'widget',
+      label: 'Widget',
+      description: 'Use it when the user speaks of a part of an interface.',
+      fields: [],
+    })
+    const second = await connect(`${base}/mcp`, bearer(writer), '2025-11-25')
+    expect(second.instructions).toContain(
+      '- `widget`: Use it when the user speaks of a part of an interface.',
+    )
+    expect(await first.call('get_type', { name: 'widget' })).toMatchObject({
+      result: { type: { name: 'widget' } },
+    })
+  })
+})
+
 describe('/health', () => {
   test('answers 200 with the database up, then 503 with it down', async () => {
     expect((await fetch(`${base}/health`)).status).toBe(200)

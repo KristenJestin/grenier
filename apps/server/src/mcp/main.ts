@@ -15,6 +15,7 @@ import { layer as database, migrate } from '../core/database/index.ts'
 import { Actor } from '../core/events/index.ts'
 import { Config, Effect, Layer, Logger, Schema } from 'effect'
 import { McpServer } from 'effect/ai'
+import { instructions } from './instructions.ts'
 import { PROTOCOLS } from './protocols.ts'
 import { GrenierHandlers, GrenierTools } from './tools.ts'
 
@@ -41,12 +42,6 @@ const rightsOf = (listed: string) =>
       ),
   )
 
-const server = McpServer.layerStdio({
-  name: 'grenier',
-  version: '0.0.0',
-  protocols: PROTOCOLS,
-}).pipe(Layer.provide(BunStdio.layer))
-
 const program = Effect.gen(function* () {
   const actor = yield* Config.String('GRENIER_ACTOR').pipe(
     Effect.mapError(() => new ActorMissing()),
@@ -55,6 +50,13 @@ const program = Effect.gen(function* () {
     yield* Config.String('GRENIER_RIGHTS').pipe(Config.withDefault('read,write')),
   )
   yield* migrate
+  // One process is one session: it starts with the types as they are now.
+  const server = McpServer.layerStdio({
+    name: 'grenier',
+    version: '0.0.0',
+    instructions: yield* instructions,
+    protocols: PROTOCOLS,
+  }).pipe(Layer.provide(BunStdio.layer))
   return yield* Layer.launch(
     McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers), Layer.provide(server)),
   ).pipe(Effect.provideService(Actor, actor), Effect.provideService(Rights, rights))
