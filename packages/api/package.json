@@ -5,6 +5,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "exports": {
+    "./http": "./src/http/index.ts",
     "./model": "./src/model/index.ts",
     "./schema": "./src/schema/index.ts"
   },
