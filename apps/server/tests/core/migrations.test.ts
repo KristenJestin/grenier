@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Effect, Layer, Schema } from 'effect'
@@ -142,5 +142,13 @@ describe('the migrations follow the schema', () => {
     } finally {
       rmSync(copy, { recursive: true, force: true })
     }
+  })
+})
+
+describe('Drizzle runs on the pool of the core', () => {
+  test('no pg driver is installed: Drizzle goes through @effect/sql-pg', () => {
+    const lockfile = readFileSync(new URL('../../../../bun.lock', import.meta.url), 'utf8')
+    expect(lockfile).not.toMatch(/^\s+"pg": \["pg@/m)
+    expect(lockfile).toMatch(/^\s+"@effect\/sql-pg": \["@effect\/sql-pg@/m)
   })
 })
