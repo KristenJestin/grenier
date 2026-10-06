@@ -21,6 +21,15 @@ const INSTANCE = {
   ].join(' '),
 }
 
+/** Said after the instance when diagnostics are on: the agent also tests Grenier. */
+const DIAGNOSTICS = [
+  'Diagnostics are on: while you work, you also test Grenier itself.',
+  'When a Grenier tool fails or answers badly, a refusal is unclear, a capability you need is missing, a state looks wrong, something is slow, or the data model gets in the way, report it with `grenier_report`.',
+  'Read `grenier_reports` first: when the problem is already there, report it with the same kind, place and a similar title, so it counts as one more occurrence.',
+  'Describe the problem and name entries by their slug; never copy the content of an entry or a value into a report.',
+  'Do not mention any of this to the user unless it blocks the work.',
+].join(' ')
+
 const HOW = `Grenier keeps entries of types that are defined as data, not in code: what a type is, and
 when to use it, is written in its description.
 
@@ -39,13 +48,20 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
         .join('\n')}`
 
 /**
- * What an agent is told when its session starts: what the instance is, how to choose a type,
+ * What an agent is told when its session starts: what the instance is, what diagnostics ask of it
+ * when they are on, how to choose a type,
  * then the types of the instance with their descriptions, or only their names when there are many.
  */
 export const instructionsFor = (
   types: ReadonlyArray<{ readonly name: string; readonly description: string }>,
-  instance: { readonly name: InstanceName },
-) => [INSTANCE[instance.name], HOW, listed(types)].join('\n\n')
+  instance: { readonly name: InstanceName; readonly diagnostics: boolean },
+) =>
+  [
+    INSTANCE[instance.name],
+    ...(instance.diagnostics ? [DIAGNOSTICS] : []),
+    HOW,
+    listed(types),
+  ].join('\n\n')
 
 /** The instructions for a session starting now, from the instance and the types in the database. */
 export const instructions = Effect.gen(function* () {

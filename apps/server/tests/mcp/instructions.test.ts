@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { instructionsFor } from '../../src/mcp/instructions.ts'
 
-const development = { name: 'development' } as const
-const production = { name: 'production' } as const
+const development = { name: 'development', diagnostics: false } as const
+const production = { name: 'production', diagnostics: false } as const
 
 const typeNamed = (index: number) => ({
   name: `kind-${index}`,
@@ -77,5 +77,24 @@ describe('the instructions start with what the instance is', () => {
   test('the types follow the paragraph of the instance', () => {
     const instructions = instructionsFor(types, production)
     expect(instructions.indexOf('REAL instance')).toBeLessThan(instructions.indexOf('`alpha`'))
+  })
+})
+
+describe('with diagnostics on, the instructions ask the agent to report what goes wrong', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+
+  test('the paragraph on diagnostics follows the one on the instance', () => {
+    const instructions = instructionsFor(types, { name: 'production', diagnostics: true })
+    const [first = '', second = ''] = instructions.split('\n\n')
+    expect(first).toContain('REAL instance')
+    expect(second.startsWith('Diagnostics are on')).toBe(true)
+    for (const word of ['grenier_report', 'grenier_reports', 'slug', 'unless it blocks the work'])
+      expect(second).toContain(word)
+  })
+
+  test('without diagnostics, the instructions say nothing of them', () => {
+    const instructions = instructionsFor(types, development)
+    expect(instructions).not.toContain('Diagnostics')
+    expect(instructions).not.toContain('grenier_report')
   })
 })

@@ -1,11 +1,16 @@
 import { Rights } from '../core/auth/index.ts'
 import type { Right } from '../core/auth/index.ts'
+import { recordDefect } from '../core/findings/index.ts'
+import { Instance } from '../core/instance.ts'
 import { Refused } from '../core/refused.ts'
 import { headsUp } from '../core/time/index.ts'
 import { Context, Effect, Layer, Schema } from 'effect'
 import { McpSchema, McpServer, Toolkit } from 'effect/ai'
 import { toToolInputSchema } from '@grenier/api/schema'
+import { RecentCalls } from './calls.ts'
 import { takenContent } from './tools/inbox-take.ts'
+import { grenierReportTool } from './tools/grenier-report.ts'
+import { grenierReportsTool } from './tools/grenier-reports.ts'
 import type { Database, defineTool } from './tool.ts'
 import { addFieldTool } from './tools/add-field.ts'
 import { archiveTool } from './tools/archive.ts'
@@ -67,6 +72,9 @@ export const GrenierTools = Toolkit.make(
   inboxDismissTool.tool,
 )
 
+/** The tools of diagnostics, served only when they are on. */
+export const DiagnosticsTools = Toolkit.make(grenierReportTool.tool, grenierReportsTool.tool)
+
 /**
  * The dates entering their notice period for the current actor. One that cannot be told is
  * none: the answer it goes with stands, so that an agent never retries a write that succeeded.
@@ -99,33 +107,52 @@ export const answered = <A extends Schema.JsonObject, E, R>(answer: Effect.Effec
   )
 
 /**
+ * The arguments of a call as JSON, kept as the last call of its tool while diagnostics are on;
+ * `null` when they are off.
+ */
+const remembered = (name: string, parameters: Schema.Json) =>
+  Effect.gen(function* () {
+    if (!(yield* Instance).diagnostics) return null
+    ;(yield* RecentCalls).set(name, parameters)
+    return parameters
+  })
+
+/**
  * The handler of a tool, for a caller with `rights`, on `services`: checks the caller's right,
  * decodes the input with the tool's schema, runs it, and answers a refusal with its sentences.
- * Any other failure is a defect, reported as an internal error.
+ * Any other failure is a defect, reported as an internal error, and recorded as a finding when
+ * diagnostics are on.
  */
 const handlerFor =
   (services: Context.Context<Database>, rights: ReadonlyArray<Right>) =>
-  <I, E>({ right, input, run }: ReturnType<typeof defineTool<string, I, E>>) =>
+  <I, E>({ name, right, input, run }: ReturnType<typeof defineTool<string, I, E>>) =>
   <P>(parameters: P) =>
-    (rights.includes(right)
-      ? Effect.void
-      : Effect.fail(
-          new Refused({
-            message: `This key may not ${right}: ask the owner of Grenier for a key with the right \`${right}\`.`,
-          }),
-        )
-    ).pipe(
-      Effect.andThen(
-        Schema.decodeUnknownEffect(input)(parameters, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        }).pipe(Effect.mapError(Refused.fromSchemaError)),
-      ),
-      Effect.flatMap(run),
-      // Every answer carries the dates entering their notice period, once a day per actor.
-      answered,
-      Effect.provide(services),
-    )
+    Effect.gen(function* () {
+      const given = yield* Schema.decodeUnknownEffect(Schema.Json)(parameters).pipe(
+        Effect.orElseSucceed(() => null),
+      )
+      const call = { tool: name, arguments: given === null ? null : yield* remembered(name, given) }
+      return yield* (
+        rights.includes(right)
+          ? Effect.void
+          : Effect.fail(
+              new Refused({
+                message: `This key may not ${right}: ask the owner of Grenier for a key with the right \`${right}\`.`,
+              }),
+            )
+      ).pipe(
+        Effect.andThen(
+          Schema.decodeUnknownEffect(input)(parameters, {
+            errors: 'all',
+            onExcessProperty: 'error',
+          }).pipe(Effect.mapError(Refused.fromSchemaError)),
+        ),
+        Effect.flatMap(run),
+        // Every answer carries the dates entering their notice period, once a day per actor.
+        answered,
+        Effect.tapCause((cause) => recordDefect(name, cause, call)),
+      )
+    }).pipe(Effect.provide(services))
 
 /** The tools at work on the database, the actor and the rights of the layer that builds them. */
 export const GrenierHandlers = GrenierTools.toLayer(
@@ -163,6 +190,17 @@ export const GrenierHandlers = GrenierTools.toLayer(
   }),
 )
 
+/** The tools of diagnostics at work, as the other tools. */
+const DiagnosticsHandlers = DiagnosticsTools.toLayer(
+  Effect.gen(function* () {
+    const handlerOf = handlerFor(yield* Effect.context<Database>(), yield* Rights)
+    return {
+      grenier_report: handlerOf(grenierReportTool),
+      grenier_reports: handlerOf(grenierReportsTool),
+    }
+  }),
+)
+
 /**
  * `inbox_take`, beside the toolkit: its answer may hold an image the agent sees, which a tool of
  * the toolkit, answered as JSON, cannot give.
@@ -193,11 +231,26 @@ const InboxTake = Layer.effectDiscard(
   }),
 )
 
-/** Every Grenier tool on an MCP server: the toolkit, and `inbox_take`. */
-export const GrenierServer = Layer.merge(
-  McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers)),
-  InboxTake,
+/**
+ * Every Grenier tool on an MCP server: the toolkit, and `inbox_take`; and the tools of diagnostics
+ * when they are on (otherwise they do not exist, and a call to one is refused). The server keeps
+ * the last call of each tool for itself alone.
+ */
+export const GrenierServer = Layer.unwrap(
+  Effect.gen(function* () {
+    const served = Layer.merge(
+      McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers)),
+      InboxTake,
+    )
+    const withDiagnostics = (yield* Instance).diagnostics
+      ? Layer.merge(
+          served,
+          McpServer.toolkit(DiagnosticsTools).pipe(Layer.provide(DiagnosticsHandlers)),
+        )
+      : served
+    return withDiagnostics.pipe(Layer.provide(Layer.succeed(RecentCalls, new Map())))
+  }),
 )
 
-/** The names of every tool, as an agent lists them. */
+/** The names of every tool, as an agent lists them, diagnostics off. */
 export const TOOL_NAMES = [...Object.keys(GrenierTools.tools), inboxTakeTool.name]
