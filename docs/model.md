@@ -168,6 +168,22 @@ refusal: `title`, `parent_id`, `body`, `fields.provider`, `provenance.provider`.
 changes nothing records nothing. The history of one field lists its changes after the
 creation; the value it was created with is the `before` of the first change.
 
+## The inbox
+
+Nothing enters Grenier as a raw copy. What arrives (a text, a link, a file, a shared page) goes
+into the **inbox** as an item: its kind, its content (a file is kept as its text when it is
+text, else on disk by its hash with its type), where it came from, when it arrived, and where it stands:
+`pending`, `taken` by one agent, `processed` or `dismissed` (with a reason). An agent takes an
+item (no other agent gets it), reads it, searches what exists, and writes or updates the entries
+it gives, splitting it when it holds several things (an image file comes with the item as an
+image the agent sees, its longest side 1568 pixels at most; any other file is given by its
+address, `/media/<hash>`, fetched only when needed); it then marks the item processed with those
+entries, each of which cites the item in its `sources` (`{ "source": "inbox", "item": "<id>" }`).
+Bringing the same thing again later is a new item, processed the same way: there is no
+mechanical re-import. The owner drops a folder into the inbox, one item per file, with
+`inbox:add <folder>`. The Markdown importer stays, to try the model on a collection; it is not
+the way content enters.
+
 ## Sources
 
 The source registry records what an import read and which entries it produced, with each item's

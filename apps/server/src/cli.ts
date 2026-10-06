@@ -10,14 +10,18 @@
  *   bun src/cli.ts entry:verify <slug or id>…        (as the owner, recorded in the history)
  *   bun src/cli.ts entry:unverify <slug or id>…
  *   bun src/cli.ts entry:unverified [--type <type>] [--under <slug>]
+ *   bun src/cli.ts inbox:add <folder> [--origin <name>]   (one pending item per file)
  *
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
+import { readdirSync, readFileSync } from 'node:fs'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
+import { addToInbox } from './core/inbox/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { Effect, Layer } from 'effect'
 
@@ -28,7 +32,8 @@ const USAGE = `Usage:
   key:revoke --name <name>
   entry:verify <slug or id>...
   entry:unverify <slug or id>...
-  entry:unverified [--type <type>] [--under <slug>]`
+  entry:unverified [--type <type>] [--under <slug>]
+  inbox:add <folder> [--origin <name>]`
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -40,6 +45,7 @@ const { positionals, values } = parseArgs({
     owner: { type: 'string' },
     type: { type: 'string' },
     under: { type: 'string' },
+    origin: { type: 'string' },
   },
 })
 
@@ -115,6 +121,28 @@ const command = Effect.gen(function* () {
         : waiting
             .map(({ slug, type, title, by }) => `${slug}\t${type}\t${title}\t${by ?? ''}`)
             .join('\n')
+    }
+    case 'inbox:add': {
+      const folder = positionals[1]
+      if (folder === undefined) return yield* Effect.fail({ message: USAGE })
+      const origin = values.origin ?? basename(resolve(folder))
+      // Every file but the hidden ones, and those of hidden folders.
+      const files = readdirSync(folder, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => relative(folder, join(entry.parentPath, entry.name)))
+        .filter((path) => !path.split(sep).some((part) => part.startsWith('.')))
+        .toSorted()
+      yield* asOwner(
+        Effect.forEach(files, (file) =>
+          addToInbox({
+            kind: 'file',
+            name: file.split(sep).join('/'),
+            data: readFileSync(join(folder, file)).toString('base64'),
+            origin,
+          }),
+        ),
+      )
+      return `Added to the inbox: ${files.length} items, from ${origin}.`
     }
     default:
       return yield* Effect.fail({ message: USAGE })

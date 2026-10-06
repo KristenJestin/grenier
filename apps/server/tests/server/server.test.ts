@@ -6,7 +6,7 @@ import type { ChildProcess } from 'node:child_process'
 import { createServer, connect as connectTcp } from 'node:net'
 import type { Server, Socket } from 'node:net'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
-import { GrenierTools } from '../../src/mcp/tools.ts'
+import { TOOL_NAMES } from '../../src/mcp/tools.ts'
 import { Auth } from '../../src/core/auth/index.ts'
 import { HIDDEN } from '@grenier/api/model'
 import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
@@ -153,9 +153,7 @@ describe('the MCP tools over HTTP', () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
     const { result } = await client.request('tools/list', {})
     const { tools } = Schema.decodeUnknownSync(Tools)(result)
-    expect(tools.map(({ name }) => name).toSorted()).toEqual(
-      Object.keys(GrenierTools.tools).toSorted(),
-    )
+    expect(tools.map(({ name }) => name).toSorted()).toEqual([...TOOL_NAMES].toSorted())
   })
 
   test('define a type, write an entry, read it back, and get a refusal in sentences', async () => {
@@ -315,7 +313,7 @@ describe('media over HTTP', () => {
 
 describe('MCP protocol versions', () => {
   test('a client on 2026-07-28 and one on 2025-11-25 both list the tools and call one', async () => {
-    const expected = Object.keys(GrenierTools.tools).toSorted()
+    const expected = [...TOOL_NAMES].toSorted()
     const stateless = connectStateless(`${base}/mcp`, bearer(writer))
     const { result } = await stateless.request('tools/list', {})
     expect(

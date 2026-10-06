@@ -17,7 +17,7 @@ import { Config, Effect, Layer, Logger, Schema } from 'effect'
 import { McpServer } from 'effect/ai'
 import { instructions } from './instructions.ts'
 import { PROTOCOLS } from './protocols.ts'
-import { GrenierHandlers, GrenierTools } from './tools.ts'
+import { GrenierServer } from './tools.ts'
 
 class ActorMissing extends Schema.TaggedError<ActorMissing>()('ActorMissing', {}) {
   override readonly message =
@@ -57,9 +57,10 @@ const program = Effect.gen(function* () {
     instructions: yield* instructions,
     protocols: PROTOCOLS,
   }).pipe(Layer.provide(BunStdio.layer))
-  return yield* Layer.launch(
-    McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers), Layer.provide(server)),
-  ).pipe(Effect.provideService(Actor, actor), Effect.provideService(Rights, rights))
+  return yield* Layer.launch(GrenierServer.pipe(Layer.provide(server))).pipe(
+    Effect.provideService(Actor, actor),
+    Effect.provideService(Rights, rights),
+  )
 }).pipe(
   Effect.provide(database),
   Effect.provideService(Logger.LogToStderr, true),

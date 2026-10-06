@@ -1,8 +1,11 @@
 import { Rights } from '../core/auth/index.ts'
+import type { Right } from '../core/auth/index.ts'
 import { Refused } from '../core/refused.ts'
 import { headsUp } from '../core/time/index.ts'
-import { Effect, Schema } from 'effect'
-import { Toolkit } from 'effect/ai'
+import { Context, Effect, Layer, Schema } from 'effect'
+import { McpSchema, McpServer, Toolkit } from 'effect/ai'
+import { toToolInputSchema } from '@grenier/api/schema'
+import { takenContent } from './tools/inbox-take.ts'
 import type { Database, defineTool } from './tool.ts'
 import { addFieldTool } from './tools/add-field.ts'
 import { archiveTool } from './tools/archive.ts'
@@ -12,6 +15,13 @@ import { changeFieldTool } from './tools/change-field.ts'
 import { changeTypeTool } from './tools/change-type.ts'
 import { unverifiedTool } from './tools/unverified.ts'
 import { writeManyTool } from './tools/write-many.ts'
+import {
+  inboxAddTool,
+  inboxDismissTool,
+  inboxDoneTool,
+  inboxListTool,
+  inboxTakeTool,
+} from './tools/inbox.ts'
 import { confirmProposalTool } from './tools/confirm-proposal.ts'
 import { defineTypeTool } from './tools/define-type.ts'
 import { describeMediaTool } from './tools/describe-media.ts'
@@ -51,6 +61,10 @@ export const GrenierTools = Toolkit.make(
   briefingTool.tool,
   unverifiedTool.tool,
   writeManyTool.tool,
+  inboxAddTool.tool,
+  inboxListTool.tool,
+  inboxDoneTool.tool,
+  inboxDismissTool.tool,
 )
 
 /**
@@ -84,39 +98,39 @@ export const answered = <A extends Schema.JsonObject, E, R>(answer: Effect.Effec
     ),
   )
 
+/**
+ * The handler of a tool, for a caller with `rights`, on `services`: checks the caller's right,
+ * decodes the input with the tool's schema, runs it, and answers a refusal with its sentences.
+ * Any other failure is a defect, reported as an internal error.
+ */
+const handlerFor =
+  (services: Context.Context<Database>, rights: ReadonlyArray<Right>) =>
+  <I, E>({ right, input, run }: ReturnType<typeof defineTool<string, I, E>>) =>
+  <P>(parameters: P) =>
+    (rights.includes(right)
+      ? Effect.void
+      : Effect.fail(
+          new Refused({
+            message: `This key may not ${right}: ask the owner of Grenier for a key with the right \`${right}\`.`,
+          }),
+        )
+    ).pipe(
+      Effect.andThen(
+        Schema.decodeUnknownEffect(input)(parameters, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        }).pipe(Effect.mapError(Refused.fromSchemaError)),
+      ),
+      Effect.flatMap(run),
+      // Every answer carries the dates entering their notice period, once a day per actor.
+      answered,
+      Effect.provide(services),
+    )
+
 /** The tools at work on the database, the actor and the rights of the layer that builds them. */
 export const GrenierHandlers = GrenierTools.toLayer(
   Effect.gen(function* () {
-    const services = yield* Effect.context<Database>()
-    const rights = yield* Rights
-
-    /**
-     * The handler of a tool: checks the caller's right, decodes the input with the tool's schema,
-     * runs it, and answers a refusal with its sentences. Any other failure is a defect, reported
-     * as an internal error.
-     */
-    const handlerOf =
-      <I, E>({ right, input, run }: ReturnType<typeof defineTool<string, I, E>>) =>
-      <P>(parameters: P) =>
-        (rights.includes(right)
-          ? Effect.void
-          : Effect.fail(
-              new Refused({
-                message: `This key may not ${right}: ask the owner of Grenier for a key with the right \`${right}\`.`,
-              }),
-            )
-        ).pipe(
-          Effect.andThen(
-            Schema.decodeUnknownEffect(input)(parameters, {
-              errors: 'all',
-              onExcessProperty: 'error',
-            }).pipe(Effect.mapError(Refused.fromSchemaError)),
-          ),
-          Effect.flatMap(run),
-          // Every answer carries the dates entering their notice period, once a day per actor.
-          answered,
-          Effect.provide(services),
-        )
+    const handlerOf = handlerFor(yield* Effect.context<Database>(), yield* Rights)
 
     return {
       define_type: handlerOf(defineTypeTool),
@@ -141,6 +155,49 @@ export const GrenierHandlers = GrenierTools.toLayer(
       briefing: handlerOf(briefingTool),
       unverified: handlerOf(unverifiedTool),
       write_many: handlerOf(writeManyTool),
+      inbox_add: handlerOf(inboxAddTool),
+      inbox_list: handlerOf(inboxListTool),
+      inbox_done: handlerOf(inboxDoneTool),
+      inbox_dismiss: handlerOf(inboxDismissTool),
     }
   }),
 )
+
+/**
+ * `inbox_take`, beside the toolkit: its answer may hold an image the agent sees, which a tool of
+ * the toolkit, answered as JSON, cannot give.
+ */
+const InboxTake = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer
+    const services = yield* Effect.context<Database>()
+    const handle = handlerFor(services, yield* Rights)(inboxTakeTool)
+    const { name, description, input } = inboxTakeTool
+    yield* server.addTool({
+      tool: new McpSchema.Tool({ name, description, inputSchema: toToolInputSchema(input) }),
+      annotations: Context.empty(),
+      handle: (parameters) =>
+        handle(parameters).pipe(
+          Effect.flatMap((answer) => Effect.provide(takenContent(answer), services)),
+          Effect.catchIf(Schema.is(Refused), ({ message }) =>
+            Effect.succeed(
+              new McpSchema.CallToolResult({
+                isError: true,
+                content: [{ type: 'text', text: message }],
+              }),
+            ),
+          ),
+          Effect.orDie,
+        ),
+    })
+  }),
+)
+
+/** Every Grenier tool on an MCP server: the toolkit, and `inbox_take`. */
+export const GrenierServer = Layer.merge(
+  McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers)),
+  InboxTake,
+)
+
+/** The names of every tool, as an agent lists them. */
+export const TOOL_NAMES = [...Object.keys(GrenierTools.tools), inboxTakeTool.name]

@@ -26,6 +26,7 @@ export const AttachMediaInput = Schema.Struct({
 })
 export type AttachMediaInput = typeof AttachMediaInput.Type
 
+const inboxFiles = rowsOf(Schema.Struct({ mime: Schema.NullOr(Schema.String) }))
 const owners = rowsOf(Schema.Struct({ entry_id: Schema.String, alt: Schema.String }))
 
 /** The descriptions of an entry's media, kept on the entry for search. */
@@ -174,6 +175,19 @@ export const readMedia = Effect.fn('readMedia')(function* (hash: string) {
       )
       .limit(1),
   )
-  if (medium === undefined) return yield* new Refused({ message: `There is no file \`${hash}\`.` })
-  return { mime: medium.mime, bytes: yield* readFileOf(hash) }
+  // Else a file waiting in the inbox, which no entry holds yet.
+  const [waiting] =
+    medium === undefined
+      ? yield* inboxFiles(
+          db
+            .select({ mime: tables.inbox.mime })
+            .from(tables.inbox)
+            .where(eq(tables.inbox.sha256, hash))
+            .limit(1),
+        )
+      : []
+  const mime = medium?.mime ?? waiting?.mime
+  if (mime === undefined || mime === null)
+    return yield* new Refused({ message: `There is no file \`${hash}\`.` })
+  return { mime, bytes: yield* readFileOf(hash) }
 })

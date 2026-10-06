@@ -1,7 +1,11 @@
 import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'
+import { listInbox } from '../../src/core/inbox/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { defineType } from '../../src/core/types/index.ts'
@@ -51,5 +55,25 @@ describe('the owner reviews entries from the command line', () => {
     )
     expect(cli('entry:unverify', 'plum-tart')).toBe('No longer verified: plum-tart.\n')
     expect(cli('entry:unverified')).toContain('plum-tart\trecipe\tPlum tart\towner')
+  })
+})
+
+describe('a folder dropped into the inbox', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'grenier-drop-'))
+  afterAll(() => rmSync(folder, { recursive: true, force: true }))
+
+  test('gives one pending item per file', async () => {
+    mkdirSync(join(folder, 'garden'))
+    writeFileSync(join(folder, 'pancakes.md'), '# Pancakes\n')
+    writeFileSync(join(folder, 'garden/hedge.md'), '# Hedge\n')
+    writeFileSync(join(folder, '.hidden'), 'left out')
+    expect(cli('inbox:add', folder, '--origin', 'old-notes')).toBe(
+      'Added to the inbox: 2 items, from old-notes.\n',
+    )
+    const items = await database.runPromise(listInbox({}))
+    expect(items.map(({ name, status, origin }) => [name, status, origin]).toSorted()).toEqual([
+      ['garden/hedge.md', 'pending', 'old-notes'],
+      ['pancakes.md', 'pending', 'old-notes'],
+    ])
   })
 })

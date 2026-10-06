@@ -48,6 +48,11 @@ describe('the server answers over stdio', () => {
       'describe_media',
       'get_type',
       'history',
+      'inbox_add',
+      'inbox_dismiss',
+      'inbox_done',
+      'inbox_list',
+      'inbox_take',
       'link',
       'list_proposals',
       'list_types',
@@ -354,5 +359,47 @@ describe('an agent writes several entries in one call', () => {
     expect(await mcp().call('read', { entry: 'hedge-plan' })).toMatchObject({
       result: { backlinks: [{ slug: 'hedge-plants' }] },
     })
+  })
+})
+
+describe('an agent works through the inbox', () => {
+  test('it adds an item, takes it, writes the entry it gives, and marks it processed', async () => {
+    const added = await mcp().call('inbox_add', { kind: 'text', text: 'Rhubarb crumble.' })
+    const { item } = Schema.decodeUnknownSync(
+      Schema.Struct({ item: Schema.Struct({ id: Schema.String }) }),
+    )('result' in added ? added.result : null)
+    expect(await mcp().call('inbox_take', {})).toMatchObject({
+      result: { item: { id: item.id, text: 'Rhubarb crumble.' } },
+    })
+    await mcp().call('write', { type: 'note', title: 'Rhubarb crumble' })
+    expect(
+      await mcp().call('inbox_done', { id: item.id, entries: ['rhubarb-crumble'] }),
+    ).toMatchObject({ result: { item: { status: 'processed' } } })
+    expect(await mcp().call('read', { entry: 'rhubarb-crumble' })).toMatchObject({
+      result: { entry: { sources: [{ source: 'inbox', item: item.id }] } },
+    })
+  })
+})
+
+describe('an image taken from the inbox', () => {
+  test('comes as an image the agent sees, beside the item', async () => {
+    const pixel =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    await mcp().call('inbox_add', { kind: 'file', name: 'dot.png', data: pixel })
+    const { result } = await mcp().request('tools/call', { name: 'inbox_take', arguments: {} })
+    const { content } = Schema.decodeUnknownSync(
+      Schema.Struct({
+        content: Schema.Array(
+          Schema.Struct({
+            type: Schema.String,
+            text: Schema.optionalKey(Schema.String),
+            mimeType: Schema.optionalKey(Schema.String),
+          }),
+        ),
+      }),
+    )(result)
+    expect(content.map(({ type }) => type)).toEqual(['text', 'image'])
+    expect(content[0]?.text).toContain('"name":"dot.png"')
+    expect(content[1]?.mimeType).toBe('image/png')
   })
 })
