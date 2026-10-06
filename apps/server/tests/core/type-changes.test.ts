@@ -426,9 +426,9 @@ describe('a field that becomes a link to an entry', () => {
     await run(writeEntry({ type: 'card', title: 'Card two', fields: { about: 'nowhere' } }))
     const proposal = await run(proposeTypeMerge('card', 'label', { about: 'on' }))
     expect(await run(refusalOf(asOwner(confirmProposal(proposal.id))))).toBe(
-      'The change would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
-        'existing entry: `nowhere` does not exist. Give a `default` for the missing values, or a ' +
-        '`mapping` for the others.',
+      'The merge would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
+        'existing entry: `nowhere` does not exist. Fix these entries, or propose the merge again ' +
+        'with a mapping that keeps them valid.',
     )
     await run(writeEntry({ entry: 'card-two', fields: { about: id } }))
     await run(asOwner(confirmProposal(proposal.id)))
