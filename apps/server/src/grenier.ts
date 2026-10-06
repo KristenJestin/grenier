@@ -1,7 +1,7 @@
-import { Auth } from '@grenier/core/auth'
-import { databaseReachable, layer as database, migrate } from '@grenier/core/database'
-import { readMedia } from '@grenier/core/media'
-import { makeMcpHttpHandler } from '@grenier/mcp/http'
+import { Auth } from './core/auth/index.ts'
+import { databaseReachable, layer as database, migrate } from './core/database/index.ts'
+import { readMedia } from './core/media/index.ts'
+import { mcpHttpHandlerFor } from './mcp/http.ts'
 import { Effect, Layer, ManagedRuntime, Result } from 'effect'
 
 /**
@@ -13,7 +13,7 @@ const server = ManagedRuntime.make(
 )
 
 /** One MCP server per key: its name is the actor of the writes, its rights bound the tools. */
-const handlers = new Map<string, ReturnType<typeof makeMcpHttpHandler>>()
+const handlers = new Map<string, ReturnType<typeof mcpHttpHandlerFor>>()
 
 const bearerOf = (request: Request) =>
   /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1]
@@ -42,7 +42,7 @@ export async function handleMcp(request: Request): Promise<Response> {
   const id = `${name} ${rights.join(',')}`
   const handler =
     handlers.get(id) ??
-    makeMcpHttpHandler({ actor: name, rights, path: '/mcp', database: await server.context() })
+    mcpHttpHandlerFor({ actor: name, rights, path: '/mcp', database: await server.context() })
   handlers.set(id, handler)
   return handler.handler(request)
 }

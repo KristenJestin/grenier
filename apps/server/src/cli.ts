@@ -1,19 +1,19 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * The owner's command line: the owner account and the keys of the agents.
  *
- *   node src/cli.ts owner:create --email <email> [--name <name>]
- *   node src/cli.ts key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
+ *   bun src/cli.ts owner:create --email <email> [--name <name>]
+ *   bun src/cli.ts key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
  *                              [--owner <email>]   (creates the owner first if there is none)
- *   node src/cli.ts key:list
- *   node src/cli.ts key:revoke --name <name>
+ *   bun src/cli.ts key:list
+ *   bun src/cli.ts key:revoke --name <name>
  *
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
 import { parseArgs } from 'node:util'
-import * as NodeRuntime from '@effect/platform-node-shared/NodeRuntime'
-import { Auth } from '@grenier/core/auth'
-import { layer as database, migrate } from '@grenier/core/database'
+import * as BunRuntime from '@effect/platform-bun/BunRuntime'
+import { Auth } from './core/auth/index.ts'
+import { layer as database, migrate } from './core/database/index.ts'
 import { Effect, Layer } from 'effect'
 
 const USAGE = `Usage:
@@ -95,4 +95,4 @@ const program = Effect.gen(function* () {
   ),
 )
 
-NodeRuntime.runMain(program)
+BunRuntime.runMain(program)

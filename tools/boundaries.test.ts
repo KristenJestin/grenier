@@ -1,7 +1,13 @@
 import { resolve } from 'node:path'
-import { describe, expect, test } from 'vite-plus/test'
+import { describe, expect, test } from 'vitest'
 
-import { analyze, importsOf, reactRefusalsOf, storageRefusalsOf } from './boundaries.ts'
+import {
+  analyze,
+  contractRefusalsOf,
+  importsOf,
+  reactRefusalsOf,
+  storageRefusalsOf,
+} from './boundaries.ts'
 
 const repository = resolve(import.meta.dirname, '..')
 
@@ -25,8 +31,8 @@ describe('Every access to the data goes through the core', () => {
     ['the Effect Postgres client', "import { PgClient } from '@effect/sql-pg'\n"],
     ['the Effect SQL module', "import { SqlClient } from 'effect/sql'\n"],
     ['a raw Postgres driver', "import pg from 'pg'\n"],
-  ])('the MCP package reaching %s is refused', (_, source) => {
-    expect(storageRefusalsOf('packages/mcp/src/tools.ts', source)).toHaveLength(1)
+  ])('the MCP server reaching %s is refused', (_, source) => {
+    expect(storageRefusalsOf('apps/server/src/mcp/tools.ts', source)).toHaveLength(1)
   })
 
   test('an application reaching the database is refused', () => {
@@ -36,11 +42,28 @@ describe('Every access to the data goes through the core', () => {
 
   test('the core may reach the database', () => {
     const source = "import { PgClient } from '@effect/sql-pg'\n"
-    expect(storageRefusalsOf('packages/core/src/database.ts', source)).toEqual([])
+    expect(storageRefusalsOf('apps/server/src/core/database.ts', source)).toEqual([])
   })
 
   test('a shared package importing React is refused, an application is not', () => {
-    expect(reactRefusalsOf('packages/core/src/view.ts', "import 'react'\n")).toHaveLength(1)
+    expect(reactRefusalsOf('packages/api/src/view.ts', "import 'react'\n")).toHaveLength(1)
     expect(reactRefusalsOf('apps/server/src/routes/index.tsx', "import 'react'\n")).toEqual([])
+  })
+
+  test.each([
+    ['the server', "import { readEntry } from '@grenier/server/core'\n"],
+    [
+      'a folder of an application',
+      "import { x } from '../../../apps/server/src/core/refused.ts'\n",
+    ],
+    ['a Node API', "import { readFileSync } from 'node:fs'\n"],
+    ['a Bun API', "import { file } from 'bun'\n"],
+  ])('the contract importing %s is refused', (_, source) => {
+    expect(contractRefusalsOf('packages/api/src/schema/index.ts', source)).toHaveLength(1)
+  })
+
+  test('the contract may import Effect and itself', () => {
+    const source = "import { Schema } from 'effect'\nimport { x } from './messages.ts'\n"
+    expect(contractRefusalsOf('packages/api/src/schema/index.ts', source)).toEqual([])
   })
 })
