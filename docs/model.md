@@ -57,8 +57,18 @@ A **type** has a name, a label, a description and a list of field definitions:
 
 Field kinds: `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `duration`, `enum`,
 `money`, `url`, `entry` (a reference to another entry). A field may be `required`, may list
-allowed `values`, and may be `sensitive` (never sent to an external model, optionally left out
-of exports).
+allowed `values`, and may be `sensitive`. A whole type may be `sensitive` too (a diary, health
+records), at its definition or later with `change_type`.
+
+**Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
+server holds the rule on every way out: the value of a sensitive field is replaced by the marker
+`[hidden]` wherever an entry is read, its history shows the change with both values hidden, a
+search does not match it, and a date field that is sensitive shows only that something is due.
+An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
+find it, its parent counts it among `hidden_children`, its links and its media are left out, and
+its occurrences show neither its name nor its date. Such a key may not write a sensitive field
+nor an entry of a sensitive type, and may not lift the flag of a sensitive type. Sensitive data
+is never sent to an external service, and an export leaves it out unless asked to include it.
 
 A type's name is unique and in lowercase kebab-case (`bank-account`); its description is
 required. Field names are unique within a type and in snake_case (`monthly_cost`). `values` is
