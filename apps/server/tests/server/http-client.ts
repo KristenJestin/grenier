@@ -5,6 +5,9 @@ const Response = Schema.Struct({
   error: Schema.optionalKey(Schema.Struct({ code: Schema.Number, message: Schema.String })),
 })
 
+/** The result of `initialize`: what matters here, the instructions to the agent. */
+const Initialized = Schema.Struct({ instructions: Schema.optionalKey(Schema.String) })
+
 const ToolResult = Schema.Struct({
   isError: Schema.optionalKey(Schema.Boolean),
   content: Schema.Array(Schema.Struct({ type: Schema.Literal('text'), text: Schema.String })),
@@ -61,13 +64,15 @@ export async function connect(
     session ??= response.headers.get('mcp-session-id')
     return messageOf(response)
   }
-  await request('initialize', {
+  const { result: initialized } = await request('initialize', {
     protocolVersion: protocol,
     capabilities: {},
     clientInfo: { name: 'grenier-tests', version: '0.0.0' },
   })
   await post({ jsonrpc: '2.0', method: 'notifications/initialized' })
   return {
+    /** What the server told the agent at initialisation. */
+    instructions: Schema.decodeUnknownSync(Initialized)(initialized).instructions,
     request,
     async call(name: string, args: Schema.Json) {
       return answerOf(await request('tools/call', { name, arguments: args }))

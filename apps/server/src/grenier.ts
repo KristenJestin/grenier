@@ -5,6 +5,7 @@ import type { VerifiedKey } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
 import { readMedia } from './core/media/index.ts'
 import { mcpHttpHandlerFor } from './mcp/http.ts'
+import { instructions } from './mcp/instructions.ts'
 import type { Database } from './mcp/http.ts'
 import { Effect, Layer, Result } from 'effect'
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from 'effect/http'
@@ -42,12 +43,22 @@ const health = HttpRouter.add(
 const mcp = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const shared: Database = yield* databaseServices
-    const servers = new Map<string, ReturnType<typeof mcpHttpHandlerFor>>()
-    const serverOf = ({ name, rights }: VerifiedKey) => {
-      const id = `${name} ${rights.join(',')}`
+    type Server = ReturnType<typeof mcpHttpHandlerFor>
+    // A server per key and per instructions: a session starts with the types as they are then.
+    const servers = new Map<string, Server>()
+    // A session stays on the server that opened it, though the types change meanwhile.
+    const sessions = new Map<string, Server>()
+    const serverOf = ({ name, rights }: VerifiedKey, told: string) => {
+      const id = `${name} ${rights.join(',')} ${told}`
       const server =
         servers.get(id) ??
-        mcpHttpHandlerFor({ actor: name, rights, path: '/mcp', database: shared })
+        mcpHttpHandlerFor({
+          actor: name,
+          rights,
+          path: '/mcp',
+          instructions: told,
+          database: shared,
+        })
       servers.set(id, server)
       return server
     }
@@ -55,8 +66,14 @@ const mcp = HttpRouter.use((router) =>
       Effect.gen(function* () {
         const verified = yield* verify(request)
         if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
+        const session = request.headers['mcp-session-id']
+        const server =
+          (session === undefined ? undefined : sessions.get(session)) ??
+          serverOf(verified.success, yield* instructions)
         const web = yield* HttpServerRequest.toWeb(request)
-        const response = yield* Effect.promise(() => serverOf(verified.success).handler(web))
+        const response = yield* Effect.promise(() => server.handler(web))
+        const opened = response.headers.get('mcp-session-id')
+        if (session === undefined && opened !== null) sessions.set(opened, server)
         return HttpServerResponse.fromWeb(response)
       }),
     )

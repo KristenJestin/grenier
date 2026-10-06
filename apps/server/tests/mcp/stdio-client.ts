@@ -12,6 +12,9 @@ const Response = Schema.Struct({
 type Response = typeof Response.Type
 
 /** The result of a tool call as an agent reads it: the text, and whether it is an error. */
+/** The result of `initialize`: what matters here, the instructions to the agent. */
+const Initialized = Schema.Struct({ instructions: Schema.optionalKey(Schema.String) })
+
 const ToolResult = Schema.Struct({
   isError: Schema.optionalKey(Schema.Boolean),
   content: Schema.Array(Schema.Struct({ type: Schema.Literal('text'), text: Schema.String })),
@@ -40,7 +43,7 @@ export async function startServer(env: Readonly<Record<string, string>>) {
       send({ jsonrpc: '2.0', id: next, method, params })
     })
 
-  await request('initialize', {
+  const { result: initialized } = await request('initialize', {
     protocolVersion: '2025-06-18',
     capabilities: {},
     clientInfo: { name: 'grenier-tests', version: '0.0.0' },
@@ -48,6 +51,8 @@ export async function startServer(env: Readonly<Record<string, string>>) {
   send({ jsonrpc: '2.0', method: 'notifications/initialized' })
 
   return {
+    /** What the server told the agent at initialisation. */
+    instructions: Schema.decodeUnknownSync(Initialized)(initialized).instructions,
     request,
     /** Calls a tool; the text it answers, parsed as JSON unless the call is an error. */
     async call(name: string, args: Schema.Json) {
