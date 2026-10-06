@@ -102,7 +102,9 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 `entry:verify <slug>…` and `entry:unverify <slug>…` set it, as the owner (no key with `owner` is
 ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
 entry:verify <slug>`. `inbox:add <folder> [--origin <name>]` drops a folder into the inbox, one
-item per file, for agents to process (`inbox_take`, then `inbox_done`). The other
+item per file, for agents to process (`inbox_take`, then `inbox_done`).
+`type:sensitive <type> --off` and `field:sensitive <type> <field> --off` make a type or a field
+no longer sensitive, which only the owner may do. The other
 entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
 and `bun run import` (see `src/import/README.md`).
 

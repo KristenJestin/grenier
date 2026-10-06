@@ -46,7 +46,7 @@ export const Occurrence = Schema.Struct({
   field: Schema.String,
   date: Schema.String,
   period: Schema.String,
-  days_left: Schema.Number,
+  days_left: Schema.NullOr(Schema.Number),
   age: Schema.NullOr(Schema.Number),
   deadline: Schema.Boolean,
 })
@@ -123,7 +123,8 @@ const occurrence = (
 
 /**
  * What the caller may see of occurrences: the date of a sensitive field shows only that something
- * is due; an entry of a sensitive type shows neither its name nor its dates.
+ * is due on that entry, without the date, the days left or the age (each would give the date
+ * back); an entry of a sensitive type shows neither its name nor its dates.
  */
 const visible = Effect.gen(function* () {
   const { hidesType, fieldsOf } = yield* sensitivity
@@ -134,7 +135,14 @@ const visible = Effect.gen(function* () {
     occurrences: (all: ReadonlyArray<Occurrence>) =>
       all.map((each) =>
         hidesType(each.entry.type) || fieldsOf(each.entry.type).includes(each.field)
-          ? { ...each, entry: entryOf(each.entry), date: HIDDEN, period: HIDDEN, age: null }
+          ? {
+              ...each,
+              entry: entryOf(each.entry),
+              date: HIDDEN,
+              period: HIDDEN,
+              days_left: null,
+              age: null,
+            }
           : each,
       ),
   }

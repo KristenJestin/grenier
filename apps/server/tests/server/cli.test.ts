@@ -8,7 +8,7 @@ import { writeEntry } from '../../src/core/entries/index.ts'
 import { listInbox } from '../../src/core/inbox/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
-import { defineType } from '../../src/core/types/index.ts'
+import { defineType, getType } from '../../src/core/types/index.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
 const database = ManagedRuntime.make(
@@ -75,5 +75,32 @@ describe('a folder dropped into the inbox', () => {
       ['garden/hedge.md', 'pending', 'old-notes'],
       ['pancakes.md', 'pending', 'old-notes'],
     ])
+  })
+})
+
+describe('the owner lifts sensitivity from the command line', () => {
+  test('field:sensitive and type:sensitive, on and off', async () => {
+    await database.runPromise(
+      defineType({
+        name: 'locker',
+        label: 'Locker',
+        description: 'A locker.',
+        fields: [{ name: 'code', kind: 'text', sensitive: true }],
+        sensitive: true,
+      }),
+    )
+    expect(cli('field:sensitive', 'locker', 'code', '--off')).toBe(
+      'The field code of locker is no longer sensitive.\n',
+    )
+    expect(cli('type:sensitive', 'locker', '--off')).toBe(
+      'The type locker is no longer sensitive.\n',
+    )
+    expect(await database.runPromise(getType('locker'))).toEqual({
+      name: 'locker',
+      label: 'Locker',
+      description: 'A locker.',
+      fields: [{ name: 'code', kind: 'text' }],
+    })
+    expect(cli('type:sensitive', 'locker')).toBe('The type locker is sensitive.\n')
   })
 })

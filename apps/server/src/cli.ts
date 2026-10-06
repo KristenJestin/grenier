@@ -11,6 +11,8 @@
  *   bun src/cli.ts entry:unverify <slug or id>…
  *   bun src/cli.ts entry:unverified [--type <type>] [--under <slug>]
  *   bun src/cli.ts inbox:add <folder> [--origin <name>]   (one pending item per file)
+ *   bun src/cli.ts type:sensitive <type> [--off]          (only the owner lifts it)
+ *   bun src/cli.ts field:sensitive <type> <field> [--off]
  *
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
@@ -22,6 +24,7 @@ import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
 import { addToInbox } from './core/inbox/index.ts'
+import { changeField, changeType } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { Effect, Layer } from 'effect'
 
@@ -33,7 +36,9 @@ const USAGE = `Usage:
   entry:verify <slug or id>...
   entry:unverify <slug or id>...
   entry:unverified [--type <type>] [--under <slug>]
-  inbox:add <folder> [--origin <name>]`
+  inbox:add <folder> [--origin <name>]
+  type:sensitive <type> [--off]
+  field:sensitive <type> <field> [--off]`
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -46,6 +51,7 @@ const { positionals, values } = parseArgs({
     type: { type: 'string' },
     under: { type: 'string' },
     origin: { type: 'string' },
+    off: { type: 'boolean' },
   },
 })
 
@@ -143,6 +149,20 @@ const command = Effect.gen(function* () {
         ),
       )
       return `Added to the inbox: ${files.length} items, from ${origin}.`
+    }
+    case 'type:sensitive': {
+      const type = positionals[1]
+      if (type === undefined) return yield* Effect.fail({ message: USAGE })
+      const sensitive = values.off !== true
+      yield* asOwner(changeType({ type, sensitive }))
+      return `The type ${type} is ${sensitive ? '' : 'no longer '}sensitive.`
+    }
+    case 'field:sensitive': {
+      const [, type, field] = positionals
+      if (type === undefined || field === undefined) return yield* Effect.fail({ message: USAGE })
+      const sensitive = values.off !== true
+      yield* asOwner(changeField({ type, field, sensitive }))
+      return `The field ${field} of ${type} is ${sensitive ? '' : 'no longer '}sensitive.`
     }
     default:
       return yield* Effect.fail({ message: USAGE })

@@ -6,11 +6,11 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import type { Right } from '../../src/core/auth/index.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
-import { Actor, entryHistory, fieldHistory } from '../../src/core/events/index.ts'
+import { Actor, entryHistory, fieldHistory, typeHistory } from '../../src/core/events/index.ts'
 import { link } from '../../src/core/links/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { briefing, headsUp, Today, upcoming } from '../../src/core/time/index.ts'
-import { changeType, defineType, getType } from '../../src/core/types/index.ts'
+import { changeField, changeType, defineType, getType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
@@ -29,6 +29,8 @@ type Database = SqlClient.SqlClient | PgClient.PgClient
 
 const plain = <A, E>(effect: Effect.Effect<A, E, Database>) => run(withRights(PLAIN)(effect))
 const trusted = <A, E>(effect: Effect.Effect<A, E, Database>) => run(withRights(TRUSTED)(effect))
+const owner = <A, E>(effect: Effect.Effect<A, E, Database>) =>
+  run(withRights(['read', 'write', 'sensitive', 'owner'])(effect))
 const refusalOf = <A, E>(effect: Effect.Effect<A, E, Database>) =>
   run(withRights(PLAIN)(Effect.flip(effect)))
 
@@ -50,6 +52,20 @@ beforeAll(() =>
           },
         ],
       })
+      yield* defineType({
+        name: 'member',
+        label: 'Member',
+        description: 'A member of a club.',
+        fields: [
+          {
+            name: 'born',
+            kind: 'date',
+            sensitive: true,
+            recurs: { every: 'yearly', notice: 'P30D' },
+          },
+        ],
+      })
+      yield* writeEntry({ type: 'member', title: 'Club member', fields: { born: '1990-03-25' } })
       yield* defineType({
         name: 'diary',
         label: 'Diary',
@@ -122,16 +138,25 @@ describe('sensitive fields are shown only to keys that may see them', () => {
         'agent-plain',
       )
     const told = await plain(onDay(headsUp))
-    expect(told).toMatchObject([{ entry: { slug: 'current-account' }, field: 'renewal' }])
+    // That something is due, on which entry and field: not when, nor how old.
+    expect(told.map(({ entry, field }) => [entry.slug, field]).toSorted()).toEqual([
+      ['club-member', 'born'],
+      ['current-account', 'renewal'],
+    ])
+    for (const each of told)
+      expect(each).toMatchObject({ date: HIDDEN, period: HIDDEN, days_left: null, age: null })
     const shown = JSON.stringify([
       told,
       await plain(onDay(upcoming('2030-03-01', '2030-03-31'))),
       await plain(onDay(briefing('week'))),
     ])
     expect(shown).not.toContain('2030-03-20')
+    expect(shown).not.toContain('2030-03-25')
+    expect(shown).not.toContain('"age":40')
     expect(shown).not.toContain('zebracode')
     expect(await trusted(onDay(upcoming('2030-03-01', '2030-03-31')))).toMatchObject([
-      { date: '2030-03-20' },
+      { date: '2030-03-20', days_left: 19 },
+      { date: '2030-03-25', days_left: 24, age: 40 },
     ])
   })
 
@@ -191,10 +216,44 @@ describe('a whole type can be sensitive', () => {
     expect((await refusalOf(readEntry('short-memo'))).message).toBe(
       'The entry `short-memo` does not exist.',
     )
-    expect((await refusalOf(changeType({ type: 'memo', sensitive: false }))).message).toBe(
-      'Only a key with the right `sensitive` may make the type `memo` no longer sensitive.',
+    expect(
+      (await trusted(Effect.flip(changeType({ type: 'memo', sensitive: false })))).message,
+    ).toBe(
+      'Only the owner of Grenier may make the type `memo` no longer sensitive: they do it from the command line, with `type:sensitive memo --off`.',
     )
-    await trusted(changeType({ type: 'memo', sensitive: false }))
+    await owner(changeType({ type: 'memo', sensitive: false }))
     expect(await plain(getType('memo'))).not.toHaveProperty('sensitive')
+  })
+})
+
+describe('a field becomes sensitive after its definition', () => {
+  test('any writer may make a field sensitive, and the change is in the history of the type', async () => {
+    await trusted(
+      defineType({
+        name: 'badge',
+        label: 'Badge',
+        description: 'A badge to enter a building.',
+        fields: [{ name: 'code', kind: 'text' }],
+      }),
+    )
+    await trusted(writeEntry({ type: 'badge', title: 'Office badge', fields: { code: 'K-77' } }))
+    await plain(changeField({ type: 'badge', field: 'code', sensitive: true }))
+    expect((await plain(readEntry('office-badge'))).entry.fields).toEqual({ code: HIDDEN })
+    const [, change] = await plain(typeHistory('badge'))
+    expect(change).toMatchObject({
+      action: 'change_field',
+      changes: [{ field: 'fields.code', after: { name: 'code', kind: 'text', sensitive: true } }],
+    })
+  })
+
+  test('only the owner makes it no longer sensitive', async () => {
+    expect(
+      (await trusted(Effect.flip(changeField({ type: 'badge', field: 'code', sensitive: false }))))
+        .message,
+    ).toBe(
+      'Only the owner of Grenier may make the field `code` of `badge` no longer sensitive: they do it from the command line, with `field:sensitive badge code --off`.',
+    )
+    await owner(changeField({ type: 'badge', field: 'code', sensitive: false }))
+    expect((await plain(readEntry('office-badge'))).entry.fields).toEqual({ code: 'K-77' })
   })
 })
