@@ -26,11 +26,11 @@ export const scratchDatabaseExists = (name: string) =>
   )
 
 /**
- * A database of a test suite's own, never one that holds real data: created with a unique name
- * on the server of `DATABASE_URL`, migrated, and dropped when the layer is released, whether the
+ * An empty database of a test suite's own, never one that holds real data: created with a unique
+ * name on the server of `DATABASE_URL`, and dropped when the layer is released, whether the
  * suite passed or failed.
  */
-export const scratchDatabase = Layer.unwrap(
+export const emptyScratchDatabase = Layer.unwrap(
   Effect.gen(function* () {
     const server = new URL(Redacted.value(yield* databaseUrl))
     const name = `grenier_test_${crypto.randomUUID().replaceAll('-', '')}`
@@ -45,12 +45,15 @@ export const scratchDatabase = Layer.unwrap(
         ).pipe(Effect.orDie),
     )
     server.pathname = `/${name}`
-    const client = PgClient.layer({ url: Redacted.make(server.toString()) })
-    return Layer.effectDiscard(migrate).pipe(
-      Layer.provideMerge(client),
+    return PgClient.layer({ url: Redacted.make(server.toString()) }).pipe(
       Layer.merge(Layer.succeed(ScratchDatabase, { name, url: server.toString() })),
     )
   }),
+)
+
+/** A database of a test suite's own, migrated to the latest version. */
+export const scratchDatabase = Layer.effectDiscard(migrate).pipe(
+  Layer.provideMerge(emptyScratchDatabase),
 )
 
 const counts = rowsOf(Schema.Struct({ count: Schema.Number }))

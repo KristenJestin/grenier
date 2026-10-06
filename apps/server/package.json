@@ -10,6 +10,7 @@
     "mcp": "bun --env-file=../../.env src/mcp/main.ts",
     "grenier": "bun --env-file=../../.env src/cli.ts",
     "import": "bun --env-file=../../.env src/import/main.ts",
+    "db:generate": "drizzle-kit generate",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "oxlint -c ../../.oxlintrc.json .",
     "fmt:check": "oxfmt -c ../../.oxfmtrc.json --check .",
@@ -21,12 +22,14 @@
     "@effect/sql-pg": "4.0.0",
     "@grenier/api": "workspace:*",
     "better-auth": "1.7.7",
+    "drizzle-orm": "1.0.0-rc.5-5935859",
     "effect": "4.0.0",
     "file-type": "22.1.1",
     "yaml": "2.9.1"
   },
   "devDependencies": {
     "@better-auth/memory-adapter": "1.7.7",
-    "@seriousme/openapi-schema-validator": "2.11.0"
+    "@seriousme/openapi-schema-validator": "2.11.0",
+    "drizzle-kit": "1.0.0-rc.5-5935859"
   }
 }

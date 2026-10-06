@@ -6,4 +6,4 @@ export {
   databaseUrl,
   layer,
 } from './client.ts'
-export { latestVersion, migrate, schemaVersion } from './migrate.ts'
+export { latestVersion, migrate, MigrationsBehind, schemaVersion } from './migrate.ts'
