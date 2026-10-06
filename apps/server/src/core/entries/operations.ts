@@ -283,7 +283,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         provenance: withoutNulls({ ...base.provenance, ...provenance }),
       }
       const slug = state.slug ?? (yield* freeSlugOf(state.title ?? ''))
-      const type = state.type === undefined ? undefined : yield* findType(state.type)
+      const type = state.type === undefined ? undefined : yield* findType(state.type, 'share')
       const hidden = yield* sensitivity
       if (type !== undefined && hidden.hidesType(type.name)) {
         return yield* new Refused({

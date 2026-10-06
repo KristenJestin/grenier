@@ -338,6 +338,26 @@ describe('a change of a type while an entry of it is being written', () => {
     )
     expect((await run(readEntry('top-shelf'))).entry.fields).toEqual({ name: 'A', place: 'attic' })
   })
+
+  test('a write that meets a change of its type follows the changed type', async () => {
+    await run(
+      defineType({
+        name: 'crate',
+        label: 'Crate',
+        description: 'A crate in a store room.',
+        fields: [{ name: 'label', kind: 'text' }],
+      }),
+    )
+    const [ended] = await run(
+      whileLocked(changeField({ type: 'crate', field: 'label', rename: 'name' }), [
+        writeEntry({ type: 'crate', title: 'Blue crate', fields: { label: 'B' } }),
+      ]),
+    )
+    expect(ended !== undefined && Result.isFailure(ended)).toBe(true)
+    expect(await run(refusalOf(readEntry('blue-crate')))).toBe(
+      'The entry `blue-crate` does not exist.',
+    )
+  })
 })
 
 describe('a field that becomes a link to an entry', () => {

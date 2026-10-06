@@ -58,20 +58,24 @@ export const snapshotOf = ({
   ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
 })
 
-/** The type of that name, if there is one; `locked`, until the transaction ends. */
-export const findType = Effect.fn('findType')(function* (name: string, locked = false) {
+/**
+ * The type of that name, if there is one. `update` locks it until the transaction ends, for a
+ * change of the type; `share` lets other writes read it but waits for a change under way, so a
+ * write applies the type as that change leaves it.
+ */
+export const findType = Effect.fn('findType')(function* (name: string, lock?: 'update' | 'share') {
   const db = yield* drizzle
   const query = db
     .select(COLUMNS)
     .from(types)
     .where(and(eq(types.name, name), isNull(types.deleted_at)))
-  const [row] = yield* rows(locked ? query.for('update') : query)
+  const [row] = yield* rows(lock === undefined ? query : query.for(lock))
   return row === undefined ? undefined : typeOf(row)
 })
 
 /** The type of that name; refused when there is none. */
-export const getType = Effect.fn('getType')(function* (name: string, locked = false) {
-  const type = yield* findType(name, locked)
+export const getType = Effect.fn('getType')(function* (name: string, lock?: 'update' | 'share') {
+  const type = yield* findType(name, lock)
   if (type === undefined)
     return yield* new Refused({ message: `The type \`${name}\` does not exist.` })
   return type
@@ -139,7 +143,7 @@ export const addField = Effect.fn('addField')(function* (
   return yield* client.withTransaction(
     Effect.gen(function* () {
       // Locked until the field is added: a concurrent change waits, then starts from this one.
-      const type = yield* getType(typeName, true)
+      const type = yield* getType(typeName, 'update')
       if (input.required === true) {
         return yield* new Refused({
           message: `The field \`${input.name}\` cannot be required when it is added to an existing type: add it as optional.`,
@@ -176,7 +180,7 @@ export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeIn
   const rights = yield* Rights
   return yield* client.withTransaction(
     Effect.gen(function* () {
-      const type = yield* getType(input.type, true)
+      const type = yield* getType(input.type, 'update')
       if (type.sensitive === true && !input.sensitive && !rights.includes('sensitive')) {
         return yield* new Refused({
           message: `Only a key with the right \`sensitive\` may make the type \`${type.name}\` no longer sensitive.`,
