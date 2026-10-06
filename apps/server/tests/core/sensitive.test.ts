@@ -252,3 +252,71 @@ describe('a field becomes sensitive after its definition', () => {
     expect((await plain(readEntry('office-badge'))).entry.fields).toEqual({ code: 'K-77' })
   })
 })
+
+describe('changing the type of an entry keeps its sensitive values protected', () => {
+  beforeAll(() =>
+    plain(
+      defineType({
+        name: 'clone',
+        label: 'Clone',
+        description: 'The fields of an account, none of them sensitive.',
+        fields: [
+          { name: 'bank', kind: 'text' },
+          { name: 'number', kind: 'text' },
+          { name: 'renewal', kind: 'date' },
+        ],
+      }),
+    ),
+  )
+
+  test('a key without the right may not change the type of an entry that holds sensitive values', async () => {
+    const refused = await refusalOf(writeEntry({ entry: 'current-account', type: 'clone' }))
+    expect(refused.message).toBe(
+      'The entry `current-account` holds sensitive values: this key may not change its type; ask the owner of Grenier for a key with the right `sensitive`.',
+    )
+    expect(refused.message).not.toContain('zebracode')
+    const kept = await trusted(readEntry('current-account'))
+    expect(kept.entry.type).toBe('account')
+    expect((await plain(readEntry('current-account'))).entry.fields).toMatchObject({
+      number: HIDDEN,
+    })
+  })
+
+  test('a key with the right but not the owner may not move a sensitive value where it would show', async () => {
+    const refused = await run(
+      withRights(TRUSTED)(Effect.flip(writeEntry({ entry: 'current-account', type: 'clone' }))),
+    )
+    expect(refused.message).toBe(
+      [
+        'The field `fields.number` is sensitive in `account` and would not be in `clone`: only the owner of Grenier may change the type of this entry to it.',
+        'The field `fields.renewal` is sensitive in `account` and would not be in `clone`: only the owner of Grenier may change the type of this entry to it.',
+      ].join(' '),
+    )
+    expect((await trusted(readEntry('current-account'))).entry.type).toBe('account')
+  })
+
+  test('an entry of a sensitive type stays in a sensitive type, unless the owner moves it', async () => {
+    await trusted(writeEntry({ type: 'diary', title: 'Rainy evening', body: 'Read by the fire.' }))
+    const refused = await run(
+      withRights(TRUSTED)(Effect.flip(writeEntry({ entry: 'rainy-evening', type: 'folder' }))),
+    )
+    expect(refused.message).toBe(
+      'The type `diary` is sensitive and `folder` is not: only the owner of Grenier may move this entry out of it.',
+    )
+    expect((await refusalOf(readEntry('rainy-evening'))).message).toBe(
+      'The entry `rainy-evening` does not exist.',
+    )
+    await owner(writeEntry({ entry: 'rainy-evening', type: 'folder' }))
+    expect((await plain(readEntry('rainy-evening'))).entry.type).toBe('folder')
+  })
+
+  test('the owner may move a sensitive value to a type where it is not sensitive', async () => {
+    await trusted(
+      writeEntry({ type: 'account', title: 'Spare account', fields: { number: 'zebracode-9' } }),
+    )
+    await owner(writeEntry({ entry: 'spare-account', type: 'clone' }))
+    expect((await plain(readEntry('spare-account'))).entry.fields).toEqual({
+      number: 'zebracode-9',
+    })
+  })
+})

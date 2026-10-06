@@ -17,7 +17,7 @@ import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
 import { Child, Entry, HIDDEN, SourceGiven, SourceKept } from '@grenier/api/model'
-import type { Source, WriteEntryInput } from '@grenier/api/model'
+import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
 import { findSourceItem } from '../sources/operations.ts'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
@@ -314,6 +314,42 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
 })
 
 /**
+ * Why an entry may not take another type, if it may not. A key without the right `sensitive` may
+ * not move an entry that holds sensitive values, since the values would go with it; and only the
+ * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
+ */
+const retypeRefusal = Effect.fn('retypeRefusal')(function* (
+  existing: Kept,
+  type: TypeDefinition,
+  fields: { readonly [name: string]: Schema.Json },
+  byOwner: boolean,
+) {
+  const from = yield* findType(existing.type, 'share')
+  if (from === undefined) return undefined
+  const { allowed } = yield* sensitivity
+  const sensitiveFields = from.fields.filter(({ sensitive }) => sensitive === true)
+  if (!allowed && sensitiveFields.some(({ name }) => Object.hasOwn(existing.fields, name))) {
+    return `The entry \`${existing.slug}\` holds sensitive values: this key may not change its type; ask the owner of Grenier for a key with the right \`sensitive\`.`
+  }
+  if (byOwner || type.sensitive === true) return undefined
+  if (from.sensitive === true) {
+    return `The type \`${from.name}\` is sensitive and \`${type.name}\` is not: only the owner of Grenier may move this entry out of it.`
+  }
+  const exposed = sensitiveFields.filter(
+    ({ name }) =>
+      Object.hasOwn(fields, name) &&
+      !type.fields.some((field) => field.name === name && field.sensitive === true),
+  )
+  if (exposed.length === 0) return undefined
+  return exposed
+    .map(
+      ({ name }) =>
+        `The field \`fields.${name}\` is sensitive in \`${from.name}\` and would not be in \`${type.name}\`: only the owner of Grenier may change the type of this entry to it.`,
+    )
+    .join(' ')
+})
+
+/**
  * Creates an entry, or updates the one `entry` names. The result is validated against the
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
  * per problem, all problems at once. A write that changes nothing writes nothing.
@@ -352,6 +388,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         return yield* new Refused({
           message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right \`sensitive\`.`,
         })
+      }
+      const byOwner = (yield* Rights).includes('owner')
+      if (existing !== undefined && type !== undefined && type.name !== existing.type) {
+        const refusal = yield* retypeRefusal(existing, type, state.fields, byOwner)
+        if (refusal !== undefined) return yield* new Refused({ message: refusal })
       }
       const forbidden =
         type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
@@ -422,7 +463,6 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
         )
       }
-      const byOwner = (yield* Rights).includes('owner')
       if (input.verified === true && !byOwner) {
         problems.push('The field `verified` can be set to true by the owner only.')
       }
