@@ -119,6 +119,9 @@ beforeAll(async () => {
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
       MEDIA_DIR: mediaDirectory,
+      GRENIER_INSTANCE: 'development',
+      GRENIER_VERSION: '1.2.3-test',
+      GRENIER_COMMIT: 'abc1234',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -639,6 +642,44 @@ describe('what the server takes and gives back safely', () => {
     expect(await response.json()).toEqual({
       error: 'A request to /mcp is 32 MB at most: give a large file as a `url` to fetch.',
     })
+  })
+})
+
+describe('the server knows which instance it is', () => {
+  /** Starts the server with `env` and waits for it to stop: its exit code and what it wrote. */
+  const startAndExit = (env: Readonly<Record<string, string>>) =>
+    new Promise<{ code: number | null; stderr: string }>((resolve) => {
+      const started = spawn(process.execPath, ['src/serve.ts'], {
+        cwd: APP,
+        env: { PATH: process.env['PATH'] ?? '', BETTER_AUTH_SECRET: SECRET, ...env },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      })
+      let stderr = ''
+      started.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      started.on('exit', (code) => resolve({ code, stderr }))
+    })
+
+  test('without GRENIER_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
+    const missing = await startAndExit({})
+    expect(missing.code).toBe(1)
+    expect(missing.stderr.trim()).toBe(
+      'The environment variable GRENIER_INSTANCE is missing: set it to `production` or `development`.',
+    )
+    const unknown = await startAndExit({ GRENIER_INSTANCE: 'Production' })
+    expect(unknown.code).toBe(1)
+    expect(unknown.stderr.trim()).toBe(
+      'GRENIER_INSTANCE must be `production` or `development`: `Production` is not one.',
+    )
+  })
+
+  test('over MCP, the development instance announces itself as grenier-dev with its version', async () => {
+    const client = await connect(`${base}/mcp`, bearer(writer))
+    expect(client.serverInfo).toEqual({ name: 'grenier-dev', version: '1.2.3-test' })
+    expect(client.instructions?.startsWith('This is the DEVELOPMENT instance of Grenier')).toBe(
+      true,
+    )
   })
 })
 

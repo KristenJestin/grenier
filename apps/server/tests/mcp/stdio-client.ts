@@ -12,8 +12,11 @@ const Response = Schema.Struct({
 type Response = typeof Response.Type
 
 /** The result of a tool call as an agent reads it: the text, and whether it is an error. */
-/** The result of `initialize`: what matters here, the instructions to the agent. */
-const Initialized = Schema.Struct({ instructions: Schema.optionalKey(Schema.String) })
+/** The result of `initialize`: what matters here, the server's name and its instructions. */
+const Initialized = Schema.Struct({
+  serverInfo: Schema.Struct({ name: Schema.String, version: Schema.String }),
+  instructions: Schema.optionalKey(Schema.String),
+})
 
 const ToolResult = Schema.Struct({
   isError: Schema.optionalKey(Schema.Boolean),
@@ -22,11 +25,12 @@ const ToolResult = Schema.Struct({
 
 /**
  * Starts the Grenier MCP server as a client would, as a process speaking newline-delimited
- * JSON-RPC on its standard input and output, and initializes the session.
+ * JSON-RPC on its standard input and output, and initializes the session. It is the development
+ * instance unless `env` says otherwise.
  */
 export async function startServer(env: Readonly<Record<string, string>>) {
   const server = spawn(process.execPath, [MAIN], {
-    env: { PATH: process.env['PATH'] ?? '', ...env },
+    env: { PATH: process.env['PATH'] ?? '', GRENIER_INSTANCE: 'development', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   const waiting = new Map<number, (response: Response) => void>()
@@ -53,6 +57,8 @@ export async function startServer(env: Readonly<Record<string, string>>) {
   return {
     /** What the server told the agent at initialisation. */
     instructions: Schema.decodeUnknownSync(Initialized)(initialized).instructions,
+    /** The name and version the server announced. */
+    serverInfo: Schema.decodeUnknownSync(Initialized)(initialized).serverInfo,
     request,
     /** Calls a tool; the text it answers, parsed as JSON unless the call is an error. */
     async call(name: string, args: Schema.Json) {

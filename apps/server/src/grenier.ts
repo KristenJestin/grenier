@@ -2,6 +2,7 @@ import { GrenierApi } from '@grenier/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
 import { Auth, Rights } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
+import { Instance } from './core/instance.ts'
 import { readMedia } from './core/media/index.ts'
 import { mcpHttpHandlerFor } from './mcp/http.ts'
 import { instructions } from './mcp/instructions.ts'
@@ -50,9 +51,11 @@ const health = HttpRouter.add(
 const mcp = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const shared: Database = yield* databaseServices
+    const instance = yield* Instance
     const sessions = mcpSessions({
       create: ({ name, rights }, told) =>
         mcpHttpHandlerFor({
+          instance,
           actor: name,
           rights,
           path: '/mcp',
@@ -74,7 +77,10 @@ const mcp = HttpRouter.use((router) =>
         }
         const session = request.headers['mcp-session-id']
         // A session keeps the instructions it started with.
-        const told = session === undefined ? yield* instructions : ''
+        const told =
+          session === undefined
+            ? yield* Effect.provideService(instructions, Instance, instance)
+            : ''
         const web = yield* HttpServerRequest.toWeb(request)
         const response = yield* Effect.promise(() =>
           sessions.handle(verified.success, told, session, web),
