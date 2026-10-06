@@ -39,6 +39,7 @@ fn viewer(
     cx.new(|cx| {
         let mut viewer = Viewer::new(window, cx);
         viewer.set_tree(tree, cx);
+        viewer.set_connection(Some("grenier.local".into()), cx);
         viewer.set_pane(pane, window, cx);
         if let Some(id) = selected {
             viewer.select(&id.into(), cx);

@@ -1,21 +1,20 @@
 //! The results of a search: what each entry is, where it sits, and the words that matched.
 
 use api::SearchResult;
-use gpui_kit::base::Selectable as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::list::ListItem;
-use gpui_kit::component::tag::Tag;
-use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::{
-    App, FontWeight, HighlightStyle, IntoElement, ParentElement as _, RenderOnce, SharedString,
-    Styled as _, StyledText, Window, div,
+    AnyElement, App, ElementId, FontWeight, HighlightStyle, IntoElement, ParentElement as _,
+    RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _,
+    StyledText, Window, div, px,
 };
 
 use crate::intent::{Intent, OnIntent};
 use crate::load::Load;
-use crate::parts::page;
+use crate::motion::hoverable;
+use crate::parts::{icon_box, layout, lead, mix, page, title};
 use crate::status;
-use crate::theme::{space, text};
+use crate::theme::{self, space, text};
 
 /// A search as the screen shows it.
 #[derive(Clone, Debug)]
@@ -29,16 +28,24 @@ pub struct SearchData {
     pub results: Load<Vec<SearchResult>>,
 }
 
-/// The screen of a search, in any state.
+/// The screen of a search, in any state. `shown` counts what the pane has shown: a new value
+/// plays the page's entrance again.
 #[derive(IntoElement)]
 pub struct SearchScreen {
     data: SearchData,
     on_intent: OnIntent,
+    scroll: ScrollHandle,
+    shown: usize,
 }
 
 impl SearchScreen {
-    pub fn new(data: SearchData, on_intent: OnIntent) -> Self {
-        Self { data, on_intent }
+    pub fn new(data: SearchData, on_intent: OnIntent, scroll: ScrollHandle, shown: usize) -> Self {
+        Self {
+            data,
+            on_intent,
+            scroll,
+            shown,
+        }
     }
 }
 
@@ -62,7 +69,7 @@ pub fn marked(excerpt: &str) -> (String, Vec<std::ops::Range<usize>>) {
 }
 
 impl RenderOnce for SearchScreen {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let on_intent = self.on_intent.clone();
         let SearchData {
             query,
@@ -70,103 +77,151 @@ impl RenderOnce for SearchScreen {
             type_name,
             results,
         } = self.data;
-        let body_count = match &results {
-            Load::Ready(found) => Some(found.len()),
-            _ => None,
+        let found = match &results {
+            Load::Ready(found) => match found.len() {
+                1 => "1 fiche trouvée".to_string(),
+                count => format!("{count} fiches trouvées"),
+            },
+            _ => "Recherche".to_string(),
         };
-        let filters = h_flex().gap(space::XS).flex_wrap().children(
-            std::iter::once(None)
-                .chain(types.into_iter().map(Some))
-                .map(|filter| {
-                    let on_intent = on_intent.clone();
-                    let query = query.clone();
-                    let selected = filter == type_name;
-                    Button::new(SharedString::from(format!(
-                        "filter-{}",
-                        filter.as_deref().unwrap_or("*")
-                    )))
-                    .ghost()
-                    .small()
-                    .selected(selected)
-                    .label(filter.clone().unwrap_or_else(|| "Tous les types".into()))
-                    .on_click(move |_, window, cx| {
-                        on_intent(
-                            Intent::Search {
-                                query: query.clone(),
-                                type_name: filter.clone(),
-                            },
-                            window,
-                            cx,
-                        )
-                    })
-                }),
-        );
+        let filters: Vec<AnyElement> = std::iter::once(None)
+            .chain(types.into_iter().map(Some))
+            .map(|filter| filter_chip(filter, &type_name, &query, &on_intent, window, cx))
+            .collect();
         let body = match results {
             Load::Loading => status::loading(6).into_any_element(),
             Load::Empty => status::empty(
+                IconName::Search,
                 format!("Rien pour « {query} »"),
                 "Essayez d'autres mots, ou tous les types.",
                 cx,
             )
             .into_any_element(),
             Load::Failed(problem) => {
-                status::failed("search-failed", &problem, on_intent.clone()).into_any_element()
+                status::failed("search-retry", &problem, on_intent.clone(), window, cx)
             }
             Load::Ready(found) => v_flex()
-                .gap(space::XS)
+                .gap(space::S)
                 .children(
                     found
                         .into_iter()
-                        .map(|result| result_row(result, &on_intent, cx)),
+                        .map(|result| result_card(result, &on_intent, window, cx)),
                 )
                 .into_any_element(),
         };
-        let count = match &body_count {
-            Some(count) => format!("{count} résultat{}", if *count == 1 { "" } else { "s" }),
-            None => String::new(),
-        };
-        page(cx)
-            .gap(space::L)
+        let page = page()
+            .child(title(format!("« {query} »")))
+            .child(lead(found, cx))
             .child(
-                v_flex()
-                    .gap(space::XS)
-                    .child(
-                        div()
-                            .text_size(text::TITLE)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(format!("« {query} »")),
-                    )
-                    .child(
-                        div()
-                            .text_size(text::SMALL)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(count),
-                    ),
+                h_flex()
+                    .mt(space::XL)
+                    .mb(space::L)
+                    .gap(space::S)
+                    .flex_wrap()
+                    .children(filters),
             )
-            .child(filters)
-            .child(body)
+            .child(body);
+        layout(&self.scroll, self.shown, page, None)
     }
 }
 
-/// One result: its title, its type, where it sits, and its excerpt; the whole row opens it.
-fn result_row(result: SearchResult, on_intent: &OnIntent, cx: &App) -> impl IntoElement {
+/// A type the search may be narrowed to, or all of them; the chosen one in the accent.
+fn filter_chip(
+    filter: Option<SharedString>,
+    chosen: &Option<SharedString>,
+    query: &SharedString,
+    on_intent: &OnIntent,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let on = filter == *chosen;
+    let theme = cx.theme();
+    let (idle, over, border, muted, foreground, accent, radius) = (
+        theme.secondary,
+        theme.accent,
+        theme.border,
+        theme.muted_foreground,
+        theme.foreground,
+        theme.primary,
+        theme.radius,
+    );
+    let tint = theme::accent_tint(cx);
+    let on_intent = on_intent.clone();
+    let query = query.clone();
+    let label = filter.clone().unwrap_or_else(|| "Tous".into());
+    hoverable(
+        ElementId::Name(format!("filter-{}", filter.as_deref().unwrap_or("*")).into()),
+        window,
+        cx,
+        move |element, hover| {
+            let element = element
+                .h(px(28.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .rounded(radius)
+                .border_1()
+                .text_size(text::SMALL)
+                .cursor_pointer()
+                .on_click(move |_, window, cx| {
+                    on_intent(
+                        Intent::Search {
+                            query: query.clone(),
+                            type_name: filter.clone(),
+                        },
+                        window,
+                        cx,
+                    )
+                })
+                .child(label);
+            if on {
+                element
+                    .border_color(tint.opacity(0.))
+                    .bg(tint)
+                    .text_color(accent)
+            } else {
+                element
+                    .border_color(border)
+                    .bg(mix(idle, over, hover.0))
+                    .text_color(mix(muted, foreground, hover.0))
+            }
+        },
+    )
+}
+
+/// One result, as a card: its title, its type, where it sits, and the words that matched; the
+/// whole card opens it.
+fn result_card(
+    result: SearchResult,
+    on_intent: &OnIntent,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
     let on_intent = on_intent.clone();
     let slug: SharedString = result.slug.clone().into();
     let (excerpt, ranges) = marked(&result.excerpt);
+    let theme = cx.theme();
     let emphasis = HighlightStyle {
-        font_weight: Some(FontWeight::SEMIBOLD),
-        background_color: Some(cx.theme().warning.opacity(0.22)),
+        color: Some(theme.foreground),
+        background_color: Some(theme.warning.opacity(0.22)),
         ..Default::default()
     };
-    let muted = cx.theme().muted_foreground;
-    ListItem::new(SharedString::from(format!("result-{}", result.id)))
-        .px(space::M)
-        .py(space::S)
-        .rounded(cx.theme().radius_lg)
-        .on_click(move |_, window, cx| on_intent(Intent::Open(slug.clone()), window, cx))
+    let (idle, over, border, muted, radius) = (
+        theme.secondary,
+        theme.accent,
+        theme.border,
+        theme.muted_foreground,
+        theme.radius_lg,
+    );
+    let faint = theme::faint(cx);
+    let content = h_flex()
+        .items_start()
+        .gap(space::M)
+        .child(icon_box(IconName::FileText, px(32.), cx))
         .child(
             v_flex()
-                .w_full()
+                .flex_1()
+                .min_w_0()
                 .gap(space::XS)
                 .child(
                     h_flex()
@@ -176,15 +231,27 @@ fn result_row(result: SearchResult, on_intent: &OnIntent, cx: &App) -> impl Into
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
-                                .font_weight(FontWeight::SEMIBOLD)
+                                .font_weight(FontWeight::MEDIUM)
                                 .child(result.title.clone()),
                         )
-                        .child(Tag::secondary().small().child(result.type_.clone())),
+                        .child(
+                            div()
+                                .h(px(22.))
+                                .px(space::S)
+                                .flex()
+                                .items_center()
+                                .rounded(px(6.))
+                                .border_1()
+                                .border_color(border)
+                                .text_size(text::XS)
+                                .text_color(muted)
+                                .child(result.type_.clone()),
+                        ),
                 )
                 .children((!result.path.is_empty()).then(|| {
                     div()
-                        .text_size(text::SMALL)
-                        .text_color(muted)
+                        .text_size(text::XS)
+                        .text_color(faint)
                         .child(result.path.join(" › "))
                 }))
                 .child(
@@ -193,7 +260,23 @@ fn result_row(result: SearchResult, on_intent: &OnIntent, cx: &App) -> impl Into
                             .with_highlights(ranges.into_iter().map(|range| (range, emphasis))),
                     ),
                 ),
-        )
+        );
+    hoverable(
+        SharedString::from(format!("result-{}", result.id)),
+        window,
+        cx,
+        move |element, hover| {
+            element
+                .p(space::L)
+                .rounded(radius)
+                .border_1()
+                .border_color(border)
+                .bg(mix(idle, over, hover.0))
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_intent(Intent::Open(slug.clone()), window, cx))
+                .child(content)
+        },
+    )
 }
 
 #[cfg(test)]

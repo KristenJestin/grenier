@@ -20,7 +20,7 @@ impl Render for Viewer {
 
 fn main() {
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(ui::assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
             gpui_kit::open_window(

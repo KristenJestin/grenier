@@ -49,6 +49,7 @@ fn viewer(
             viewer.set_tree(
                 Load::Ready(vec![
                     node("kitchen", vec![node("plum-tart", vec![])]),
+                    node("yard", vec![node("shed", vec![node("rake", vec![])])]),
                     node("garden", vec![]),
                 ]),
                 cx,
@@ -60,18 +61,40 @@ fn viewer(
 }
 
 #[gpui_kit::test]
-fn moving_in_the_tree_opens_each_entry_and_right_expands(cx: &mut TestAppContext) {
+fn moving_in_the_tree_opens_each_entry_in_the_order_shown(cx: &mut TestAppContext) {
     let (viewer, cx, intents) = viewer(cx);
-    // As if the entry were clicked: then the keys move from it.
+    // As if the entry were clicked: then the keys move from it. A top-level folder is a group,
+    // always open; the entries filed nowhere come last.
     cx.update(|_, cx| viewer.update(cx, |viewer, cx| viewer.select(&"kitchen".into(), cx)));
-    cx.simulate_keystrokes("right");
-    cx.simulate_keystrokes("down");
-    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("down down down down down");
     assert_eq!(
         *intents.borrow(),
         vec![
             Intent::Open("kitchen".into()),
             Intent::Open("plum-tart".into()),
+            Intent::Open("yard".into()),
+            Intent::Open("shed".into()),
+            Intent::Open("garden".into())
+        ]
+    );
+}
+
+#[gpui_kit::test]
+fn right_unfolds_a_folder_and_left_goes_back_up_then_folds_it(cx: &mut TestAppContext) {
+    let (viewer, cx, intents) = viewer(cx);
+    cx.update(|_, cx| viewer.update(cx, |viewer, cx| viewer.select(&"shed".into(), cx)));
+    // Folded, the rake is not on the way down.
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("up right down");
+    cx.simulate_keystrokes("left left down");
+    assert_eq!(
+        *intents.borrow(),
+        vec![
+            Intent::Open("shed".into()),
+            Intent::Open("garden".into()),
+            Intent::Open("shed".into()),
+            Intent::Open("rake".into()),
+            Intent::Open("shed".into()),
             Intent::Open("garden".into())
         ]
     );

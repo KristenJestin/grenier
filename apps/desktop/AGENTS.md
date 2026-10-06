@@ -13,8 +13,10 @@ the crate's source for the real signature.
   `types.rs` by hand; a test fails when it is stale.
 - `crates/ui`: the screens and components. **A screen never calls the network**: it receives
   plain data and a state (loading, empty, error, ready) and emits what the user asks for (open an
-  entry, search, follow a link). Colours come from the theme (`cx.theme()`), spacing and text
-  sizes from `ui::theme`: no literal colour or size in a screen. Light and dark both.
+  entry, search, follow a link). Colours come from the theme (`cx.theme()`), which Grenier's
+  `crates/ui/src/theme.json` fills, light and dark; spacing and text sizes from `ui::theme`; how
+  things move from `ui::motion`: no literal colour, size or duration in a screen. An icon outside
+  GPUI Kit's default set is added to `ui::assets`, or it draws nothing.
 - `crates/story`: the gallery, the place to design a screen. One story per screen and state,
   named `screen/state`, with invented data only (never a real person, address or amount).
 - `crates/app`: the application binary.

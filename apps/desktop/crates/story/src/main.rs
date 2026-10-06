@@ -19,7 +19,7 @@ fn main() {
         .cloned();
     let dark = arguments.iter().any(|argument| argument == "--dark");
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(ui::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
             ui::viewer::init(cx);

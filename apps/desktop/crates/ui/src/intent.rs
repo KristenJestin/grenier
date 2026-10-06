@@ -20,6 +20,8 @@ pub enum Intent {
     },
     /// Open a web address in the browser.
     OpenUrl(SharedString),
+    /// Open the entry of that slug as the read API returns it, in the browser.
+    OpenInApi(SharedString),
     /// Go back, or forward, in what was opened.
     Back,
     Forward,
@@ -51,9 +53,9 @@ pub fn intent_of_link(url: &str) -> Intent {
     )
 }
 
-/// A Markdown body with each `[[slug]]` reference turned into a link to the entry. References
-/// inside code are left alone.
-pub fn with_entry_links(body: &str) -> String {
+/// A Markdown body with each `[[slug]]` reference turned into a link to the entry, named by its
+/// title when `title_of` knows it, else by its slug. References inside code are left alone.
+pub fn with_entry_links(body: &str, title_of: impl Fn(&str) -> Option<String>) -> String {
     let mut out = String::with_capacity(body.len());
     let mut fenced = false;
     for line in body.split_inclusive('\n') {
@@ -80,7 +82,8 @@ pub fn with_entry_links(body: &str) -> String {
                 && !inner[..end].contains(['[', ']', '\n'])
             {
                 let slug = &inner[..end];
-                out.push_str(&format!("[{slug}]({ENTRY_LINK}{slug})"));
+                let title = title_of(slug).unwrap_or_else(|| slug.to_string());
+                out.push_str(&format!("[{title}]({ENTRY_LINK}{slug})"));
                 rest = &inner[end + 2..];
             } else {
                 out.push('[');
@@ -99,8 +102,21 @@ mod tests {
     #[test]
     fn a_reference_becomes_a_link_to_the_entry_but_not_in_code() {
         assert_eq!(
-            with_entry_links("See [[plum-tart]] and `[[not-this]]`.\n```\n[[nor-this]]\n```\n"),
+            with_entry_links(
+                "See [[plum-tart]] and `[[not-this]]`.\n```\n[[nor-this]]\n```\n",
+                |_| None
+            ),
             "See [plum-tart](grenier://plum-tart) and `[[not-this]]`.\n```\n[[nor-this]]\n```\n"
+        );
+    }
+
+    #[test]
+    fn a_reference_is_named_by_the_title_of_its_entry_when_known() {
+        assert_eq!(
+            with_entry_links("See [[plum-tart]].", |slug| {
+                (slug == "plum-tart").then(|| "Plum tart".to_string())
+            }),
+            "See [Plum tart](grenier://plum-tart)."
         );
     }
 
