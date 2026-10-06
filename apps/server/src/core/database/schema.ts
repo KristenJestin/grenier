@@ -397,3 +397,35 @@ export const media = pgTable(
     index('media_sha256').on(table.sha256),
   ],
 )
+
+/**
+ * What arrives before an agent turns it into entries: a text, a URL or a file, where it came
+ * from, and where it stands. A file is kept as its text when it is text, else on disk by its
+ * hash. The entries an item produced cite it in their `sources`.
+ */
+export const inbox = pgTable(
+  'inbox',
+  {
+    id: uuid()
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    kind: text().notNull(),
+    name: text(),
+    content: text(),
+    sha256: text(),
+    size: integer(),
+    origin: text().notNull().default(''),
+    received_at: timestamp(at).notNull().defaultNow(),
+    status: text().notNull().default('pending'),
+    taken_by: text(),
+    taken_at: timestamp(at),
+    closed_by: text(),
+    closed_at: timestamp(at),
+    reason: text(),
+  },
+  (table) => [
+    check('inbox_kind', sql`kind IN ('text', 'url', 'file')`),
+    check('inbox_status', sql`status IN ('pending', 'taken', 'processed', 'dismissed')`),
+    index('inbox_status').on(table.status, table.received_at),
+  ],
+)

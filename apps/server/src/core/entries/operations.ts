@@ -19,6 +19,7 @@ import { findType } from '../types/operations.ts'
 import { Child, Entry, HIDDEN, SourceGiven, SourceKept } from '@grenier/api/model'
 import type { Source, WriteEntryInput } from '@grenier/api/model'
 import { findSourceItem } from '../sources/operations.ts'
+import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
 
 const Row = Schema.Struct({
@@ -477,7 +478,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           problems.push(`The source ${at} must be an http or https URL: \`${source.url}\` is not.`)
         } else if (
           'item' in source &&
-          (yield* findSourceItem(source.source, source.item)) === undefined
+          !(source.source === INBOX
+            ? yield* inboxHolds(source.item)
+            : (yield* findSourceItem(source.source, source.item)) !== undefined)
         ) {
           problems.push(
             `The source ${at} names the item \`${source.item}\` of \`${source.source}\`, which the registry does not hold.`,
