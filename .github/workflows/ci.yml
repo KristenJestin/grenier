@@ -54,12 +54,31 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # What GPUI needs on Linux to build the desktop app (as GPUI Kit's own CI installs it).
+      - name: Install the libraries of the desktop app
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev libwayland-dev libxkbcommon-x11-dev \
+            libx11-xcb-dev libssl-dev libzstd-dev libasound2-dev libvulkan1
       - run: bunx turbo run typecheck
       - run: bunx turbo run lint
       - run: bunx turbo run fmt:check
       - name: Test
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: bunx turbo run test
+      - name: Build the desktop app
+        run: bunx turbo run build --filter=@grenier/desktop
+
+  # The desktop app on Windows, its other platform: both binaries built (rustup installs the Rust
+  # of rust-toolchain.toml).
+  desktop-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --locked -p story -p app
 
   # The clients' types are generated from the schemas (the OpenAPI document, then the Rust types
   # of apps/desktop): regenerated here, they must be what is committed.

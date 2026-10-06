@@ -82,6 +82,10 @@
     "@grenier/desktop#test": {
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/api/openapi.json"],
       "outputs": []
+    },
+    "@grenier/desktop#build": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["target/debug/story", "target/debug/app"]
     }
   }
 }
