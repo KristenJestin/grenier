@@ -88,6 +88,20 @@ export function validateBranch(branch: string): ValidationResult {
   return { ok: true }
 }
 
+/**
+ * Commits already published whose subject breaks the convention, accepted as they are: published
+ * history is never rewritten. Kept in `tools/commit-message-exceptions.txt`, one full hash per line.
+ */
+export function exceptionsIn(text: string): ReadonlySet<string> {
+  return new Set(
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'))
+      .map((line) => line.split(/\s+/)[0] ?? ''),
+  )
+}
+
 function commitsOf(range: string): { subject: string; body: string }[] {
   const result = spawnSync('git', ['log', '--format=%H', range], { encoding: 'utf8' })
   if (result.status !== 0) {
@@ -111,8 +125,12 @@ if (import.meta.main) {
       console.error('--range requires a <base>..<head> argument')
       process.exit(2)
     }
+    const exceptions = exceptionsIn(
+      readFileSync(new URL('./commit-message-exceptions.txt', import.meta.url), 'utf8'),
+    )
     let failed = false
     for (const commit of commitsOf(range)) {
+      if (exceptions.has(commit.subject)) continue
       const result = validateCommitMessage(commit.body)
       if (!result.ok) {
         console.error(`${commit.subject}: ${result.error}`)
