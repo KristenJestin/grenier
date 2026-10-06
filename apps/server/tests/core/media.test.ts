@@ -1,4 +1,5 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -120,6 +121,7 @@ describe('a download that never ends', () => {
         { address: '127.0.0.1', family: 4 },
         1000,
         400,
+        join(directory, 'incoming-slow'),
       ),
     ).rejects.toThrow()
     expect(Date.now() - started).toBeLessThan(3000)
@@ -315,5 +317,42 @@ describe('describing a medium', () => {
     await run(describeMedia(media.id, 'A red lighthouse at dusk'))
     expect((await run(search('lighthouse'))).map(({ slug }) => slug)).toEqual(['postcard'])
     expect((await run(readEntry('postcard'))).media[0]?.alt).toBe('A red lighthouse at dusk')
+  })
+})
+
+describe('a file is held in memory once at most', () => {
+  test('a download goes to disk as it arrives, hashed on the way', async () => {
+    const into = join(directory, 'incoming-test')
+    const answer = await getPinned(
+      new URL(`${origin}/pixel`),
+      { address: '127.0.0.1', family: 4 },
+      1000,
+      2000,
+      into,
+    )
+    const bytes = readFileSync(into)
+    expect(Buffer.from(bytes).toString('base64')).toBe(PIXEL)
+    expect(answer.file).toEqual({
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      size: 68,
+    })
+    rmSync(into)
+  })
+
+  test('a base64 body longer than 20 MB is refused before it is decoded', async () => {
+    await run(writeEntry({ type: 'thing', title: 'Heavy' }))
+    // Not base64 at all: decoded, it would be almost nothing, so only its length can refuse it.
+    const data = '!'.repeat(28 * 1024 * 1024)
+    expect(await run(refusalOf(attachMedia({ entry: 'heavy', data }).pipe(withMedia())))).toBe(
+      'A file sent as `data` is 20 MB at most: give a `url` for a larger one.',
+    )
+  })
+})
+
+describe('the dimensions of an image', () => {
+  test('are measured when it is attached', async () => {
+    await run(writeEntry({ type: 'thing', title: 'Frame' }))
+    const { media } = await run(attachMedia({ entry: 'frame', data: PIXEL }).pipe(withMedia()))
+    expect(media).toMatchObject({ width: 1, height: 1 })
   })
 })

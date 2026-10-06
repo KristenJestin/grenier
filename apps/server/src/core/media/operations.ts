@@ -1,5 +1,7 @@
 import { and, eq, notInArray, sql } from 'drizzle-orm'
-import { Effect, Schema } from 'effect'
+import { rm } from 'node:fs/promises'
+import { imageSize } from 'image-size'
+import { Effect, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
@@ -9,7 +11,7 @@ import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
-import { fetchFile, readFileOf, storeFile, typeOf } from './files.ts'
+import { fetchFile, headOf, keepFile, readFileOf, storeFile, typeOf } from './files.ts'
 import { asMedia, MEDIUM_COLUMNS } from './store.ts'
 
 const BYTES_LIMIT = 20 * 1024 * 1024
@@ -39,6 +41,33 @@ const refreshMediaText = Effect.fn('refreshMediaText')(function* (entryId: strin
     .where(eq(entries.id, entryId))
 })
 
+/** The width and height of an image, read from its first bytes; none for another kind. */
+const dimensionsOf = (kind: string, head: Uint8Array) => {
+  if (kind !== 'image') return { width: null, height: null }
+  const measured = Result.try(() => imageSize(head))
+  return Result.isSuccess(measured)
+    ? { width: measured.success.width, height: measured.success.height }
+    : { width: null, height: null }
+}
+
+/** A file given as bytes, typed, measured and kept. */
+const keptFromBytes = Effect.fn('keptFromBytes')(function* (bytes: Uint8Array) {
+  const { mime, kind } = yield* typeOf(bytes)
+  const hash = yield* storeFile(bytes)
+  return { hash, size: bytes.length, mime, kind, ...dimensionsOf(kind, bytes) }
+})
+
+/** A file fetched from a URL straight to disk, typed and measured from its first bytes, kept. */
+const keptFromUrl = Effect.fn('keptFromUrl')(function* (url: string) {
+  const fetched = yield* fetchFile(url)
+  const head = yield* headOf(fetched.path)
+  const { mime, kind } = yield* typeOf(head).pipe(
+    Effect.tapError(() => Effect.promise(() => rm(fetched.path, { force: true }))),
+  )
+  yield* keepFile(fetched.path, fetched.sha256)
+  return { hash: fetched.sha256, size: fetched.size, mime, kind, ...dimensionsOf(kind, head) }
+})
+
 /**
  * Attaches a file to an entry, from bytes (20 MB at most) or from a URL the server fetches. Its type
  * is read from its content; what the caller declares is not trusted. The file is kept once on
@@ -52,17 +81,16 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
   if ((input.data === undefined) === (input.url === undefined)) {
     return yield* new Refused({ message: 'Give the file either as `data` (base64) or as a `url`.' })
   }
-  const bytes =
-    input.data === undefined
-      ? yield* fetchFile(input.url ?? '')
-      : new Uint8Array(Buffer.from(input.data, 'base64'))
-  if (input.data !== undefined && bytes.length > BYTES_LIMIT) {
+  // Four characters of base64 carry three bytes: a body too long is refused before it is decoded.
+  if (input.data !== undefined && Math.floor((input.data.length * 3) / 4) > BYTES_LIMIT) {
     return yield* new Refused({
       message: 'A file sent as `data` is 20 MB at most: give a `url` for a larger one.',
     })
   }
-  const { mime, kind } = yield* typeOf(bytes)
-  const hash = yield* storeFile(bytes)
+  const { hash, size, mime, kind, width, height } =
+    input.data === undefined
+      ? yield* keptFromUrl(input.url ?? '')
+      : yield* keptFromBytes(new Uint8Array(Buffer.from(input.data, 'base64')))
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const { media } = tables
@@ -73,8 +101,10 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
             entry_id: entry.id,
             kind,
             mime,
-            size: bytes.length,
+            size,
             sha256: hash,
+            width,
+            height,
             source_url: input.url ?? null,
             alt: input.alt ?? '',
             position: sql`(SELECT coalesce(max(${media.position}), 0) + 1 FROM ${media}
@@ -88,7 +118,7 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
         {
           field: `media.${medium.id}`,
           before: null,
-          after: { sha256: hash, mime, size: bytes.length },
+          after: { sha256: hash, mime, size },
         },
       ])
       return { media: medium }

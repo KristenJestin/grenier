@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { BlockList, isIP } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,6 +39,45 @@ export const storeFile = Effect.fn('storeFile')(function* (bytes: Uint8Array) {
     await rename(partial, path)
   })
   return hash
+})
+
+/**
+ * Keeps a file already on disk, written at `path` by a download: moved under its hash, or
+ * removed when that hash is kept already.
+ */
+export const keepFile = Effect.fn('keepFile')(function* (path: string, hash: string) {
+  const directory = yield* mediaDirectory
+  const target = pathOf(directory, hash)
+  yield* Effect.promise(async () => {
+    const present = await stat(target).then(
+      () => true,
+      () => false,
+    )
+    if (present) return rm(path, { force: true })
+    await mkdir(join(directory, hash.slice(0, 2)), { recursive: true })
+    await rename(path, target)
+  })
+})
+
+/** Where a download is written while it arrives: a name of its own, beside the kept files. */
+export const incomingPath = Effect.fn('incomingPath')(function* () {
+  const directory = yield* mediaDirectory
+  yield* Effect.promise(() => mkdir(join(directory, 'incoming'), { recursive: true }))
+  return join(directory, 'incoming', randomUUID())
+})
+
+/** The first bytes of a file on disk, enough to tell its type and its dimensions. */
+export const headOf = Effect.fn('headOf')(function* (path: string) {
+  return yield* Effect.promise(async () => {
+    const file = await open(path)
+    try {
+      const head = new Uint8Array(64 * 1024)
+      const { bytesRead } = await file.read(head, 0, head.length, 0)
+      return head.slice(0, bytesRead)
+    } finally {
+      await file.close()
+    }
+  })
 })
 
 /** The bytes of a file by its hash. */
@@ -140,20 +180,30 @@ export const HostResolver = Context.Reference<
   defaultValue: () => (host) => lookup(host, { all: true }),
 })
 
-/** What a request answered: its status, where it redirects, and its body if it is to be read. */
+/**
+ * What a request answered: its status, where it redirects, and, when its body was read, the hash
+ * and size of the file it was written to.
+ */
 interface Answer {
   readonly status: number
   readonly location: string | undefined
-  readonly bytes: Uint8Array | undefined
+  readonly file: { readonly sha256: string; readonly size: number } | undefined
   readonly tooLarge: boolean
 }
 
 /**
  * One GET, connected to `pinned`, the address that was checked, whatever the name resolves to now:
  * a DNS answer that changes between the check and the connection cannot lead it elsewhere. TLS
- * still checks the certificate against the name of the URL.
+ * still checks the certificate against the name of the URL. The body goes to the file `into` as
+ * it arrives, hashed on the way: it is never held whole in memory.
  */
-export const getPinned = (url: URL, pinned: ResolvedAddress, limit: number, timeout = TIMEOUT) =>
+export const getPinned = (
+  url: URL,
+  pinned: ResolvedAddress,
+  limit: number,
+  timeout: number,
+  into: string,
+) =>
   new Promise<Answer>((resolve, reject) => {
     const request = (url.protocol === 'https:' ? httpsGet : httpGet)(
       url,
@@ -169,24 +219,35 @@ export const getPinned = (url: URL, pinned: ResolvedAddress, limit: number, time
         const location = response.headers.location
         if ((status >= 300 && status < 400) || status < 200 || status >= 300) {
           response.resume()
-          resolve({ status, location, bytes: undefined, tooLarge: false })
+          resolve({ status, location, file: undefined, tooLarge: false })
           return
         }
-        const chunks: Array<Buffer> = []
+        const hash = createHash('sha256')
+        const file = createWriteStream(into)
         let total = 0
         response.on('data', (chunk: Buffer) => {
           total += chunk.length
           if (total > limit) {
             response.destroy()
-            resolve({ status, location, bytes: undefined, tooLarge: true })
+            file.destroy()
+            resolve({ status, location, file: undefined, tooLarge: true })
             return
           }
-          chunks.push(chunk)
+          hash.update(chunk)
+          file.write(chunk)
         })
         response.on('end', () =>
-          resolve({ status, location, bytes: Buffer.concat(chunks), tooLarge: false }),
+          file.end(() =>
+            resolve({
+              status,
+              location,
+              file: { sha256: hash.digest('hex'), size: total },
+              tooLarge: false,
+            }),
+          ),
         )
         response.on('error', reject)
+        file.on('error', reject)
       },
     )
     // `timeout` only notices a silent connection; this bounds the whole download.
@@ -199,6 +260,7 @@ export const getPinned = (url: URL, pinned: ResolvedAddress, limit: number, time
 /**
  * Fetches a file from the Internet: http or https only, 200 MB at most, 30 seconds at most, and
  * never from a private address (every redirect is checked too) unless `MEDIA_ALLOW_PRIVATE=true`.
+ * The file is written to disk as it arrives; the caller keeps it (`keepFile`) or removes it.
  */
 export const fetchFile = Effect.fn('fetchFile')(function* (address: string) {
   const allowPrivate = yield* Config.Boolean('MEDIA_ALLOW_PRIVATE').pipe(Config.withDefault(false))
@@ -228,19 +290,21 @@ export const fetchFile = Effect.fn('fetchFile')(function* (address: string) {
         `The URL \`${current}\` leads to a private address: Grenier fetches only from the Internet.`,
       )
     }
+    const into = yield* incomingPath()
     const answer = yield* Effect.tryPromise({
-      try: () => getPinned(url, pinned, LIMIT),
+      try: () => getPinned(url, pinned, LIMIT, TIMEOUT, into),
       catch: () => new Refused({ message: `The URL \`${current}\` could not be fetched.` }),
-    })
+    }).pipe(Effect.tapError(() => Effect.promise(() => rm(into, { force: true }))))
+    if (answer.file === undefined) yield* Effect.promise(() => rm(into, { force: true }))
     if (answer.status >= 300 && answer.status < 400 && answer.location !== undefined) {
       current = new URL(answer.location, url).toString()
       continue
     }
     if (answer.tooLarge) return yield* refuse(`The file at \`${current}\` is larger than 200 MB.`)
-    if (answer.bytes === undefined) {
+    if (answer.file === undefined) {
       return yield* refuse(`The URL \`${current}\` answered ${answer.status}.`)
     }
-    return new Uint8Array(answer.bytes)
+    return { path: into, ...answer.file }
   }
   return yield* refuse(`The URL \`${address}\` redirects too many times.`)
 })
