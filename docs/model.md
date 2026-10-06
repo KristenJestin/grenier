@@ -76,6 +76,14 @@ required on an `enum` field and refused on any other kind. Only a `date` field m
 { notice }` or `recurs: { every: yearly | monthly | weekly, notice }`, the notice being an ISO
 8601 duration. A definition with an unknown key is refused.
 
+### How agents learn an instance
+
+An agent connected over MCP receives instructions when its session starts: generic ones, in the
+code, on how to choose a type (from its description, searching before creating, asking when none
+fits), followed by the types of the instance with their descriptions (their names only beyond
+50, with `list_types` for the rest). What a type is for lives in its description, in the data:
+it should say when to use the type, not only what it is.
+
 Every write of an entry is validated against its type. A refused write returns one sentence per
 problem, naming the field and what is expected (through `formatSchemaError`).
 
