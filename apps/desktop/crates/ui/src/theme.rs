@@ -58,16 +58,18 @@ pub mod space {
 pub mod text {
     use super::{Pixels, px};
 
-    pub const XS: Pixels = px(12.);
-    pub const SMALL: Pixels = px(13.);
-    pub const BODY: Pixels = px(14.);
+    pub const XS: Pixels = px(11.);
+    pub const SMALL: Pixels = px(12.);
+    pub const BODY: Pixels = px(13.);
     /// The body of an entry, read at length.
-    pub const PROSE: Pixels = px(16.);
+    pub const PROSE: Pixels = px(15.);
     /// The summary under a title.
-    pub const LEAD: Pixels = px(18.);
+    pub const LEAD: Pixels = px(16.);
     /// A section of a page.
-    pub const HEADING: Pixels = px(24.);
-    pub const TITLE: Pixels = px(34.);
+    pub const HEADING: Pixels = px(21.);
+    /// A part of a section.
+    pub const SUBHEADING: Pixels = px(17.);
+    pub const TITLE: Pixels = px(28.);
 }
 
 /// The widths and heights of the layout.
@@ -83,5 +85,9 @@ pub mod width {
     /// The labels of a list of fields.
     pub const LABEL: Pixels = px(180.);
     /// One row of the tree.
-    pub const ROW: Pixels = px(32.);
+    pub const ROW: Pixels = px(30.);
+    /// Below this width the contents of a page are left out, so the page keeps its room.
+    pub const WITH_CONTENTS: Pixels = px(1180.);
+    /// Below this width the sidebar folds away, until it is asked for.
+    pub const WITH_SIDEBAR: Pixels = px(820.);
 }

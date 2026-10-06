@@ -121,7 +121,7 @@ impl RenderOnce for SearchScreen {
                     .children(filters),
             )
             .child(body);
-        layout(&self.scroll, self.shown, page, None)
+        layout(window, &self.scroll, self.shown, page, None)
     }
 }
 

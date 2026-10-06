@@ -21,14 +21,22 @@ pub fn page() -> Div {
     v_flex().w_full().max_w(width::READING).min_w_0()
 }
 
+/// Called as the page scrolls.
+pub type OnScroll = Box<dyn Fn(&mut Window, &mut App)>;
+
 /// A page in its pane: it scrolls under `scroll`, centred, and comes in again each time `shown`
-/// changes. The contents of the page, when given, sit beside it and stay put.
+/// changes. The contents of the page, when given and when the window is wide enough, sit beside
+/// it and stay put, told each time the page scrolls.
 pub fn layout(
+    window: &Window,
     scroll: &ScrollHandle,
     shown: usize,
     page: impl IntoElement,
-    contents: Option<AnyElement>,
+    contents: Option<(AnyElement, OnScroll)>,
 ) -> Div {
+    let (contents, on_scroll) = contents.unzip();
+    // A narrow window keeps its room for the page.
+    let contents = contents.filter(|_| window.viewport_size().width >= width::WITH_CONTENTS);
     h_flex()
         .size_full()
         .min_h_0()
@@ -42,8 +50,9 @@ pub fn layout(
                 .overflow_y_scroll()
                 .track_scroll(scroll)
                 .vertical_scrollbar(scroll)
-                // The contents follow the reading: they are drawn again as the page scrolls.
-                .on_scroll_wheel(|_, window, _| window.refresh())
+                .when_some(on_scroll, |page, on_scroll| {
+                    page.on_scroll_wheel(move |_, window, cx| on_scroll(window, cx))
+                })
                 .child(
                     h_flex()
                         .justify_center()

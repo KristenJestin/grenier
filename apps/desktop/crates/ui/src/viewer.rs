@@ -85,7 +85,8 @@ pub struct Viewer {
     /// How many panes were shown: each new one comes in.
     shown: usize,
     scroll: ScrollHandle,
-    sidebar_open: bool,
+    /// Whether the sidebar shows, once asked; until then, as wide as the window allows.
+    sidebar_open: Option<bool>,
     connection: Option<SharedString>,
     focus: FocusHandle,
     tree_focus: FocusHandle,
@@ -124,7 +125,7 @@ impl Viewer {
             pane: Pane::Entry(Box::new(Load::Empty)),
             shown: 0,
             scroll: ScrollHandle::new(),
-            sidebar_open: true,
+            sidebar_open: None,
             connection: None,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),
@@ -199,6 +200,11 @@ impl Viewer {
             },
             Pane::Search(_) => None,
         }
+    }
+
+    fn sidebar_shown(&self, window: &Window) -> bool {
+        self.sidebar_open
+            .unwrap_or_else(|| window.viewport_size().width >= width::WITH_SIDEBAR)
     }
 
     /// Puts the keyboard in the tree.
@@ -345,7 +351,7 @@ impl Viewer {
             None,
             "Replier",
             cx.listener(|viewer, _, _, cx| {
-                viewer.sidebar_open = false;
+                viewer.sidebar_open = Some(false);
                 cx.notify();
             }),
             window,
@@ -418,7 +424,7 @@ impl Viewer {
             .child(content)
             .with_spring(
                 "sidebar",
-                SpringAnimation::new(SPRING).to(self.sidebar_open),
+                SpringAnimation::new(SPRING).to(self.sidebar_shown(window)),
                 |element, open| {
                     let open = open.0.clamp(0., 1.);
                     element.w(width::SIDEBAR * open).opacity(open)
@@ -602,14 +608,14 @@ impl Viewer {
             }
         };
         let mut bar = h_flex().h(px(52.)).flex_none().px(space::L).gap(space::XS);
-        if !self.sidebar_open {
+        if !self.sidebar_shown(window) {
             bar = bar.child(ghost(
                 "sidebar-open",
                 IconName::PanelLeft,
                 None,
                 "Déplier",
                 cx.listener(|viewer, _, _, cx| {
-                    viewer.sidebar_open = true;
+                    viewer.sidebar_open = Some(true);
                     cx.notify();
                 }),
                 window,
@@ -663,7 +669,7 @@ impl Viewer {
             .flex_1()
             .min_w_0()
             .m(space::S)
-            .when(self.sidebar_open, |panel| panel.ml_0())
+            .when(self.sidebar_shown(window), |panel| panel.ml_0())
             .rounded(px(16.))
             .border_1()
             .border_color(theme.border)

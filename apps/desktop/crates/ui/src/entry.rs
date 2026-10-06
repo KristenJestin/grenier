@@ -87,7 +87,7 @@ impl RenderOnce for EntryScreen {
                 return ready(data, &self.on_intent, &self.scroll, self.shown, window, cx);
             }
         };
-        layout(&self.scroll, self.shown, article, None).into_any_element()
+        layout(window, &self.scroll, self.shown, article, None).into_any_element()
     }
 }
 
@@ -217,6 +217,24 @@ fn ready(
         cx,
         |_, _| Vec::<Pixels>::new(),
     );
+    // The part being read: the page is drawn again when it changes, not at each turn of the wheel.
+    let reading = window.use_keyed_state(
+        SharedString::from(format!("reading-{}", entry.id)),
+        cx,
+        |_, _| None::<usize>,
+    );
+    let follow = {
+        let (places, scroll) = (places.clone(), scroll.clone());
+        move |_: &mut Window, cx: &mut App| {
+            let now = reading_at(places.read(cx), &scroll);
+            reading.update(cx, |reading, cx| {
+                if *reading != now {
+                    *reading = now;
+                    cx.notify();
+                }
+            });
+        }
+    };
     let marked: Vec<usize> = article.anchors.iter().map(|(index, _)| *index).collect();
     let viewport = scroll.clone();
     let known = places.read(cx).clone();
@@ -237,7 +255,14 @@ fn ready(
         })
         .children(article.children);
     let contents = contents(&article.anchors, &known, scroll, &read, window, cx);
-    layout(scroll, shown, page, Some(contents)).into_any_element()
+    layout(
+        window,
+        scroll,
+        shown,
+        page,
+        Some((contents, Box::new(follow))),
+    )
+    .into_any_element()
 }
 
 /// Where the entry sits: each ancestor opens.
@@ -608,7 +633,7 @@ fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &Ap
                     div()
                         .mt(space::XXL)
                         .mb(space::M)
-                        .text_size(px(20.))
+                        .text_size(text::SUBHEADING)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(label.clone())
                 };
@@ -865,6 +890,20 @@ fn media(article: &mut Article, media: &[Medium], cx: &App) {
     );
 }
 
+/// The part being read: the last one whose top has passed under the top of the page, or the last
+/// one once the page is scrolled to its end.
+fn reading_at(places: &[Pixels], scroll: &ScrollHandle) -> Option<usize> {
+    let reading = -scroll.offset().y + px(96.);
+    let at_end = scroll.offset().y.abs() >= scroll.max_offset().y.abs() - px(1.)
+        && scroll.max_offset().y.abs() > px(0.);
+    if at_end {
+        places.len().checked_sub(1)
+    } else {
+        places.iter().rposition(|place| *place <= reading)
+    }
+    .or((!places.is_empty()).then_some(0))
+}
+
 /// The contents of the page: each part, the one being read marked in the accent, a click glides
 /// to it; then what the entry is, in a box.
 fn contents(
@@ -875,15 +914,7 @@ fn contents(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let reading = -scroll.offset().y + px(96.);
-    let at_end = scroll.offset().y.abs() >= scroll.max_offset().y.abs() - px(1.)
-        && scroll.max_offset().y.abs() > px(0.);
-    let current = if at_end {
-        places.len().checked_sub(1)
-    } else {
-        places.iter().rposition(|place| *place <= reading)
-    }
-    .or((!places.is_empty()).then_some(0));
+    let current = reading_at(places, scroll);
     let theme = cx.theme();
     let (muted, foreground, accent, tint, over, border, radius) = (
         theme.muted_foreground,
