@@ -11,6 +11,7 @@ export {
   Source,
   SourceGiven,
   SourceKept,
+  TreeEntry,
   WriteEntryInput,
 } from './entries.ts'
 export { SearchOptions, SearchResult } from './search.ts'

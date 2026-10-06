@@ -85,6 +85,16 @@ export const Child = Schema.Struct({
 }).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
+/** An entry as the tree shows it: what it is, and the entry it is filed under, if any. */
+export const TreeEntry = Schema.Struct({
+  id: Schema.String,
+  slug: Schema.String,
+  type: Schema.String,
+  title: Schema.String,
+  parent_id: Schema.NullOr(Schema.String),
+}).annotate({ identifier: 'TreeEntry' })
+export type TreeEntry = typeof TreeEntry.Type
+
 /**
  * What a write says. With `entry`, the id or slug of an existing entry, it updates that entry:
  * only the keys given change, and `fields` and `provenance` are merged key by key, a `null`

@@ -51,6 +51,52 @@
         }
       }
     },
+    "/api/entries": {
+      "get": {
+        "tags": [
+          "Entries"
+        ],
+        "operationId": "entries.list",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EntryList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/entries/{entry}": {
       "get": {
         "tags": [
@@ -816,6 +862,56 @@
         ],
         "additionalProperties": false
       },
+      "EntryList": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TreeEntry"
+            }
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "TreeEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "type",
+          "title",
+          "parent_id"
+        ],
+        "additionalProperties": false
+      },
       "TypeList": {
         "type": "object",
         "properties": {
@@ -957,7 +1053,7 @@
     },
     {
       "name": "Entries",
-      "description": "An entry with its place in the tree, its children and its links."
+      "description": "The tree of entries, and an entry with its place in it, its children and its links."
     },
     {
       "name": "Search",

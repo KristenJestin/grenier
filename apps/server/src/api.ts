@@ -7,7 +7,7 @@ import {
   Unauthorized,
 } from '@grenier/api/http'
 import { Auth, Rights } from './core/auth/index.ts'
-import { readEntry } from './core/entries/index.ts'
+import { listEntries, readEntry } from './core/entries/index.ts'
 import { Refused } from './core/refused.ts'
 import { search } from './core/search/index.ts'
 import { listTypes } from './core/types/index.ts'
@@ -50,15 +50,22 @@ const types = HttpApiBuilder.group(GrenierApi, 'types', (handlers) =>
 
 const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
   Effect.succeed(
-    handlers.handle('read', ({ params }) =>
-      readEntry(params.entry).pipe(
-        Effect.catch((error) =>
-          error instanceof Refused
-            ? Effect.fail(new NotFound({ message: error.message }))
-            : Effect.die(error),
+    handlers
+      .handle('list', () =>
+        listEntries().pipe(
+          Effect.map((listed) => ({ entries: listed })),
+          Effect.orDie,
+        ),
+      )
+      .handle('read', ({ params }) =>
+        readEntry(params.entry).pipe(
+          Effect.catch((error) =>
+            error instanceof Refused
+              ? Effect.fail(new NotFound({ message: error.message }))
+              : Effect.die(error),
+          ),
         ),
       ),
-    ),
   ),
 )
 

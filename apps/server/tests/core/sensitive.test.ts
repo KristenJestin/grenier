@@ -5,7 +5,7 @@ import type { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import type { Right } from '../../src/core/auth/index.ts'
-import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { listEntries, readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor, entryHistory, fieldHistory, typeHistory } from '../../src/core/events/index.ts'
 import { link } from '../../src/core/links/index.ts'
 import { search } from '../../src/core/search/index.ts'
@@ -183,6 +183,7 @@ describe('a whole type can be sensitive', () => {
     const papers = await plain(readEntry('papers'))
     expect(papers.children.map(({ slug }) => slug)).toEqual(['current-account'])
     expect(papers.hidden_children).toBe(1)
+    expect((await plain(listEntries())).map(({ slug }) => slug)).not.toContain('quiet-morning')
     const account = await plain(readEntry('current-account'))
     expect(account.backlinks).toEqual([])
     expect((await refusalOf(writeEntry({ type: 'diary', title: 'Another page' }))).message).toBe(
@@ -200,6 +201,7 @@ describe('a whole type can be sensitive', () => {
       'quiet-morning',
     ])
     expect(papers.hidden_children).toBe(0)
+    expect((await trusted(listEntries())).map(({ slug }) => slug)).toContain('quiet-morning')
   })
 
   test('a type becomes sensitive after its definition, and only a key with the right lifts it', async () => {
