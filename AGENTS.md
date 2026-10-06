@@ -101,7 +101,8 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 `entry:unverified [--type <type>] [--under <slug>]` lists what waits for the owner's review;
 `entry:verify <slug>…` and `entry:unverify <slug>…` set it, as the owner (no key with `owner` is
 ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
-entry:verify <slug>`. The other
+entry:verify <slug>`. `inbox:add <folder> [--origin <name>]` drops a folder into the inbox, one
+item per file, for agents to process (`inbox_take`, then `inbox_done`). The other
 entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
 and `bun run import` (see `src/import/README.md`).
 
