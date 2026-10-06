@@ -33,13 +33,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24.21.0
-      - name: Enable the pinned package manager
-        run: corepack enable
-      - run: pnpm install --frozen-lockfile
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
       - name: Tag what was merged, and write the release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm exec semantic-release
+        run: bunx semantic-release

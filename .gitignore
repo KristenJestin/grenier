@@ -4,3 +4,4 @@ dist/
 reports/
 .env
 .env.production
+.turbo/

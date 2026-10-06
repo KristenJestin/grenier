@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Angular commit convention of the product repository (see AGENTS.md).
  *
- *   node tools/commit-message.ts <file>    validate the message held by <file>
- *   node tools/commit-message.ts --range <base>..<head>   validate a range of commits
+ *   bun tools/commit-message.ts <file>    validate the message held by <file>
+ *   bun tools/commit-message.ts --range <base>..<head>   validate a range of commits
  */
 
 import { spawnSync } from 'node:child_process'
@@ -124,7 +124,7 @@ if (import.meta.main) {
 
   const file = process.argv[2]
   if (file === undefined) {
-    console.error('usage: node tools/commit-message.ts <file> | --range <base>..<head>')
+    console.error('usage: bun tools/commit-message.ts <file> | --range <base>..<head>')
     process.exit(2)
   }
   const result = validateCommitMessage(readFileSync(file, 'utf8'))
