@@ -1,0 +1,13 @@
+{
+  "name": "@grenier/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "generate": "cargo run -q -p api-gen",
+    "build": "cargo build --workspace",
+    "test": "cargo test --workspace",
+    "lint": "cargo clippy --workspace --all-targets -- -D warnings",
+    "fmt:check": "cargo fmt --check"
+  }
+}

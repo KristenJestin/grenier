@@ -68,6 +68,20 @@
       ],
       "outputs": [],
       "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
+    },
+    "@grenier/desktop#generate": {
+      "dependsOn": ["@grenier/server#openapi"],
+      "inputs": [
+        "crates/api-gen/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "$TURBO_ROOT$/packages/api/openapi.json"
+      ],
+      "outputs": ["crates/api/src/types.rs"]
+    },
+    "@grenier/desktop#test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/api/openapi.json"],
+      "outputs": []
     }
   }
 }

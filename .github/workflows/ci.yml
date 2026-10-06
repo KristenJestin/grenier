@@ -61,6 +61,20 @@ jobs:
         timeout-minutes: 20
         run: bunx turbo run test
 
+  # The clients' types are generated from the schemas (the OpenAPI document, then the Rust types
+  # of apps/desktop): regenerated here, they must be what is committed.
+  generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run generate
+      - name: The generated files are those committed
+        run: git diff --exit-code
+
   # The image of the server, built on every pull request as it will be on the owner's server. It is
   # built only: nothing is pushed to any registry.
   image:

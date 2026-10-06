@@ -13,9 +13,15 @@ const About = { note: Schema.optionalKey(Schema.String) }
 
 /** A URL source, an external identifier, or an item of the source registry. */
 const Elsewhere = [
-  Schema.Struct({ url: Schema.String, ...About }),
-  Schema.Struct({ identifier: Schema.String, label: Schema.optionalKey(Schema.String), ...About }),
-  Schema.Struct({ source: Schema.String, item: Schema.String, ...About }),
+  Schema.Struct({ url: Schema.String, ...About }).annotate({ identifier: 'SourceUrl' }),
+  Schema.Struct({
+    identifier: Schema.String,
+    label: Schema.optionalKey(Schema.String),
+    ...About,
+  }).annotate({ identifier: 'SourceIdentifier' }),
+  Schema.Struct({ source: Schema.String, item: Schema.String, ...About }).annotate({
+    identifier: 'SourceItem',
+  }),
 ] as const
 
 /**
@@ -35,7 +41,12 @@ export type SourceKept = typeof SourceKept.Type
 
 /** A source as it is read: an entry with its slug and title. */
 export const Source = Schema.Union([
-  Schema.Struct({ entry: Schema.String, slug: Schema.String, title: Schema.String, ...About }),
+  Schema.Struct({
+    entry: Schema.String,
+    slug: Schema.String,
+    title: Schema.String,
+    ...About,
+  }).annotate({ identifier: 'SourceEntry' }),
   ...Elsewhere,
 ]).annotate({ identifier: 'Source' })
 export type Source = typeof Source.Type

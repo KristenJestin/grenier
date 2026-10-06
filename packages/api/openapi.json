@@ -728,81 +728,93 @@
       "Source": {
         "anyOf": [
           {
-            "type": "object",
-            "properties": {
-              "entry": {
-                "type": "string"
-              },
-              "slug": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "note": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "entry",
-              "slug",
-              "title"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/SourceEntry"
           },
           {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": "string"
-              },
-              "note": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "url"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/SourceUrl"
           },
           {
-            "type": "object",
-            "properties": {
-              "identifier": {
-                "type": "string"
-              },
-              "label": {
-                "type": "string"
-              },
-              "note": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "identifier"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/SourceIdentifier"
           },
           {
-            "type": "object",
-            "properties": {
-              "source": {
-                "type": "string"
-              },
-              "item": {
-                "type": "string"
-              },
-              "note": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "source",
-              "item"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/SourceItem"
           }
         ]
+      },
+      "SourceItem": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "item": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "item"
+        ],
+        "additionalProperties": false
+      },
+      "SourceIdentifier": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier"
+        ],
+        "additionalProperties": false
+      },
+      "SourceUrl": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "SourceEntry": {
+        "type": "object",
+        "properties": {
+          "entry": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry",
+          "slug",
+          "title"
+        ],
+        "additionalProperties": false
       },
       "TypeList": {
         "type": "object",
