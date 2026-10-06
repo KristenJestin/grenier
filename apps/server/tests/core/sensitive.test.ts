@@ -130,7 +130,7 @@ describe('sensitive fields are shown only to keys that may see them', () => {
     expect(JSON.stringify(events)).not.toContain('2030-03-20')
   })
 
-  test('a briefing, upcoming dates and a heads-up carry no sensitive value without the right', async () => {
+  test('a briefing, upcoming dates and a heads-up leave sensitive dates out without the right', async () => {
     const onDay = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.provideService(
         Effect.provideService(effect, Today, () => '2030-03-01'),
@@ -138,13 +138,8 @@ describe('sensitive fields are shown only to keys that may see them', () => {
         'agent-plain',
       )
     const told = await plain(onDay(headsUp))
-    // That something is due, on which entry and field: not when, nor how old.
-    expect(told.map(({ entry, field }) => [entry.slug, field]).toSorted()).toEqual([
-      ['club-member', 'born'],
-      ['current-account', 'renewal'],
-    ])
-    for (const each of told)
-      expect(each).toMatchObject({ date: HIDDEN, period: HIDDEN, days_left: null, age: null })
+    // A sensitive date is left out entirely: its window, order or count would give it back.
+    expect(told).toEqual([])
     const shown = JSON.stringify([
       told,
       await plain(onDay(upcoming('2030-03-01', '2030-03-31'))),

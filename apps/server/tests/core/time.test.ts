@@ -1,5 +1,6 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
+import { Rights } from '../../src/core/auth/index.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import { link } from '../../src/core/links/index.ts'
@@ -323,5 +324,79 @@ describe('a year ago, in the owner time zone', () => {
       briefing('today').pipe(on('2026-03-02'), Effect.provideService(TimeZone, 'UTC')),
     )
     expect(utc.a_year_ago.created.map(({ slug }) => slug)).not.toContain('late-evening')
+  })
+})
+
+describe('sensitive dates, for a key without the right sensitive', () => {
+  const plain = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.provideService(effect, Rights, ['read', 'write'])
+  /** What a key without `sensitive` gets from each way time comes out, on a given day. */
+  const seen = (day: string, actor: string) =>
+    run(
+      Effect.all({
+        days: Effect.forEach(
+          Array.from({ length: 30 }, (_, index) => `2041-04-${String(index + 1).padStart(2, '0')}`),
+          (each) => upcoming(each, each),
+        ),
+        month: upcoming('2041-04-01', '2041-04-30'),
+        told: headsUp.pipe(as(actor)),
+        briefing: briefing('week'),
+        later: briefing('week').pipe(on('2042-04-10')),
+      }).pipe(on(day), plain),
+    )
+
+  test('day-by-day probing, heads_up and briefing find nothing of them, and count the same', async () => {
+    await run(
+      Effect.all([
+        defineType({
+          name: 'clinic',
+          label: 'Clinic',
+          description: 'A clinic visit.',
+          sensitive: true,
+          fields: [{ name: 'visit', kind: 'date', due: { notice: 'P30D' } }],
+        }),
+        defineType({
+          name: 'locker',
+          label: 'Locker',
+          description: 'A locker rented every year.',
+          fields: [
+            {
+              name: 'renews',
+              kind: 'date',
+              sensitive: true,
+              due: { notice: 'P30D' },
+              recurs: { every: 'yearly', notice: 'P30D' },
+            },
+          ],
+        }),
+      ]),
+    )
+    const before = await seen('2041-04-10', 'agent-probe-before')
+    await run(
+      Effect.all([
+        writeEntry({ type: 'clinic', title: 'Checkup', fields: { visit: '2041-04-14' } }),
+        writeEntry({ type: 'locker', title: 'Gym locker', fields: { renews: '2041-04-17' } }),
+        writeEntry({ type: 'clinic', title: 'Old visit', fields: { visit: '2041-04-03' } }),
+        writeEntry({ type: 'clinic', title: 'Lab results', created: '2041-04-12' }),
+      ]),
+    )
+    const after = await seen('2041-04-10', 'agent-probe-after')
+    expect(after).toEqual(before)
+    const shown = JSON.stringify(after)
+    for (const word of ['gym-locker', 'Checkup', 'clinic', 'renews', 'old-visit', 'lab-results'])
+      expect(shown).not.toContain(word)
+    const all = await run(upcoming('2041-04-01', '2041-04-30'))
+    expect(
+      all
+        .filter(({ entry }) => ['checkup', 'gym-locker'].includes(entry.slug))
+        .map(({ entry, date }) => [entry.slug, date]),
+    ).toEqual([
+      ['checkup', '2041-04-14'],
+      ['gym-locker', '2041-04-17'],
+    ])
+    const told = await run(headsUp.pipe(on('2041-04-10'), as('agent-trusted')))
+    expect(told.map(({ entry }) => entry.slug)).toEqual(
+      expect.arrayContaining(['checkup', 'gym-locker']),
+    )
   })
 })

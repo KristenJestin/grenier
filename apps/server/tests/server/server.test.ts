@@ -228,6 +228,45 @@ describe('only known agents use the server', () => {
   })
 })
 
+describe('an MCP session belongs to the key that opened it', () => {
+  test('another key sending its session id is refused with 404, before and after a revocation', async () => {
+    const first = await createKey('agent-session-first', ['read', 'write'])
+    const opened = await connect(`${base}/mcp`, bearer(first))
+    const session = opened.session() ?? ''
+    expect(session).not.toBe('')
+    const other = await createKey('agent-session-other', ['read'])
+    const borrow = (secret: string) =>
+      fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          ...bearer(secret),
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-session-id': session,
+          'mcp-protocol-version': '2025-06-18',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 7,
+          method: 'tools/call',
+          params: { name: 'write', arguments: { type: 'note', title: 'Borrowed session' } },
+        }),
+      })
+    expect((await borrow(other)).status).toBe(404)
+    await database.runPromise(
+      Effect.gen(function* () {
+        yield* (yield* Auth).revokeKey('agent-session-first')
+      }),
+    )
+    expect((await borrow(other)).status).toBe(404)
+    expect((await borrow(first)).status).toBe(401)
+    const reader = await connect(`${base}/mcp`, bearer(writer))
+    expect(await reader.call('read', { entry: 'borrowed-session' })).toEqual({
+      error: 'The entry `borrowed-session` does not exist.',
+    })
+  })
+})
+
 describe('each key writes under its own name', () => {
   test('two keys on one server: each write is attributed to the key that made it', async () => {
     const laptop = await connect(`${base}/mcp`, bearer(writer))

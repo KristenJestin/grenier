@@ -73,6 +73,8 @@ export async function connect(
   return {
     /** What the server told the agent at initialisation. */
     instructions: Schema.decodeUnknownSync(Initialized)(initialized).instructions,
+    /** The id of the session the server opened. */
+    session: () => session,
     request,
     async call(name: string, args: Schema.Json) {
       return answerOf(await request('tools/call', { name, arguments: args }))
