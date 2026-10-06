@@ -1,18 +1,23 @@
 #!/usr/bin/env bun
 /**
- * The owner's command line: the owner account and the keys of the agents.
+ * The owner's command line: the owner account, the keys of the agents, and the review of entries.
  *
  *   bun src/cli.ts owner:create --email <email> [--name <name>]
  *   bun src/cli.ts key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
  *                              [--owner <email>]   (creates the owner first if there is none)
  *   bun src/cli.ts key:list
  *   bun src/cli.ts key:revoke --name <name>
+ *   bun src/cli.ts entry:verify <slug or id>…        (as the owner, recorded in the history)
+ *   bun src/cli.ts entry:unverify <slug or id>…
+ *   bun src/cli.ts entry:unverified [--type <type>] [--under <slug>]
  *
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
 import { parseArgs } from 'node:util'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
-import { Auth } from './core/auth/index.ts'
+import { Auth, Rights } from './core/auth/index.ts'
+import { setVerified, unverified } from './core/entries/index.ts'
+import { Actor } from './core/events/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { Effect, Layer } from 'effect'
 
@@ -20,7 +25,10 @@ const USAGE = `Usage:
   owner:create --email <email> [--name <name>]
   key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>] [--owner <email>]
   key:list
-  key:revoke --name <name>`
+  key:revoke --name <name>
+  entry:verify <slug or id>...
+  entry:unverify <slug or id>...
+  entry:unverified [--type <type>] [--under <slug>]`
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -30,8 +38,17 @@ const { positionals, values } = parseArgs({
     rights: { type: 'string' },
     'expires-in-days': { type: 'string' },
     owner: { type: 'string' },
+    type: { type: 'string' },
+    under: { type: 'string' },
   },
 })
+
+/** The command line is the owner's: their writes are recorded under the actor `owner`. */
+const asOwner = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.provideService(Actor, 'owner'),
+    Effect.provideService(Rights, ['read', 'write', 'sensitive', 'owner']),
+  )
 
 const command = Effect.gen(function* () {
   const auth = yield* Auth
@@ -76,6 +93,28 @@ const command = Effect.gen(function* () {
     case 'key:revoke': {
       yield* auth.revokeKey(name)
       return `The key ${name} is revoked.`
+    }
+    case 'entry:verify':
+    case 'entry:unverify': {
+      const references = positionals.slice(1)
+      if (references.length === 0) return yield* Effect.fail({ message: USAGE })
+      const verified = positionals[0] === 'entry:verify'
+      const written = yield* asOwner(setVerified(references, verified))
+      const slugs = written.map(({ slug }) => slug).join(', ')
+      return verified ? `Verified: ${slugs}.` : `No longer verified: ${slugs}.`
+    }
+    case 'entry:unverified': {
+      const filter = Object.fromEntries(
+        Object.entries({ type: values.type, under: values.under }).filter(
+          (pair): pair is [string, string] => pair[1] !== undefined,
+        ),
+      )
+      const waiting = yield* asOwner(unverified(filter))
+      return waiting.length === 0
+        ? 'Nothing waits for review.'
+        : waiting
+            .map(({ slug, type, title, by }) => `${slug}\t${type}\t${title}\t${by ?? ''}`)
+            .join('\n')
     }
     default:
       return yield* Effect.fail({ message: USAGE })

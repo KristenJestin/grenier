@@ -55,6 +55,7 @@ describe('the server answers over stdio', () => {
       'read',
       'search',
       'unlink',
+      'unverified',
       'upcoming',
       'write',
     ])
@@ -318,5 +319,23 @@ describe('each session starts with the types of the instance', () => {
     } finally {
       next.close()
     }
+  })
+})
+
+describe('an agent tells the owner what waits for review', () => {
+  test('it lists the unverified entries, and may not verify one', async () => {
+    await mcp().call('define_type', {
+      name: 'dish',
+      label: 'Dish',
+      description: 'Use it for something cooked.',
+      fields: [],
+    })
+    await mcp().call('write', { type: 'dish', title: 'Onion soup' })
+    expect(await mcp().call('unverified', { type: 'dish' })).toMatchObject({
+      result: { entries: [{ slug: 'onion-soup', type: 'dish', by: 'agent-test' }] },
+    })
+    expect(await mcp().call('write', { entry: 'onion-soup', verified: true })).toEqual({
+      error: 'The field `verified` can be set to true by the owner only.',
+    })
   })
 })

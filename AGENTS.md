@@ -97,7 +97,11 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```
 
-`key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one. The other
+`key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one.
+`entry:unverified [--type <type>] [--under <slug>]` lists what waits for the owner's review;
+`entry:verify <slug>…` and `entry:unverify <slug>…` set it, as the owner (no key with `owner` is
+ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
+entry:verify <slug>`. The other
 entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
 and `bun run import` (see `src/import/README.md`).
 
