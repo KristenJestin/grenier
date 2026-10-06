@@ -317,7 +317,11 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
  * per problem, all problems at once. A write that changes nothing writes nothing.
  */
-export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryInput) {
+export const writeEntry = Effect.fn('writeEntry')(function* (
+  input: WriteEntryInput,
+  // The slugs a batch writes along with this entry: its body may refer to them already.
+  coming: ReadonlySet<string> = new Set(),
+) {
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
@@ -482,7 +486,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
       }
 
       for (const reference of referencesIn(state.body)) {
-        if (reference !== slug && (yield* idOf(reference)) === undefined) {
+        if (
+          reference !== slug &&
+          !coming.has(reference) &&
+          (yield* idOf(reference)) === undefined
+        ) {
           problems.push(
             `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
           )
@@ -622,6 +630,59 @@ export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: stri
         changesBetween(snapshotOf(entry), snapshotOf(archived)),
       )
       return archived
+    }),
+  )
+})
+
+/** How many entries one batch writes at most. */
+const BATCH_LIMIT = 100
+
+/** The name of an entry of a batch in a refusal: its place, and its title or what names it. */
+const labelOf = (input: WriteEntryInput, index: number) => {
+  const name = input.title ?? input.entry ?? input.slug
+  return name === undefined ? `Entry ${index + 1}` : `Entry ${index + 1} (\`${name}\`)`
+}
+
+/**
+ * Writes several entries in one transaction, each by the rules of `writeEntry`, and their bodies
+ * may refer to one another as if all existed already. One refused entry refuses the batch: the
+ * refusal names each refused entry with its sentences, and nothing is written.
+ */
+export const writeEntries = Effect.fn('writeEntries')(function* (
+  batch: ReadonlyArray<WriteEntryInput>,
+) {
+  const client = yield* SqlClient.SqlClient
+  if (batch.length > BATCH_LIMIT) {
+    return yield* new Refused({
+      message: `A batch holds ${BATCH_LIMIT} entries at most: this one holds ${batch.length}. Split it.`,
+    })
+  }
+  const coming = new Set(
+    batch.flatMap(({ entry, slug, title }) => [
+      ...(slug === undefined ? [] : [slug]),
+      ...(entry === undefined ? [] : [entry]),
+      ...(entry === undefined && slug === undefined && title !== undefined ? [slugOf(title)] : []),
+    ]),
+  )
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      // A refusal is kept as a value, so that every entry of the batch is checked.
+      const results = yield* Effect.forEach(batch, (input) =>
+        writeEntry(input, coming).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
+      )
+      const isRefused = Schema.is(Refused)
+      const refusals = results.flatMap((result, index) =>
+        isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],
+      )
+      if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
+      const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+      // The references to entries written later in the batch are linked now that all exist.
+      yield* Effect.forEach(written, (entry) =>
+        Effect.flatMap(Effect.forEach(referencesIn(entry.body), idOf), (mentioned) =>
+          replaceMentions(entry.id, mentioned.filter(Predicate.isString)),
+        ),
+      )
+      return written
     }),
   )
 })

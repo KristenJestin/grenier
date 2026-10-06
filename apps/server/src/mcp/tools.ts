@@ -11,6 +11,7 @@ import { briefingTool } from './tools/briefing.ts'
 import { changeFieldTool } from './tools/change-field.ts'
 import { changeTypeTool } from './tools/change-type.ts'
 import { unverifiedTool } from './tools/unverified.ts'
+import { writeManyTool } from './tools/write-many.ts'
 import { confirmProposalTool } from './tools/confirm-proposal.ts'
 import { defineTypeTool } from './tools/define-type.ts'
 import { describeMediaTool } from './tools/describe-media.ts'
@@ -49,6 +50,7 @@ export const GrenierTools = Toolkit.make(
   upcomingTool.tool,
   briefingTool.tool,
   unverifiedTool.tool,
+  writeManyTool.tool,
 )
 
 /**
@@ -138,6 +140,7 @@ export const GrenierHandlers = GrenierTools.toLayer(
       upcoming: handlerOf(upcomingTool),
       briefing: handlerOf(briefingTool),
       unverified: handlerOf(unverifiedTool),
+      write_many: handlerOf(writeManyTool),
     }
   }),
 )
