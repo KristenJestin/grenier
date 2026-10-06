@@ -1,5 +1,11 @@
 import { Schema } from 'effect'
 
+/**
+ * What a key without the right `sensitive` sees in place of a sensitive value: a value exists,
+ * hidden; it is not to be overwritten blindly.
+ */
+export const HIDDEN = '[hidden]'
+
 /** How a field's value was obtained: read in a source, inferred from it, or left unsure. */
 export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
@@ -107,5 +113,6 @@ export const EntryRead = Schema.Struct({
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),
   children: Schema.Array(Child),
+  hidden_children: Schema.Number,
 })
 export type EntryRead = typeof EntryRead.Type

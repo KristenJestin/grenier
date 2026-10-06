@@ -1,0 +1,1 @@
+ALTER TABLE "types" ADD COLUMN "sensitive" boolean DEFAULT false NOT NULL;

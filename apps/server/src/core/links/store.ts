@@ -1,5 +1,5 @@
 import { Link } from '@grenier/api/model'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, notInArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { drizzle } from '../database/client.ts'
@@ -14,7 +14,11 @@ export const MENTIONS = 'mentions'
 const { entries } = tables
 
 /** The links whose `end` matches, with the entry at the other end, by relation and title. */
-const linksWhere = (other: typeof tables.links.target_id, where: SQL | undefined) =>
+const linksWhere = (
+  other: typeof tables.links.target_id,
+  where: SQL | undefined,
+  hiddenTypes: ReadonlyArray<string>,
+) =>
   Effect.flatMap(drizzle, (db) =>
     links(
       db
@@ -28,19 +32,30 @@ const linksWhere = (other: typeof tables.links.target_id, where: SQL | undefined
         })
         .from(tables.links)
         .innerJoin(entries, eq(entries.id, other))
-        .where(where)
+        .where(
+          hiddenTypes.length === 0 ? where : and(where, notInArray(entries.type, [...hiddenTypes])),
+        )
         .orderBy(asc(tables.links.relation), asc(entries.title)),
     ),
   )
 
-/** The links that leave an entry, by relation and title. */
-export const outgoing = Effect.fn('outgoing')(function* (id: string) {
-  return yield* linksWhere(tables.links.target_id, eq(tables.links.source_id, id))
+/**
+ * The links that leave an entry, by relation and title, but those to an entry of the
+ * `hiddenTypes`.
+ */
+export const outgoing = Effect.fn('outgoing')(function* (
+  id: string,
+  hiddenTypes: ReadonlyArray<string> = [],
+) {
+  return yield* linksWhere(tables.links.target_id, eq(tables.links.source_id, id), hiddenTypes)
 })
 
-/** The links that reach an entry, by relation and title. */
-export const incoming = Effect.fn('incoming')(function* (id: string) {
-  return yield* linksWhere(tables.links.source_id, eq(tables.links.target_id, id))
+/** The links that reach an entry, by relation and title, but those from the `hiddenTypes`. */
+export const incoming = Effect.fn('incoming')(function* (
+  id: string,
+  hiddenTypes: ReadonlyArray<string> = [],
+) {
+  return yield* linksWhere(tables.links.source_id, eq(tables.links.target_id, id), hiddenTypes)
 })
 
 /** Replaces the `mentions` links of an entry with links to these entries. */

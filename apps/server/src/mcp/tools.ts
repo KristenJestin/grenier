@@ -9,6 +9,7 @@ import { archiveTool } from './tools/archive.ts'
 import { attachMediaTool } from './tools/attach-media.ts'
 import { briefingTool } from './tools/briefing.ts'
 import { changeFieldTool } from './tools/change-field.ts'
+import { changeTypeTool } from './tools/change-type.ts'
 import { confirmProposalTool } from './tools/confirm-proposal.ts'
 import { defineTypeTool } from './tools/define-type.ts'
 import { describeMediaTool } from './tools/describe-media.ts'
@@ -38,6 +39,7 @@ export const GrenierTools = Toolkit.make(
   unlinkTool.tool,
   historyTool.tool,
   changeFieldTool.tool,
+  changeTypeTool.tool,
   proposeTypeChangeTool.tool,
   listProposalsTool.tool,
   confirmProposalTool.tool,
@@ -97,6 +99,7 @@ export const GrenierHandlers = GrenierTools.toLayer(
       unlink: handlerOf(unlinkTool),
       history: handlerOf(historyTool),
       change_field: handlerOf(changeFieldTool),
+      change_type: handlerOf(changeTypeTool),
       propose_type_change: handlerOf(proposeTypeChangeTool),
       list_proposals: handlerOf(listProposalsTool),
       confirm_proposal: handlerOf(confirmProposalTool),

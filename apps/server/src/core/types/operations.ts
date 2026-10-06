@@ -7,6 +7,7 @@ import * as tables from '../database/schema.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
+import { Rights } from '../auth/rights.ts'
 import { Refused } from '../refused.ts'
 import { FieldDefinition, TypeDefinition } from '@grenier/api/model'
 import { areSimilar } from './similar.ts'
@@ -23,9 +24,14 @@ const Row = Schema.Struct({
   label: Schema.String,
   description: Schema.String,
   fields: Schema.Array(FieldDefinition),
+  sensitive: Schema.Boolean,
 })
 
-const typeOf = Schema.decodeUnknownEffect(Row)
+const rows = rowsOf(Row)
+
+/** A type as it is read: `sensitive` is said only of a type that is. */
+const typeOf = ({ sensitive, ...type }: typeof Row.Type): TypeDefinition =>
+  sensitive ? { ...type, sensitive } : type
 const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
 const { types } = tables
@@ -35,12 +41,20 @@ const COLUMNS = {
   label: types.label,
   description: types.description,
   fields: types.fields,
+  sensitive: types.sensitive,
 }
 
 /** What the event log keeps of a type: its label, its description and each field definition. */
-export const snapshotOf = ({ label, description, fields }: TypeDefinition): Snapshot => ({
+export const snapshotOf = ({
   label,
   description,
+  sensitive,
+  fields,
+}: TypeDefinition): Snapshot => ({
+  label,
+  description,
+  // A type that is not sensitive records nothing, as before the flag existed.
+  sensitive: sensitive === true ? true : null,
   ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
 })
 
@@ -51,8 +65,8 @@ export const findType = Effect.fn('findType')(function* (name: string, locked = 
     .select(COLUMNS)
     .from(types)
     .where(and(eq(types.name, name), isNull(types.deleted_at)))
-  const [row] = yield* locked ? query.for('update') : query
-  return row === undefined ? undefined : yield* typeOf(row).pipe(Effect.orDie)
+  const [row] = yield* rows(locked ? query.for('update') : query)
+  return row === undefined ? undefined : typeOf(row)
 })
 
 /** The type of that name; refused when there is none. */
@@ -66,12 +80,10 @@ export const getType = Effect.fn('getType')(function* (name: string, locked = fa
 /** Every type, by name. */
 export const listTypes = Effect.gen(function* () {
   const db = yield* drizzle
-  const rows = yield* db
-    .select(COLUMNS)
-    .from(types)
-    .where(isNull(types.deleted_at))
-    .orderBy(asc(types.name))
-  return yield* Effect.forEach(rows, (row) => typeOf(row).pipe(Effect.orDie))
+  const found = yield* rows(
+    db.select(COLUMNS).from(types).where(isNull(types.deleted_at)).orderBy(asc(types.name)),
+  )
+  return found.map(typeOf)
 })
 
 /**
@@ -97,6 +109,7 @@ export const defineType = Effect.fn('defineType')(function* (input: typeof TypeD
         label: type.label,
         description: type.description,
         fields: type.fields,
+        sensitive: type.sensitive === true,
       })
       yield* recordEvent(
         actor,
@@ -144,6 +157,41 @@ export const addField = Effect.fn('addField')(function* (
         changesBetween(snapshotOf(type), snapshotOf(extended)),
       )
       return extended
+    }),
+  )
+})
+
+/** What a change of a type as a whole says: today, whether all its entries are sensitive. */
+export const ChangeTypeInput = Schema.Struct({ type: Schema.String, sensitive: Schema.Boolean })
+export type ChangeTypeInput = typeof ChangeTypeInput.Type
+
+/**
+ * Makes every entry of a type sensitive, or no longer. Lifting it shows what was hidden, so only
+ * a key with the right `sensitive` may.
+ */
+export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeInput) {
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  const actor = yield* currentActor
+  const rights = yield* Rights
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      const type = yield* getType(input.type, true)
+      if (type.sensitive === true && !input.sensitive && !rights.includes('sensitive')) {
+        return yield* new Refused({
+          message: `Only a key with the right \`sensitive\` may make the type \`${type.name}\` no longer sensitive.`,
+        })
+      }
+      const { sensitive: _, ...rest } = type
+      const changed: TypeDefinition = input.sensitive ? { ...rest, sensitive: true } : rest
+      const changes = changesBetween(snapshotOf(type), snapshotOf(changed))
+      if (changes.length === 0) return changed
+      yield* db
+        .update(types)
+        .set({ sensitive: input.sensitive, updated: sql`now()` })
+        .where(eq(types.name, type.name))
+      yield* recordEvent(actor, { entryId: null, typeName: type.name }, 'change_type', changes)
+      return changed
     }),
   )
 })

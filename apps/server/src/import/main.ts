@@ -11,6 +11,7 @@
 import { basename, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
+import { Rights } from '../core/auth/index.ts'
 import { layer as database, migrate } from '../core/database/index.ts'
 import { Effect } from 'effect'
 import { importNotes } from './import.ts'
@@ -40,6 +41,8 @@ if (notes === undefined || values.types === undefined) {
     )
     console.log(renderReport(report))
   }).pipe(
+    // The owner imports their own notes, sensitive values included.
+    Effect.provideService(Rights, ['read', 'write', 'sensitive']),
     Effect.provide(database),
     Effect.catch((error) =>
       Effect.sync(() => {

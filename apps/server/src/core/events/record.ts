@@ -31,6 +31,7 @@ export type Action =
   | 'define'
   | 'add_field'
   | 'change_field'
+  | 'change_type'
   | 'delete'
   | 'merge'
   | 'attach'

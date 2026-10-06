@@ -70,6 +70,10 @@ export const TypeDefinition = Schema.Struct({
   ),
   label: Text,
   description: Text,
+  sensitive: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Every entry of the type is sensitive: shown only to a key with the right `sensitive`.',
+  }),
   fields: Schema.Array(FieldDefinition).check(
     Schema.makeFilter((fields) =>
       fields.flatMap(({ name }, index) =>

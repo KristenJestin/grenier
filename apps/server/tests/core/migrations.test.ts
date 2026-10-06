@@ -5,9 +5,7 @@ import { join } from 'node:path'
 import { Effect, Layer, Schema } from 'effect'
 import { Migrator, SqlClient } from 'effect/sql'
 import { describe, expect, test } from 'vitest'
-import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
-import { link } from '../../src/core/links/index.ts'
 import { rowsOf } from '../../src/core/database/rows.ts'
 import {
   latestVersion,
@@ -17,7 +15,6 @@ import {
 } from '../../src/core/database/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { emptyScratchDatabase } from '../../src/core/testing.ts'
-import { defineType } from '../../src/core/types/index.ts'
 import { migrations } from './fixtures/effect-migrations/index.ts'
 
 /** The database as the migrations before Drizzle made it, up to `last`. */
@@ -86,15 +83,24 @@ describe('a database made by the migrations before Drizzle is taken over', () =>
     const [read, found, version, journal] = await onScratch(
       Effect.gen(function* () {
         yield* byEffectMigrations()
-        yield* defineType({ name: 'note', label: 'Note', description: 'A note.', fields: [] })
-        yield* writeEntry({ type: 'note', title: 'Kept across', body: 'A lantern by the door.' })
-        yield* writeEntry({ type: 'note', title: 'Its neighbour' })
-        yield* link('kept-across', 'its-neighbour', 'related')
-        const before = yield* readEntry('kept-across')
-        yield* migrate
+        // Rows as the server of that time wrote them, through its own statements.
         const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO types (name, label, description, fields)
+          VALUES ('note', 'Note', 'A note.', '[]')`
+        yield* sql`INSERT INTO entries (type, title, slug, body)
+          VALUES ('note', 'Kept across', 'kept-across', 'A lantern by the door.'),
+            ('note', 'Its neighbour', 'its-neighbour', '')`
+        yield* sql`INSERT INTO links (source_id, target_id, relation)
+          SELECT a.id, b.id, 'related' FROM entries a, entries b
+          WHERE a.slug = 'kept-across' AND b.slug = 'its-neighbour'`
+        const rows = sql`SELECT id::text AS id, type, title, slug, aliases, tags, fields, body,
+            created::text AS created, updated::text AS updated, search::text AS search,
+            (SELECT count(*)::int FROM links) AS links
+          FROM entries ORDER BY slug`
+        const before = yield* rows
+        yield* migrate
         return [
-          { before, after: yield* readEntry('kept-across') },
+          { before, after: yield* rows },
           yield* search('lantern'),
           yield* schemaVersion,
           yield* sql`SELECT to_regclass('effect_sql_migrations') AS journal`,
@@ -138,7 +144,7 @@ describe('the migrations follow the schema', () => {
         { cwd: app, encoding: 'utf8' },
       )
       expect(output).toContain('No schema changes')
-      expect(readdirSync(copy)).toEqual(readdirSync(folder))
+      expect(readdirSync(copy).toSorted()).toEqual(readdirSync(folder).toSorted())
     } finally {
       rmSync(copy, { recursive: true, force: true })
     }

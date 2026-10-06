@@ -1,0 +1,200 @@
+import { HIDDEN } from '@grenier/api/model'
+import type { PgClient } from '@effect/sql-pg'
+import { Effect } from 'effect'
+import type { SqlClient } from 'effect/sql'
+import { beforeAll, describe, expect, test } from 'vitest'
+import { Rights } from '../../src/core/auth/index.ts'
+import type { Right } from '../../src/core/auth/index.ts'
+import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { Actor, entryHistory, fieldHistory } from '../../src/core/events/index.ts'
+import { link } from '../../src/core/links/index.ts'
+import { search } from '../../src/core/search/index.ts'
+import { briefing, headsUp, Today, upcoming } from '../../src/core/time/index.ts'
+import { changeType, defineType, getType } from '../../src/core/types/index.ts'
+import { useScratchDatabase } from './scratch-database.ts'
+
+const run = useScratchDatabase()
+
+const PLAIN: ReadonlyArray<Right> = ['read', 'write']
+const TRUSTED: ReadonlyArray<Right> = ['read', 'write', 'sensitive']
+
+/** Runs with the rights of a key. */
+const withRights =
+  (rights: ReadonlyArray<Right>) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.provideService(effect, Rights, rights)
+
+/** What the core's operations run on. */
+type Database = SqlClient.SqlClient | PgClient.PgClient
+
+const plain = <A, E>(effect: Effect.Effect<A, E, Database>) => run(withRights(PLAIN)(effect))
+const trusted = <A, E>(effect: Effect.Effect<A, E, Database>) => run(withRights(TRUSTED)(effect))
+const refusalOf = <A, E>(effect: Effect.Effect<A, E, Database>) =>
+  run(withRights(PLAIN)(Effect.flip(effect)))
+
+beforeAll(() =>
+  trusted(
+    Effect.gen(function* () {
+      yield* defineType({
+        name: 'account',
+        label: 'Account',
+        description: 'A bank account.',
+        fields: [
+          { name: 'bank', kind: 'text' },
+          { name: 'number', kind: 'text', sensitive: true },
+          {
+            name: 'renewal',
+            kind: 'date',
+            sensitive: true,
+            due: { notice: 'P30D' },
+          },
+        ],
+      })
+      yield* defineType({
+        name: 'diary',
+        label: 'Diary',
+        description: 'A page of a diary.',
+        fields: [],
+        sensitive: true,
+      })
+      yield* defineType({ name: 'folder', label: 'Folder', description: 'A folder.', fields: [] })
+      yield* writeEntry({ type: 'folder', title: 'Papers' })
+      yield* writeEntry({
+        type: 'account',
+        title: 'Current account',
+        parent: 'papers',
+        fields: { bank: 'Lantern Bank', number: 'zebracode-4411', renewal: '2030-03-20' },
+      })
+      yield* writeEntry({
+        type: 'account',
+        title: 'Current account',
+        entry: 'current-account',
+        fields: { number: 'zebracode-4412' },
+      })
+      yield* writeEntry({
+        type: 'diary',
+        title: 'Quiet morning',
+        parent: 'papers',
+        body: 'Walked by the orchard at dawn.',
+      })
+      yield* link('quiet-morning', 'current-account', 'mentions_account')
+    }),
+  ),
+)
+
+describe('sensitive fields are shown only to keys that may see them', () => {
+  test('without the right, every field but the sensitive ones, each replaced by the marker', async () => {
+    const { entry } = await plain(readEntry('current-account'))
+    expect(entry.fields).toEqual({ bank: 'Lantern Bank', number: HIDDEN, renewal: HIDDEN })
+    const all = await trusted(readEntry('current-account'))
+    expect(all.entry.fields).toEqual({
+      bank: 'Lantern Bank',
+      number: 'zebracode-4412',
+      renewal: '2030-03-20',
+    })
+  })
+
+  test('a word only in a sensitive field is found with the right, and not without', async () => {
+    expect(await plain(search('zebracode'))).toEqual([])
+    expect((await trusted(search('zebracode-4412'))).map(({ slug }) => slug)).toEqual([
+      'current-account',
+    ])
+    expect((await plain(search('Lantern'))).map(({ slug }) => slug)).toEqual(['current-account'])
+  })
+
+  test('the history of a sensitive field shows the change but hides both values', async () => {
+    expect(await plain(fieldHistory('current-account', 'fields.number'))).toMatchObject([
+      { before: HIDDEN, after: HIDDEN },
+    ])
+    expect(await trusted(fieldHistory('current-account', 'fields.number'))).toMatchObject([
+      { before: 'zebracode-4411', after: 'zebracode-4412' },
+    ])
+    const events = await plain(entryHistory('current-account'))
+    expect(JSON.stringify(events)).not.toContain('zebracode')
+    expect(JSON.stringify(events)).not.toContain('2030-03-20')
+  })
+
+  test('a briefing, upcoming dates and a heads-up carry no sensitive value without the right', async () => {
+    const onDay = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.provideService(
+        Effect.provideService(effect, Today, () => '2030-03-01'),
+        Actor,
+        'agent-plain',
+      )
+    const told = await plain(onDay(headsUp))
+    expect(told).toMatchObject([{ entry: { slug: 'current-account' }, field: 'renewal' }])
+    const shown = JSON.stringify([
+      told,
+      await plain(onDay(upcoming('2030-03-01', '2030-03-31'))),
+      await plain(onDay(briefing('week'))),
+    ])
+    expect(shown).not.toContain('2030-03-20')
+    expect(shown).not.toContain('zebracode')
+    expect(await trusted(onDay(upcoming('2030-03-01', '2030-03-31')))).toMatchObject([
+      { date: '2030-03-20' },
+    ])
+  })
+
+  test('writing a sensitive field without the right is refused; another field is written', async () => {
+    const refused = await refusalOf(
+      writeEntry({ entry: 'current-account', fields: { number: 'zebracode-0000' } }),
+    )
+    expect(refused.message).toBe(
+      'The field `fields.number` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right `sensitive`.',
+    )
+    const written = await plain(
+      writeEntry({ entry: 'current-account', fields: { bank: 'Harbour Bank' } }),
+    )
+    expect(written.fields).toMatchObject({ bank: 'Harbour Bank', number: HIDDEN })
+    const kept = await trusted(readEntry('current-account'))
+    expect(kept.entry.fields).toMatchObject({ number: 'zebracode-4412', renewal: '2030-03-20' })
+  })
+})
+
+describe('a whole type can be sensitive', () => {
+  test('without the right, its entries are invisible: read, search, children, links, history', async () => {
+    expect((await refusalOf(readEntry('quiet-morning'))).message).toBe(
+      'The entry `quiet-morning` does not exist.',
+    )
+    expect((await refusalOf(entryHistory('quiet-morning'))).message).toBe(
+      'The entry `quiet-morning` does not exist.',
+    )
+    expect(await plain(search('orchard'))).toEqual([])
+    const papers = await plain(readEntry('papers'))
+    expect(papers.children.map(({ slug }) => slug)).toEqual(['current-account'])
+    expect(papers.hidden_children).toBe(1)
+    const account = await plain(readEntry('current-account'))
+    expect(account.backlinks).toEqual([])
+    expect((await refusalOf(writeEntry({ type: 'diary', title: 'Another page' }))).message).toBe(
+      'The type `diary` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right `sensitive`.',
+    )
+  })
+
+  test('with the right, its entries are fully visible', async () => {
+    const page = await trusted(readEntry('quiet-morning'))
+    expect(page.entry.body).toBe('Walked by the orchard at dawn.')
+    expect((await trusted(search('orchard'))).map(({ slug }) => slug)).toEqual(['quiet-morning'])
+    const papers = await trusted(readEntry('papers'))
+    expect(papers.children.map(({ slug }) => slug).toSorted()).toEqual([
+      'current-account',
+      'quiet-morning',
+    ])
+    expect(papers.hidden_children).toBe(0)
+  })
+
+  test('a type becomes sensitive after its definition, and only a key with the right lifts it', async () => {
+    await trusted(defineType({ name: 'memo', label: 'Memo', description: 'A memo.', fields: [] }))
+    await trusted(writeEntry({ type: 'memo', title: 'Short memo' }))
+    expect(await plain(changeType({ type: 'memo', sensitive: true }))).toMatchObject({
+      sensitive: true,
+    })
+    expect((await refusalOf(readEntry('short-memo'))).message).toBe(
+      'The entry `short-memo` does not exist.',
+    )
+    expect((await refusalOf(changeType({ type: 'memo', sensitive: false }))).message).toBe(
+      'Only a key with the right `sensitive` may make the type `memo` no longer sensitive.',
+    )
+    await trusted(changeType({ type: 'memo', sensitive: false }))
+    expect(await plain(getType('memo'))).not.toHaveProperty('sensitive')
+  })
+})
