@@ -11,9 +11,12 @@ import { layer as database, migrate } from './core/database/index.ts'
 import { Instance, instanceFromEnvironment } from './core/instance.ts'
 import { Effect, Layer } from 'effect'
 import { HttpRouter } from 'effect/http'
-import { GrenierRoutes, MCP_BODY_LIMIT } from './grenier.ts'
+import { GrenierRoutes, MCP_BODY_LIMIT, recordingDefects } from './grenier.ts'
 
-const server = HttpRouter.serve(GrenierRoutes, { disableLogger: true }).pipe(
+const server = HttpRouter.serve(GrenierRoutes, {
+  disableLogger: true,
+  middleware: recordingDefects,
+}).pipe(
   Layer.provide(
     BunHttpServer.layer({
       port: Number(process.env['PORT'] ?? 3000),

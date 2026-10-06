@@ -2,13 +2,15 @@ import { GrenierApi } from '@grenier/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
 import { Auth, Rights } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
+import { Actor } from './core/events/index.ts'
+import { recordDefect } from './core/findings/index.ts'
 import { Instance } from './core/instance.ts'
 import { readMedia } from './core/media/index.ts'
 import { mcpHttpHandlerFor } from './mcp/http.ts'
 import { instructions } from './mcp/instructions.ts'
 import { mcpSessions } from './sessions.ts'
 import type { Database } from './mcp/http.ts'
-import { Effect, Layer, Result } from 'effect'
+import { Cause, Effect, Layer, Result } from 'effect'
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { HttpApiScalar } from 'effect/http-api'
 
@@ -107,6 +109,31 @@ const mcp = HttpRouter.use((router) =>
     )
   }),
 )
+
+/**
+ * Records an unexpected failure of a request (a defect, which answers 500) as an occurrence of a
+ * bug at its route, `GET /api/types`, under the name of the request's key when it has a valid one;
+ * only when diagnostics are on. The query string is left out: it may hold what was searched.
+ */
+export const recordingDefects = <E, R>(
+  app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  app.pipe(
+    Effect.tapCause((cause) =>
+      Effect.gen(function* () {
+        if (!(yield* Instance).diagnostics || !Cause.hasDies(cause)) return
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const verified = yield* verify(request)
+        const path = new URL(request.url, 'http://localhost').pathname
+        yield* recordDefect(`${request.method} ${path}`, cause).pipe(
+          Effect.provideService(
+            Actor,
+            Result.isSuccess(verified) ? verified.success.name : undefined,
+          ),
+        )
+      }),
+    ),
+  )
 
 /**
  * A file attached to an entry, for a valid key with the right `read`. A file never changes under

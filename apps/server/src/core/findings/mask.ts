@@ -60,9 +60,9 @@ const maskedOne = Effect.fn('maskedOne')(function* (
  * right `sensitive`, each entry of a batch (`entries`) as one entry, then written as JSON and cut
  * to `CALL_LIMIT` characters.
  */
-export const maskedCall = Effect.fn('maskedCall')(function* (arguments_: Schema.Json) {
+export const maskedCall = Effect.fn('maskedCall')(function* (given: Schema.Json) {
   const hidden = yield* Effect.provideService(sensitivity, Rights, ['read'])
-  const top = yield* maskedOne(hidden, arguments_)
+  const top = yield* maskedOne(hidden, given)
   const batch = isObject(top) ? top['entries'] : undefined
   const whole =
     isObject(top) && Array.isArray(batch)
