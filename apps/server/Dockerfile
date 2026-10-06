@@ -10,9 +10,10 @@ COPY packages/api/package.json packages/api/
 COPY apps/server/package.json apps/server/
 COPY tools/package.json tools/
 
-# The production dependencies of the workspace.
+# The production dependencies of the workspace. Optional peers are left out: Bun would otherwise
+# bring the test runner, an optional peer of Better Auth that the workspace holds for its tests.
 FROM base AS dependencies
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile --production --omit=peer
 
 FROM oven/bun:1.4.2-slim
 ENV NODE_ENV=production PORT=3000 MEDIA_DIR=/data/media
