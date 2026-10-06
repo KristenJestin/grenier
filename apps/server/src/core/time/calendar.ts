@@ -29,11 +29,19 @@ export const addMonths = (date: string, months: number) => {
   return dateIn(Math.floor(index / 12), (index % 12) + 1, day)
 }
 
-/** The parts of an ISO 8601 duration that a calendar date can use: years, months, weeks, days. */
+/**
+ * The parts of an ISO 8601 duration that a calendar date can use: years, months, weeks, days. A
+ * time part (`PT12H`) counts as the whole days it reaches into: a notice of hours is a day.
+ */
 const durationOf = (duration: string) => {
-  const part = (letter: string) =>
-    Number(new RegExp(`(\\d+)${letter}`).exec(duration.split('T')[0] ?? '')?.[1] ?? 0)
-  return { months: part('Y') * 12 + part('M'), days: part('W') * 7 + part('D') }
+  const [date = '', time = ''] = duration.split('T')
+  const part = (text: string, letter: string) =>
+    Number(new RegExp(`(\\d+)${letter}`).exec(text)?.[1] ?? 0)
+  const seconds = part(time, 'H') * 3600 + part(time, 'M') * 60 + part(time, 'S')
+  return {
+    months: part(date, 'Y') * 12 + part(date, 'M'),
+    days: part(date, 'W') * 7 + part(date, 'D') + Math.ceil(seconds / 86_400),
+  }
 }
 
 /** The date a duration before another: the start of a notice period. */

@@ -30,8 +30,8 @@ const waitingOnLocks = (count: number) =>
  * before it waited, it read before any of the others wrote: the interleaving that loses a write
  * happens every time, not once in a while. Returns how each contender ended.
  */
-export const whileLocked = <L, LE, A, E, R>(
-  lock: Effect.Effect<L, LE, SqlClient.SqlClient>,
+export const whileLocked = <L, LE, LR, A, E, R>(
+  lock: Effect.Effect<L, LE, LR>,
   contenders: ReadonlyArray<Effect.Effect<A, E, R>>,
 ) =>
   Effect.gen(function* () {

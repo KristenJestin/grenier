@@ -1,7 +1,7 @@
 /** A Markdown heading of a body. */
 export type Heading = { readonly level: number; readonly text: string }
 
-const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/
+const HEADING = /^(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/
 const FENCE = /^\s*(```|~~~)/
 
 /** Each line of a body with the heading it is, if it is one; fenced code holds no heading. */

@@ -49,6 +49,37 @@ export const GrenierTools = Toolkit.make(
   briefingTool.tool,
 )
 
+/**
+ * The dates entering their notice period for the current actor. One that cannot be told is
+ * none: the answer it goes with stands, so that an agent never retries a write that succeeded.
+ */
+const toldNow = headsUp.pipe(
+  Effect.catchCause((cause) =>
+    Effect.as(Effect.logWarning('The heads-up could not be told.', cause), []),
+  ),
+)
+
+/** A refusal that also tells the dates entering their notice period, when there are some. */
+const refusalWith = (refused: Refused, heads_up: Effect.Success<typeof toldNow>) =>
+  heads_up.length === 0
+    ? refused
+    : new Refused({ message: `${refused.message}\n\nheads_up: ${JSON.stringify(heads_up)}` })
+
+/**
+ * What a tool answers: its answer with the heads-up, or its refusal with the heads-up too. Any
+ * other failure is a defect, reported as an internal error.
+ */
+export const answered = <A extends Schema.JsonObject, E, R>(answer: Effect.Effect<A, E, R>) =>
+  answer.pipe(
+    Effect.flatMap((data) => Effect.map(toldNow, (heads_up) => ({ ...data, heads_up }))),
+    Effect.catchIf(
+      Schema.is(Refused),
+      (refused) =>
+        Effect.flatMap(toldNow, (heads_up) => Effect.fail(refusalWith(refused, heads_up))),
+      Effect.die,
+    ),
+  )
+
 /** The tools at work on the database, the actor and the rights of the layer that builds them. */
 export const GrenierHandlers = GrenierTools.toLayer(
   Effect.gen(function* () {
@@ -79,10 +110,7 @@ export const GrenierHandlers = GrenierTools.toLayer(
           ),
           Effect.flatMap(run),
           // Every answer carries the dates entering their notice period, once a day per actor.
-          Effect.flatMap((answer) => Effect.map(headsUp, (heads_up) => ({ ...answer, heads_up }))),
-          Effect.catch((error) =>
-            error instanceof Refused ? Effect.fail(error) : Effect.die(error),
-          ),
+          answered,
           Effect.provide(services),
         )
 

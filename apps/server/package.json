@@ -25,6 +25,7 @@
     "drizzle-orm": "1.0.0-rc.5-5935859",
     "effect": "4.0.0",
     "file-type": "22.1.1",
+    "image-size": "2.0.4",
     "yaml": "2.9.1"
   },
   "devDependencies": {

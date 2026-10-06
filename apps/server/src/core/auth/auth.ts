@@ -1,7 +1,7 @@
 import { apiKey } from '@better-auth/api-key'
 import { betterAuth } from 'better-auth'
 import type { BetterAuthOptions } from 'better-auth'
-import { Config, Context, Effect, Layer, Redacted, Schema } from 'effect'
+import { Config, Context, Effect, Layer, Predicate, Redacted, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { Refused } from '../refused.ts'
@@ -47,7 +47,9 @@ const keysPlugin = () =>
     defaultPrefix: 'grenier_',
     requireName: true,
     rateLimit: { enabled: false },
-    keyExpiration: { defaultExpiresIn: null, minExpiresIn: 1, maxExpiresIn: 3650 },
+    // Grenier keeps the expiry itself, in the metadata: Better Auth deletes a key that expired,
+    // and a key must stay listed, its name taken, since it still names writes in the history.
+    enableMetadata: true,
   })
 
 /** Where Better Auth keeps its models: the tables of `AUTH_TABLES`, and the keys plugin. */
@@ -70,8 +72,29 @@ const keyRows = rowsOf(
     permissions: Schema.NullOr(Schema.String),
     expires_at: Schema.NullOr(Schema.Date),
     enabled: Schema.NullOr(Schema.Boolean),
+    metadata: Schema.NullOr(Schema.String),
   }),
 )
+
+/**
+ * What Grenier keeps of a key beside Better Auth: when it expires. Read from the table it is
+ * JSON text; from Better Auth, an object whose date it has already turned into a `Date`.
+ */
+const KeyMetadata = Schema.Union([
+  Schema.Struct({ expires_at: Schema.optionalKey(Schema.Date) }),
+  Schema.fromJsonString(Schema.Struct({ expires_at: Schema.optionalKey(Schema.String) })),
+])
+const metadataOf = Schema.decodeUnknownResult(KeyMetadata)
+
+/** The expiry a key's metadata holds, in ISO 8601, if it has one. */
+const expiryOf = (metadata: typeof KeyMetadata.Encoded | null) => {
+  const decoded = metadataOf(metadata)
+  if (Result.isFailure(decoded) || decoded.success.expires_at === undefined) return null
+  const { expires_at } = decoded.success
+  return Predicate.isString(expires_at) ? expires_at : expires_at.toISOString()
+}
+
+const actors = rowsOf(Schema.Struct({ actor: Schema.String }))
 const rightsOf = Schema.decodeUnknownSync(Schema.fromJsonString(Permissions))
 
 const REFUSALS = new Map([
@@ -141,14 +164,15 @@ export class Auth extends Context.Service<
       )
 
       const keys = keyRows(
-        sql`SELECT id, name, permissions, "expiresAt" AS expires_at, enabled FROM auth_apikey
-          ORDER BY name`,
+        sql`SELECT id, name, permissions, "expiresAt" AS expires_at, enabled, metadata
+          FROM auth_apikey ORDER BY name`,
       ).pipe(Effect.orDie)
 
       const toKey = (row: Effect.Success<typeof keys>[number]): Key => ({
         name: row.name,
         rights: row.permissions === null ? [] : rightsOf(row.permissions).grenier,
-        expires_at: row.expires_at === null ? null : row.expires_at.toISOString(),
+        expires_at:
+          expiryOf(row.metadata) ?? (row.expires_at === null ? null : row.expires_at.toISOString()),
         revoked: row.enabled === false,
       })
 
@@ -196,6 +220,14 @@ export class Auth extends Context.Service<
           ]
           if ((yield* keys).some((key) => key.name === name)) {
             problems.push(`A key named \`${name}\` already exists: choose another name.`)
+          } else if (
+            (yield* actors(sql`SELECT actor FROM events WHERE actor = ${name} LIMIT 1`).pipe(
+              Effect.orDie,
+            )).length > 0
+          ) {
+            problems.push(
+              `The name \`${name}\` names writes in the history: choose another name, so the history keeps one author per name.`,
+            )
           }
           const user = yield* owner
           if (user === undefined) {
@@ -210,7 +242,12 @@ export class Auth extends Context.Service<
                 name,
                 userId: user.id,
                 permissions: { grenier: [...rights] },
-                expiresIn: expiresInDays === undefined ? null : expiresInDays * DAY,
+                metadata:
+                  expiresInDays === undefined
+                    ? {}
+                    : {
+                        expires_at: new Date(Date.now() + expiresInDays * DAY * 1000).toISOString(),
+                      },
               },
             }),
           )
@@ -244,6 +281,10 @@ export class Auth extends Context.Service<
           if (!result.valid || result.key === null) {
             const code = result.error?.code ?? ''
             return yield* new KeyRefused({ message: REFUSALS.get(code) ?? UNKNOWN_KEY })
+          }
+          const expiry = expiryOf(result.key.metadata)
+          if (expiry !== null && expiry <= new Date().toISOString()) {
+            return yield* new KeyRefused({ message: REFUSALS.get('KEY_EXPIRED') ?? UNKNOWN_KEY })
           }
           const permissions = Schema.decodeUnknownSync(Schema.NullOr(Permissions))(
             result.key.permissions,

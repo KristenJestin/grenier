@@ -1,4 +1,5 @@
 import { ConfigProvider, Effect, Layer } from 'effect'
+import { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { grenierAuthAdapter } from '../../src/core/auth/adapter.ts'
 import {
@@ -137,24 +138,51 @@ describe('a request without a valid key is refused', () => {
     expect(keys.find(({ name }) => name === 'agent-old')?.revoked).toBe(true)
   })
 
-  test('an expired key', async () => {
+  test('an expired key, which stays listed and keeps its name taken', async () => {
     const { secret } = await run(
       Effect.flatMap(auth, (service) => service.createKey('agent-brief', ['read'], 1)),
     )
+    // A day goes by: the expiry is moved to the past, around the rules.
     await run(
-      Effect.gen(function* () {
-        const adapter = grenierAuthAdapter(yield* sqlBridge)(authSchemaOptions())
-        yield* Effect.promise(() =>
-          adapter.updateMany({
-            model: 'auth_apikey',
-            where: [{ field: 'name', value: 'agent-brief' }],
-            update: { expiresAt: new Date('2020-01-01T00:00:00Z') },
-          }),
-        )
-      }),
+      Effect.flatMap(
+        SqlClient.SqlClient,
+        (
+          sql,
+        ) => sql`UPDATE auth_apikey SET metadata = ${JSON.stringify({ expires_at: '2020-01-01T00:00:00.000Z' })},
+          "expiresAt" = NULL WHERE name = 'agent-brief'`,
+      ),
     )
     expect(await verify(secret)).toBe(
       'This key has expired: ask the owner of Grenier for a new one.',
+    )
+    const keys = await run(Effect.flatMap(auth, (service) => service.listKeys))
+    expect(keys.find(({ name }) => name === 'agent-brief')?.expires_at).toBe(
+      '2020-01-01T00:00:00.000Z',
+    )
+    expect(
+      await run(
+        refusalOf(Effect.flatMap(auth, (service) => service.createKey('agent-brief', ['read']))),
+      ),
+    ).toBe('A key named `agent-brief` already exists: choose another name.')
+  })
+
+  test('the name of a key that no longer exists, but names writes in the history, is not reused', async () => {
+    await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        Effect.andThen(
+          sql`INSERT INTO types (name, label, description, fields)
+            VALUES ('memo', 'Memo', 'A memo.', '[]')`,
+          sql`INSERT INTO events (actor, type_name, action, changes)
+            VALUES ('agent-gone', 'memo', 'define', '[]')`,
+        ),
+      ),
+    )
+    expect(
+      await run(
+        refusalOf(Effect.flatMap(auth, (service) => service.createKey('agent-gone', ['read']))),
+      ),
+    ).toBe(
+      'The name `agent-gone` names writes in the history: choose another name, so the history keeps one author per name.',
     )
   })
 })

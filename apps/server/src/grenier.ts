@@ -11,6 +11,11 @@ import { Effect, Layer, Result } from 'effect'
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { HttpApiScalar } from 'effect/http-api'
 
+/**
+ * The largest body an MCP request may carry: a call holds a file of 20 MB at most, as base64.
+ */
+export const MCP_BODY_LIMIT = 32 * 1024 * 1024
+
 const bearerOf = (request: HttpServerRequest.HttpServerRequest) =>
   /^Bearer\s+(\S+)$/i.exec(request.headers['authorization'] ?? '')?.[1]
 
@@ -66,6 +71,14 @@ const mcp = HttpRouter.use((router) =>
       Effect.gen(function* () {
         const verified = yield* verify(request)
         if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
+        if (Number(request.headers['content-length'] ?? 0) > MCP_BODY_LIMIT) {
+          return HttpServerResponse.jsonUnsafe(
+            {
+              error: 'A request to /mcp is 32 MB at most: give a large file as a `url` to fetch.',
+            },
+            { status: 413 },
+          )
+        }
         const session = request.headers['mcp-session-id']
         const server =
           (session === undefined ? undefined : sessions.get(session)) ??
@@ -102,6 +115,8 @@ const media = HttpRouter.add('GET', '/media/:hash', (request) =>
         'cache-control': 'private, max-age=31536000, immutable',
         etag: `"${hash}"`,
         'x-content-type-options': 'nosniff',
+        // A page kept as HTML is shown as a document, never run in the origin of Grenier.
+        'content-security-policy': 'sandbox',
       },
     })
   }),

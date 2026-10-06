@@ -117,6 +117,11 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 `GRENIER_PORT` and `POSTGRES_PORT` change the published ports; `GRENIER_BIND=0.0.0.0` publishes
 the server to the network.
 
+The server speaks plain HTTP: published on a network, every key crosses it in clear, in the
+`Authorization` header of each request. Reach it from other machines only through an encrypted
+path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
+By default it listens on `127.0.0.1` only.
+
 Configuration: `.oxlintrc.json` (lint), `.oxfmtrc.json` (format), `vitest.config.ts` (tests),
 `turbo.json` (tasks, their inputs and outputs), at the root. The database URL comes from
 `DATABASE_URL` (see `.env.example`).

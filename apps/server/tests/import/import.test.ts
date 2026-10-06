@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readEntry } from '../../src/core/entries/index.ts'
@@ -10,6 +10,7 @@ import { Effect, ManagedRuntime } from 'effect'
 import type { Layer } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { importNotes } from '../../src/import/import.ts'
+import { readNote } from '../../src/import/note.ts'
 import { renderReport } from '../../src/import/report.ts'
 import type { Report } from '../../src/import/report.ts'
 
@@ -159,5 +160,40 @@ describe('an import run again', () => {
       { field: 'fields.status', before: 'active', after: 'done' },
     ])
     expect(await run(entryHistory('zebra'))).toEqual(historyBefore)
+  })
+})
+
+describe('the title of a note', () => {
+  test('a `# line` inside fenced code is not the title', async () => {
+    const shell = '---\ntype: area\n---\n```sh\n# install\nbun install\n```\n'
+    const titled = await Effect.runPromise(readNote('setup', `${shell}\n# Setting up\n`))
+    expect(titled.entry.title).toBe('Setting up')
+    const untitled = await Effect.runPromise(readNote('setup', shell))
+    expect(untitled.entry.title).toBe('setup')
+  })
+})
+
+describe('a note whose folder could not be imported', () => {
+  const run = useScratchDatabase()
+  const folder = mkdtempSync(join(tmpdir(), 'grenier-import-orphan-'))
+  afterAll(() => rmSync(folder, { recursive: true, force: true }))
+
+  test('is refused, not filed under an unrelated entry with the folder slug', async () => {
+    mkdirSync(join(folder, 'first/garden'), { recursive: true })
+    mkdirSync(join(folder, 'second'), { recursive: true })
+    writeFileSync(join(folder, 'second/garden.md'), '---\ntype: note\n---\n# Garden\n')
+    writeFileSync(
+      join(folder, 'first/garden/garden.md'),
+      '---\ntype: project\nstatus: someday\n---\n# Garden project\n',
+    )
+    writeFileSync(join(folder, 'first/garden/seeds.md'), '---\ntype: note\n---\n# Seeds\n')
+    const report = await run(importNotes(folder, TYPES, 'orphans'))
+    expect(report.refused.map(({ path }) => path).toSorted()).toEqual([
+      'first/garden/garden.md',
+      'first/garden/seeds.md',
+    ])
+    expect(report.refused.find(({ path }) => path === 'first/garden/seeds.md')?.problem).toBe(
+      'Its folder `first/garden` could not be imported: fix the note of the folder first.',
+    )
   })
 })

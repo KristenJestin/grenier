@@ -557,6 +557,39 @@ describe('each MCP session starts with the types of the instance', () => {
   })
 })
 
+describe('what the server takes and gives back safely', () => {
+  test('an HTML file is served sandboxed, so it runs nothing in the origin of Grenier', async () => {
+    const agent = await connect(`${base}/mcp`, bearer(writer))
+    await agent.call('write', { type: 'note', title: 'Saved page' })
+    const page = Buffer.from('<!doctype html><title>Saved</title><script>1</script>').toString(
+      'base64',
+    )
+    const attached = await agent.call('attach_media', { entry: 'saved-page', data: page })
+    const { media } = Schema.decodeUnknownSync(
+      Schema.Struct({ media: Schema.Struct({ url: Schema.String }) }),
+    )('result' in attached ? attached.result : null)
+    const served = await fetch(`${base}${media.url}`, { headers: bearer(writer) })
+    expect(served.headers.get('content-type')).toBe('text/html')
+    expect(served.headers.get('content-security-policy')).toBe('sandbox')
+  })
+
+  test('an MCP request body larger than 32 MB is refused with 413', async () => {
+    const response = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        ...bearer(writer),
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"pad":"${'x'.repeat(32.5 * 1024 * 1024)}"}}`,
+    })
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: 'A request to /mcp is 32 MB at most: give a large file as a `url` to fetch.',
+    })
+  })
+})
+
 describe('/health', () => {
   test('answers 200 with the database up, then 503 with it down', async () => {
     expect((await fetch(`${base}/health`)).status).toBe(200)

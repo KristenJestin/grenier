@@ -139,11 +139,16 @@ const problemsOf = (
   unknown: ReadonlyArray<{ slug: string; problem: string }>,
 ) => [...invalidUnder(type, rewrites), ...unknown].toSorted(bySlug)
 
-const refusedFor = (invalid: ReadonlyArray<{ slug: string; problem: string }>) =>
+/** The refusal of a change, naming the entries it would break, and what repairs them. */
+const refusedFor = (
+  invalid: ReadonlyArray<{ slug: string; problem: string }>,
+  change = 'change',
+  repair = 'Give a `default` for the missing values, or a `mapping` for the others.',
+) =>
   new Refused({
-    message: `The change would leave ${invalid.length} entries invalid: ${invalid
+    message: `The ${change} would leave ${invalid.length} entries invalid: ${invalid
       .map(({ slug, problem }) => `\`${slug}\`: ${problem}`)
-      .join('; ')}. Give a \`default\` for the missing values, or a \`mapping\` for the others.`,
+      .join('; ')}. ${repair}`,
   })
 
 /** Writes the new fields of the entries a change repairs, each with its event. */
@@ -241,6 +246,12 @@ export const changeField = Effect.fn('changeField')(
     if (invalid.length > 0) return yield* refusedFor(invalid)
     yield* sql`UPDATE types SET fields = ${JSON.stringify(next.fields)}::jsonb, updated = now()
       WHERE name = ${type.name}`
+    // A link `fulfills` names the date field it closes: it follows the field's new name.
+    if (name !== old.name) {
+      yield* sql`UPDATE links l SET field = ${name} FROM entries e
+        WHERE l.relation = 'fulfills' AND l.field = ${old.name} AND e.id = l.target_id
+          AND e.type = ${type.name}`
+    }
     yield* recordEvent(
       actor,
       { entryId: null, typeName: type.name },
@@ -434,7 +445,13 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
           into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
         )
         const invalid = problemsOf(into, moved, unknown)
-        if (invalid.length > 0) return yield* refusedFor(invalid)
+        if (invalid.length > 0) {
+          return yield* refusedFor(
+            invalid,
+            'merge',
+            'Fix these entries, or propose the merge again with a mapping that keeps them valid.',
+          )
+        }
         yield* rewriteEntries(actor, moved)
       } else {
         yield* refuseWhileUsed(proposal.type)

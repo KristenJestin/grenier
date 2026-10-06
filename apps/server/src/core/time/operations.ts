@@ -3,6 +3,8 @@ import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { Actor } from '../events/actor.ts'
 import { HIDDEN } from '@grenier/api/model'
+import { DateText } from '../entries/values.ts'
+import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
 import { listTypes } from '../types/operations.ts'
 import {
@@ -15,6 +17,11 @@ import {
 } from './calendar.ts'
 import { datesBetween, periodOf, ruleOf } from './occurrences.ts'
 import type { Rule } from './occurrences.ts'
+
+/** The time zone of the owner: that of the process (`TZ`), unless a test fixes it. */
+export const TimeZone = Context.Reference<string>('@grenier/core/time/TimeZone', {
+  defaultValue: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+})
 
 /** What day it is for the owner: the local date of the process (`TZ`), unless a test fixes it. */
 export const Today = Context.Reference<() => string>('@grenier/core/time/Today', {
@@ -151,8 +158,27 @@ const occurrencesBetween = Effect.fn('occurrencesBetween')(function* (from: stri
   }
 })
 
-/** The occurrences between two dates that no entry fulfills yet, by date. */
+const Period = Schema.Struct({ from: DateText, to: DateText })
+
+/**
+ * The occurrences between two dates that no entry fulfills yet, by date. The period is a year at
+ * most, and must not end before it starts.
+ */
 export const upcoming = Effect.fn('upcoming')(function* (from: string, to: string) {
+  yield* Schema.decodeUnknownEffect(Period)({ from, to }, { errors: 'all' }).pipe(
+    Effect.mapError(Refused.fromSchemaError),
+  )
+  if (to < from) {
+    return yield* new Refused({
+      message: `The period ends before it starts: \`to\` (\`${to}\`) comes before \`from\` (\`${from}\`).`,
+    })
+  }
+  const last = addDays(addMonths(from, 12), -1)
+  if (to > last) {
+    return yield* new Refused({
+      message: `The period is a year at most: ask for \`${from}\` to \`${last}\`, then the next one.`,
+    })
+  }
   const { all, isClosed } = yield* occurrencesBetween(from, to)
   return (yield* visible).occurrences(all.filter((each) => !isClosed(each)).toSorted(byDate))
 })
@@ -169,7 +195,14 @@ export const headsUp = Effect.gen(function* () {
   const { dates, closed } = yield* datesAndClosures
   const due = dates
     .flatMap((each) =>
-      datesBetween(each.rule.every, each.start, today, addDuration(today, each.rule.notice))
+      // Three days more than the notice: a notice in months reaches further from a month end
+      // (31 March less a month is 28 February), and the filter below keeps only what is due.
+      datesBetween(
+        each.rule.every,
+        each.start,
+        today,
+        addDays(addDuration(today, each.rule.notice), 3),
+      )
         .filter((date) => subtractDuration(date, each.rule.notice) <= today)
         .map((date) => occurrence(today, each, date)),
     )
@@ -245,7 +278,8 @@ export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod)
     overdue: mask.occurrences(overdue),
     a_year_ago: {
       created: (yield* created(sql`SELECT id::text AS id, slug, title, type FROM entries
-        WHERE created::date BETWEEN ${yearFrom}::date AND ${yearTo}::date AND archived_at IS NULL
+        WHERE (created AT TIME ZONE ${yield* TimeZone})::date BETWEEN ${yearFrom}::date
+          AND ${yearTo}::date AND archived_at IS NULL
         ORDER BY created`)).map(mask.entryOf),
       occurrences: mask.occurrences(
         (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),

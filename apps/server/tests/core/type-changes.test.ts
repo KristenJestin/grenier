@@ -1,10 +1,11 @@
-import { Deferred, Effect, Fiber, Result } from 'effect'
+import { Effect, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { entryHistory, typeHistory } from '../../src/core/events/index.ts'
+import { backlinksOf, link } from '../../src/core/links/index.ts'
 import { Refused } from '../../src/core/refused.ts'
-import { committedOnceAwaited } from '../../src/core/testing.ts'
+import { whileLocked } from '../../src/core/database/contention.ts'
 import {
   changeField,
   confirmProposal,
@@ -131,6 +132,28 @@ describe('renaming a field', () => {
     expect(entry.fields).not.toHaveProperty('pages')
     expect(entry.provenance).toEqual({ page_count: 'extracted', author: 'inferred' })
     expect((await run(getType('book'))).fields.map(({ name }) => name)).toContain('page_count')
+  })
+})
+
+describe('renaming a date field', () => {
+  test('the fulfills links that close it name it under its new name', async () => {
+    await run(
+      defineType({
+        name: 'licence',
+        label: 'Licence',
+        description: 'A licence renewed every year.',
+        fields: [{ name: 'expires', kind: 'date', recurs: { every: 'yearly', notice: 'P30D' } }],
+      }),
+    )
+    await run(
+      writeEntry({ type: 'licence', title: 'Parking permit', fields: { expires: '2026-04-01' } }),
+    )
+    await run(writeEntry({ type: 'licence', title: 'Permit receipt' }))
+    await run(link('permit-receipt', 'parking-permit', 'fulfills', '2026', 'expires'))
+    await run(changeField({ type: 'licence', field: 'expires', rename: 'renews_on' }))
+    expect(await run(backlinksOf('parking-permit'))).toMatchObject([
+      { relation: 'fulfills', period: '2026', field: 'renews_on', slug: 'permit-receipt' },
+    ])
   })
 })
 
@@ -307,23 +330,33 @@ describe('a change of a type while an entry of it is being written', () => {
       }),
     )
     await run(writeEntry({ type: 'shelf', title: 'Top shelf', fields: { label: 'A' } }))
+    // The write stays uncommitted until the change waits on it.
     await run(
-      Effect.gen(function* () {
-        const written = yield* Deferred.make<void>()
-        // The write stays uncommitted until the change waits on it.
-        const write = yield* Effect.forkChild(
-          committedOnceAwaited(
-            writeEntry({ entry: 'top-shelf', fields: { place: 'attic' } }).pipe(
-              Effect.tap(() => Deferred.succeed(written, undefined)),
-            ),
-          ),
-        )
-        yield* Deferred.await(written)
-        yield* changeField({ type: 'shelf', field: 'label', rename: 'name' })
-        yield* Fiber.join(write)
-      }),
+      whileLocked(writeEntry({ entry: 'top-shelf', fields: { place: 'attic' } }), [
+        changeField({ type: 'shelf', field: 'label', rename: 'name' }),
+      ]),
     )
     expect((await run(readEntry('top-shelf'))).entry.fields).toEqual({ name: 'A', place: 'attic' })
+  })
+
+  test('a write that meets a change of its type follows the changed type', async () => {
+    await run(
+      defineType({
+        name: 'crate',
+        label: 'Crate',
+        description: 'A crate in a store room.',
+        fields: [{ name: 'label', kind: 'text' }],
+      }),
+    )
+    const [ended] = await run(
+      whileLocked(changeField({ type: 'crate', field: 'label', rename: 'name' }), [
+        writeEntry({ type: 'crate', title: 'Blue crate', fields: { label: 'B' } }),
+      ]),
+    )
+    expect(ended !== undefined && Result.isFailure(ended)).toBe(true)
+    expect(await run(refusalOf(readEntry('blue-crate')))).toBe(
+      'The entry `blue-crate` does not exist.',
+    )
   })
 })
 
@@ -403,9 +436,9 @@ describe('a field that becomes a link to an entry', () => {
     await run(writeEntry({ type: 'card', title: 'Card two', fields: { about: 'nowhere' } }))
     const proposal = await run(proposeTypeMerge('card', 'label', { about: 'on' }))
     expect(await run(refusalOf(asOwner(confirmProposal(proposal.id))))).toBe(
-      'The change would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
-        'existing entry: `nowhere` does not exist. Give a `default` for the missing values, or a ' +
-        '`mapping` for the others.',
+      'The merge would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
+        'existing entry: `nowhere` does not exist. Fix these entries, or propose the merge again ' +
+        'with a mapping that keeps them valid.',
     )
     await run(writeEntry({ entry: 'card-two', fields: { about: id } }))
     await run(asOwner(confirmProposal(proposal.id)))
