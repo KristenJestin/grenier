@@ -2,7 +2,8 @@ import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
-import { idOf } from '../entries/operations.ts'
+import { refusingContention } from '../entries/contention.ts'
+import { visibleIdOf } from '../entries/operations.ts'
 import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
@@ -59,21 +60,11 @@ const mappedOf = <V>(mapping: { readonly [key: string]: V }, key: string): V | u
 /** The key a value is mapped by: the text itself, or the JSON of anything else. */
 const keyOf = (value: Schema.Json) => (Predicate.isString(value) ? value : JSON.stringify(value))
 
-const types = rowsOf(TypeDefinition)
-
 const bySlug = (one: { slug: string }, other: { slug: string }) =>
   one.slug < other.slug ? -1 : one.slug > other.slug ? 1 : 0
 
 /** The type of that name, locked until the transaction ends; refused when there is none. */
-const lockedType = Effect.fn('lockedType')(function* (name: string) {
-  const sql = yield* SqlClient.SqlClient
-  const [type] = yield* types(sql`SELECT name, label, description, fields FROM types
-    WHERE name = ${name} AND deleted_at IS NULL FOR UPDATE`)
-  if (type === undefined) {
-    return yield* new Refused({ message: `The type \`${name}\` does not exist.` })
-  }
-  return type
-})
+const lockedType = (name: string) => getType(name, 'update')
 
 /**
  * The entries of a type, archived ones too: a change of type concerns every one of them. They are
@@ -117,11 +108,12 @@ const withEntryIds = Effect.fn('withEntryIds')(function* (
       for (const field of fields) {
         const value = rewrite.fields[field]
         if (!Predicate.isString(value)) continue
-        const id = yield* idOf(value)
+        const id = yield* visibleIdOf(value)
         if (id === undefined) {
           unknown.push({
             slug: rewrite.slug,
-            problem: `the field \`fields.${field}\` must name an existing entry: \`${value}\` does not exist`,
+            // The value is not quoted: a refusal never gives a stored value back.
+            problem: `the field \`fields.${field}\` must name an existing entry, and its value names none`,
           })
         } else {
           ids[field] = id
@@ -195,6 +187,19 @@ export const changeField = Effect.fn('changeField')(
       return yield* new Refused({
         message: `The type \`${type.name}\` has no field \`${input.field}\`.`,
       })
+    }
+    // A key that may not see the values may not change them, nor learn which entries hold them.
+    if (!(yield* Rights).includes('sensitive')) {
+      if (type.sensitive === true) {
+        return yield* new Refused({
+          message: `The type \`${type.name}\` is sensitive: this key may not change its fields; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+        })
+      }
+      if (old.sensitive === true) {
+        return yield* new Refused({
+          message: `The field \`${old.name}\` of \`${type.name}\` is sensitive: this key may not change it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+        })
+      }
     }
     // Lifting a field's sensitivity shows its values at once: the owner's call alone.
     if (old.sensitive === true && input.sensitive === false && !(yield* Rights).includes('owner')) {
@@ -275,7 +280,8 @@ export const changeField = Effect.fn('changeField')(
     return { type: next, invalid, repaired: repaired.map(({ slug }) => slug) }
   },
   // The type and its entries are read under a lock, and checked as they stand when written.
-  (change) => Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(change)),
+  (change) =>
+    refusingContention(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(change))),
 )
 
 /**
@@ -412,70 +418,74 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
     })
   }
   const actor = yield* currentActor
-  return yield* sql.withTransaction(
-    Effect.gen(function* () {
-      // Read under a lock: of two confirmations at once, the second sees the first one's work.
-      const proposal = yield* findProposal(id, true)
-      if (proposal.status !== 'pending') {
-        return yield* new Refused({ message: `The proposal \`${id}\` is already confirmed.` })
-      }
-      if (proposal.action === 'merge' && proposal.into !== null) {
-        // Both types locked in the order of their names: two merges at once lock them alike.
-        yield* Effect.forEach([proposal.type, proposal.into].toSorted(), lockedType)
-        const into = yield* lockedType(proposal.into)
-        const mapping = proposal.mapping ?? {}
-        const shared = sharedTargets(proposal.type, mapping)
-        if (shared.length > 0) return yield* new Refused({ message: shared.join(' ') })
-        const entries = yield* entriesOf(proposal.type)
-        const lost = entries.flatMap(({ slug, fields }) =>
-          Object.keys(fields)
-            .filter((field) => mappedOf(mapping, field) === undefined)
-            .map((field) => `\`${slug}\`: the field \`${field}\` has no place in \`${into.name}\``),
-        )
-        if (lost.length > 0) {
-          return yield* new Refused({
-            message: `The merge would lose values: ${lost.join('; ')}. Map these fields first.`,
-          })
+  return yield* refusingContention(
+    sql.withTransaction(
+      Effect.gen(function* () {
+        // Read under a lock: of two confirmations at once, the second sees the first one's work.
+        const proposal = yield* findProposal(id, true)
+        if (proposal.status !== 'pending') {
+          return yield* new Refused({ message: `The proposal \`${id}\` is already confirmed.` })
         }
-        const rewrites = entries.map((entry) => ({
-          before: entry,
-          slug: entry.slug,
-          type: into.name,
-          fields: Object.fromEntries(
-            Object.entries(entry.fields).map(([field, value]) => [
-              mappedOf(mapping, field) ?? field,
-              value,
-            ]),
-          ),
-          provenance: Object.fromEntries(
-            Object.entries(entry.provenance).flatMap(([field, value]) =>
-              mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
-            ),
-          ),
-        }))
-        const { resolved: moved, unknown } = yield* withEntryIds(
-          rewrites,
-          into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
-        )
-        const invalid = problemsOf(into, moved, unknown)
-        if (invalid.length > 0) {
-          return yield* refusedFor(
-            invalid,
-            'merge',
-            'Fix these entries, or propose the merge again with a mapping that keeps them valid.',
+        if (proposal.action === 'merge' && proposal.into !== null) {
+          // Both types locked in the order of their names: two merges at once lock them alike.
+          yield* Effect.forEach([proposal.type, proposal.into].toSorted(), lockedType)
+          const into = yield* lockedType(proposal.into)
+          const mapping = proposal.mapping ?? {}
+          const shared = sharedTargets(proposal.type, mapping)
+          if (shared.length > 0) return yield* new Refused({ message: shared.join(' ') })
+          const entries = yield* entriesOf(proposal.type)
+          const lost = entries.flatMap(({ slug, fields }) =>
+            Object.keys(fields)
+              .filter((field) => mappedOf(mapping, field) === undefined)
+              .map(
+                (field) => `\`${slug}\`: the field \`${field}\` has no place in \`${into.name}\``,
+              ),
           )
+          if (lost.length > 0) {
+            return yield* new Refused({
+              message: `The merge would lose values: ${lost.join('; ')}. Map these fields first.`,
+            })
+          }
+          const rewrites = entries.map((entry) => ({
+            before: entry,
+            slug: entry.slug,
+            type: into.name,
+            fields: Object.fromEntries(
+              Object.entries(entry.fields).map(([field, value]) => [
+                mappedOf(mapping, field) ?? field,
+                value,
+              ]),
+            ),
+            provenance: Object.fromEntries(
+              Object.entries(entry.provenance).flatMap(([field, value]) =>
+                mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
+              ),
+            ),
+          }))
+          const { resolved: moved, unknown } = yield* withEntryIds(
+            rewrites,
+            into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
+          )
+          const invalid = problemsOf(into, moved, unknown)
+          if (invalid.length > 0) {
+            return yield* refusedFor(
+              invalid,
+              'merge',
+              'Fix these entries, or propose the merge again with a mapping that keeps them valid.',
+            )
+          }
+          yield* rewriteEntries(actor, moved)
+        } else {
+          yield* refuseWhileUsed(proposal.type)
         }
-        yield* rewriteEntries(actor, moved)
-      } else {
-        yield* refuseWhileUsed(proposal.type)
-      }
-      yield* sql`UPDATE types SET deleted_at = now() WHERE name = ${proposal.type}`
-      yield* sql`UPDATE type_proposals SET status = 'confirmed', decided_by = ${actor},
+        yield* sql`UPDATE types SET deleted_at = now() WHERE name = ${proposal.type}`
+        yield* sql`UPDATE type_proposals SET status = 'confirmed', decided_by = ${actor},
         decided_at = now() WHERE id = ${proposal.id}::uuid`
-      yield* recordEvent(actor, { entryId: null, typeName: proposal.type }, proposal.action, [
-        { field: 'deleted', before: null, after: proposal.into ?? true },
-      ])
-      return { ...proposal, status: 'confirmed' as const }
-    }),
+        yield* recordEvent(actor, { entryId: null, typeName: proposal.type }, proposal.action, [
+          { field: 'deleted', before: null, after: proposal.into ?? true },
+        ])
+        return { ...proposal, status: 'confirmed' as const }
+      }),
+    ),
   )
 })

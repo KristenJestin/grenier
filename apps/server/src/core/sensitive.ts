@@ -2,7 +2,6 @@ import { HIDDEN } from '@grenier/api/model'
 import { Effect } from 'effect'
 import type { Schema } from 'effect'
 import { Rights } from './auth/rights.ts'
-import type { Change } from './events/record.ts'
 import { listTypes } from './types/operations.ts'
 
 /**
@@ -37,13 +36,5 @@ export const sensitivity = Effect.gen(function* () {
           fieldsOf(type).includes(name) ? HIDDEN : value,
         ]),
       ),
-    /** Changes of an entry, the values before and after of each sensitive field replaced. */
-    maskChanges: (type: string, changes: ReadonlyArray<Change>) =>
-      changes.map((change) => maskChange(fieldsOf(type), change)),
   }
 })
-
-const maskChange = (hidden: ReadonlyArray<string>, change: Change): Change =>
-  hidden.some((name) => change.field === `fields.${name}`)
-    ? { field: change.field, before: HIDDEN, after: HIDDEN }
-    : change
