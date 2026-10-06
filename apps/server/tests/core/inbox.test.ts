@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConfigProvider, Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { Rights } from '../../src/core/auth/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import {
   addToInbox,
@@ -126,5 +128,57 @@ describe('a binary file in the inbox', () => {
     const served = await run(as('agent-one')(readMedia(taken.sha256 ?? '')))
     expect(served.mime).toBe('image/png')
     expect(Buffer.from(served.bytes).toString('base64')).toBe(PIXEL)
+  })
+})
+
+describe('a file of the inbox is served only while it waits', () => {
+  const GIF = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='
+  const hashOf = (data: string) =>
+    createHash('sha256').update(Buffer.from(data, 'base64')).digest('hex')
+  const withRights =
+    (rights: ReadonlyArray<'read' | 'write' | 'sensitive'>) =>
+    <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.provideService(effect, Rights, rights)
+  const served = (hash: string, rights: ReadonlyArray<'read' | 'write' | 'sensitive'>) =>
+    run(
+      as('agent-one')(
+        readMedia(hash).pipe(
+          Effect.map(({ mime }) => mime),
+          Effect.catchTag('Refused', ({ message }) => Effect.succeed(message)),
+          withRights(rights),
+        ),
+      ),
+    )
+
+  test('to a key with write while pending or taken; to no one once processed or dismissed', async () => {
+    await run(
+      defineType({
+        name: 'scan',
+        label: 'Scan',
+        description: 'A scanned record.',
+        fields: [],
+        sensitive: true,
+      }),
+    )
+    const item = await run(
+      as('agent-one')(addToInbox({ kind: 'file', name: 'record.gif', data: GIF })),
+    )
+    const hash = hashOf(GIF)
+    const gone = `There is no file \`${hash}\`.`
+    expect(await served(hash, ['read', 'write'])).toBe('image/gif')
+    expect(await served(hash, ['read'])).toBe(gone)
+    await run(as('agent-one')(takeItem({ id: item.id })))
+    expect(await served(hash, ['read', 'write'])).toBe('image/gif')
+    await run(writeEntry({ type: 'scan', title: 'Private record' }))
+    await run(as('agent-one')(finishItem({ id: item.id, entries: ['private-record'] })))
+    expect(await served(hash, ['read', 'write'])).toBe(gone)
+    expect(await served(hash, ['read', 'write', 'sensitive'])).toBe(gone)
+
+    const data = GIF.replace('RAEAOw', 'RAEBOw')
+    const other = await run(as('agent-one')(addToInbox({ kind: 'file', name: 'other.gif', data })))
+    await run(as('agent-one')(dismissItem({ id: other.id, reason: 'Not needed.' })))
+    expect(await served(hashOf(data), ['read', 'write'])).toBe(
+      `There is no file \`${hashOf(data)}\`.`,
+    )
   })
 })

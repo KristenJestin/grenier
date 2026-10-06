@@ -1,8 +1,9 @@
-import { and, eq, notInArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { rm } from 'node:fs/promises'
 import { imageSize } from 'image-size'
 import { Effect, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { Rights } from '../auth/rights.ts'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
@@ -175,14 +176,20 @@ export const readMedia = Effect.fn('readMedia')(function* (hash: string) {
       )
       .limit(1),
   )
-  // Else a file waiting in the inbox, which no entry holds yet.
+  // Else a file still waiting in the inbox, for a key that may work the inbox (`write`). Once its
+  // item is processed or dismissed, the file is served only through the entries that hold it.
   const [waiting] =
-    medium === undefined
+    medium === undefined && (yield* Rights).includes('write')
       ? yield* inboxFiles(
           db
             .select({ mime: tables.inbox.mime })
             .from(tables.inbox)
-            .where(eq(tables.inbox.sha256, hash))
+            .where(
+              and(
+                eq(tables.inbox.sha256, hash),
+                inArray(tables.inbox.status, ['pending', 'taken']),
+              ),
+            )
             .limit(1),
         )
       : []

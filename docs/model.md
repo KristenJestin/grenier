@@ -183,7 +183,8 @@ text, else on disk by its hash with its type), where it came from, when it arriv
 item (no other agent gets it), reads it, searches what exists, and writes or updates the entries
 it gives, splitting it when it holds several things (an image file comes with the item as an
 image the agent sees, its longest side 1568 pixels at most; any other file is given by its
-address, `/media/<hash>`, fetched only when needed); it then marks the item processed with those
+address, `/media/<hash>`, fetched only when needed, served to a key with `write` while the
+item is pending or taken, and afterwards only through the entries that hold it); it then marks the item processed with those
 entries, each of which cites the item in its `sources` (`{ "source": "inbox", "item": "<id>" }`).
 Bringing the same thing again later is a new item, processed the same way: there is no
 mechanical re-import. The owner drops a folder into the inbox, one item per file, with
