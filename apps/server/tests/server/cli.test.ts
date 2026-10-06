@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'
+import { reportFinding } from '../../src/core/findings/index.ts'
 import { listInbox } from '../../src/core/inbox/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
@@ -102,5 +103,70 @@ describe('the owner lifts sensitivity from the command line', () => {
       fields: [{ name: 'code', kind: 'text' }],
     })
     expect(cli('type:sensitive', 'locker')).toBe('The type locker is sensitive.\n')
+  })
+})
+
+describe('the owner reads the findings of diagnostics from the command line', () => {
+  const report = {
+    title: 'Search misses an entry by its alias',
+    kind: 'wrong_state',
+    place: 'search',
+    severity: 'hurts',
+    trying: 'Finding `leek-soup` by its alias.',
+    happened: 'No result.',
+    expected: 'The entry `leek-soup`.',
+  } as const
+
+  beforeAll(async () => {
+    await database.runPromise(
+      Effect.gen(function* () {
+        yield* reportFinding(report)
+        yield* reportFinding({
+          ...report,
+          title: 'search misses entries by alias',
+          severity: 'blocks',
+        })
+        yield* reportFinding(
+          {
+            ...report,
+            title: 'Briefing is slow',
+            kind: 'slow',
+            place: 'briefing',
+            severity: 'cosmetic',
+            steps: 'Call briefing for the week.',
+          },
+          { tool: 'briefing', arguments: { period: 'week' } },
+        )
+      }),
+    )
+  })
+
+  test('findings:list lists them, and filters them by kind, place or severity', () => {
+    const listed = cli('findings:list').trim().split('\n')
+    expect(listed).toHaveLength(2)
+    expect(listed[0]).toMatch(
+      /^1\twrong_state\tsearch\tblocks\t2\t\S+\t\S+\tSearch misses an entry by its alias$/,
+    )
+    expect(cli('findings:list', '--kind', 'slow')).toMatch(/^2\tslow\tbriefing\tcosmetic\t1\t/)
+    expect(cli('findings:list', '--place', 'nowhere')).toBe('No finding.\n')
+    expect(cli('findings:list', '--severity', 'blocks')).toMatch(/^1\t/)
+  })
+
+  test('findings:show gives one finding with its occurrences', () => {
+    const shown = cli('findings:show', '1')
+    expect(shown).toContain('## 1. Search misses an entry by its alias')
+    expect(shown).toContain('search misses entries by alias')
+    expect(shown.match(/^### Occurrence/gm)).toHaveLength(2)
+    expect(shown).toContain('agent-kitchen')
+  })
+
+  test('findings:export writes every finding as Markdown, one section each with its occurrences', () => {
+    const exported = cli('findings:export')
+    expect(exported.startsWith('# Findings of Grenier')).toBe(true)
+    expect(exported.match(/^## /gm)).toHaveLength(2)
+    expect(exported.match(/^### Occurrence/gm)).toHaveLength(3)
+    expect(exported).toContain('## 2. Briefing is slow')
+    expect(exported).toContain('Call briefing for the week.')
+    expect(exported).toContain('`briefing` {"period":"week"}')
   })
 })
