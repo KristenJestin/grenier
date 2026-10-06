@@ -99,6 +99,8 @@ pub fn failed(
             "Vérifiez que Grenier tourne et que cet ordinateur l'atteint, puis réessayez.".into(),
         ),
         Problem::KeyRefused(sentence) => ("La clé a été refusée".into(), sentence.clone()),
+        Problem::Refused(sentence) => ("Le serveur a refusé".into(), sentence.clone()),
+        Problem::Unconfigured(sentence) => ("Grenier n'est pas configuré".into(), sentence.clone()),
     };
     let theme = cx.theme();
     let (idle, over, border, muted) = (

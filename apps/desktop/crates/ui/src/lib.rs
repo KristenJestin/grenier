@@ -9,7 +9,6 @@ pub mod intent;
 pub mod load;
 pub mod motion;
 pub mod parts;
-pub mod placeholder;
 pub mod search;
 pub mod status;
 pub mod theme;

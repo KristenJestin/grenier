@@ -22,4 +22,8 @@ pub enum Problem {
     Unreachable,
     /// The server refused the key, with its sentence.
     KeyRefused(SharedString),
+    /// The server refused what was asked, with its sentence: an entry that does not exist.
+    Refused(SharedString),
+    /// The viewer is not set up to reach a server: what to do about it.
+    Unconfigured(SharedString),
 }
