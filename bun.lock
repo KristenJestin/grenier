@@ -18,6 +18,10 @@
         "vitest": "5.0.3",
       },
     },
+    "apps/desktop": {
+      "name": "@grenier/desktop",
+      "version": "0.0.0",
+    },
     "apps/server": {
       "name": "@grenier/server",
       "version": "0.0.0",
@@ -152,6 +156,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
     "@grenier/api": ["@grenier/api@workspace:packages/api"],
+
+    "@grenier/desktop": ["@grenier/desktop@workspace:apps/desktop"],
 
     "@grenier/server": ["@grenier/server@workspace:apps/server"],
 

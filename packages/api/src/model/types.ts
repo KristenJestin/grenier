@@ -43,22 +43,24 @@ export const FieldDefinition = Schema.Struct({
   recurs: Schema.optionalKey(
     Schema.Struct({ every: Schema.Literals(['yearly', 'monthly', 'weekly']), notice: Notice }),
   ),
-}).check(
-  Schema.makeFilter(({ kind, values, due, recurs }) => [
-    ...(kind === 'enum' && values === undefined
-      ? [{ path: ['values'], issue: 'must list the allowed values of an enum field' }]
-      : []),
-    ...(kind !== 'enum' && values !== undefined
-      ? [{ path: ['values'], issue: 'is allowed only on an enum field' }]
-      : []),
-    ...(kind !== 'date' && due !== undefined
-      ? [{ path: ['due'], issue: 'is allowed only on a date field' }]
-      : []),
-    ...(kind !== 'date' && recurs !== undefined
-      ? [{ path: ['recurs'], issue: 'is allowed only on a date field' }]
-      : []),
-  ]),
-)
+})
+  .check(
+    Schema.makeFilter(({ kind, values, due, recurs }) => [
+      ...(kind === 'enum' && values === undefined
+        ? [{ path: ['values'], issue: 'must list the allowed values of an enum field' }]
+        : []),
+      ...(kind !== 'enum' && values !== undefined
+        ? [{ path: ['values'], issue: 'is allowed only on an enum field' }]
+        : []),
+      ...(kind !== 'date' && due !== undefined
+        ? [{ path: ['due'], issue: 'is allowed only on a date field' }]
+        : []),
+      ...(kind !== 'date' && recurs !== undefined
+        ? [{ path: ['recurs'], issue: 'is allowed only on a date field' }]
+        : []),
+    ]),
+  )
+  .annotate({ identifier: 'FieldDefinition' })
 export type FieldDefinition = typeof FieldDefinition.Type
 
 /** A type of entry, defined at run time: the code knows no particular type. */
@@ -88,5 +90,5 @@ export const TypeDefinition = Schema.Struct({
       ),
     ),
   ),
-})
+}).annotate({ identifier: 'TypeDefinition' })
 export type TypeDefinition = typeof TypeDefinition.Type

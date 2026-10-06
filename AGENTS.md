@@ -77,6 +77,7 @@ bun run lint                     # oxlint with the vendored rules, then the boun
 bun run fmt                      # oxfmt (fmt:check in CI)
 bun run test                     # Vitest under Bun, per package (turbo run test)
 bun run check                    # typecheck, lint, fmt:check and test, in that order
+bun run generate                 # the OpenAPI document, then the Rust types, from the schemas
 ```
 
 Turborepo caches every task: a second `bun run check` with nothing changed answers from the
@@ -128,6 +129,12 @@ The server speaks plain HTTP: published on a network, every key crosses it in cl
 `Authorization` header of each request. Reach it from other machines only through an encrypted
 path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
 By default it listens on `127.0.0.1` only.
+
+The clients never hand-write what they exchange with the server: `bun run generate` writes the
+OpenAPI document of the read API from the schemas (`packages/api/openapi.json`, no server needed),
+then the Rust types of `apps/desktop/crates/api` from it, with typify. Both are committed and never
+edited by hand; a test fails while either is stale, and CI regenerates them and fails on any
+difference. Kotlin follows when the Android application starts.
 
 Configuration: `.oxlintrc.json` (lint), `.oxfmtrc.json` (format), `vitest.config.ts` (tests),
 `turbo.json` (tasks, their inputs and outputs), at the root. The database URL comes from

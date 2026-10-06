@@ -13,9 +13,15 @@ const About = { note: Schema.optionalKey(Schema.String) }
 
 /** A URL source, an external identifier, or an item of the source registry. */
 const Elsewhere = [
-  Schema.Struct({ url: Schema.String, ...About }),
-  Schema.Struct({ identifier: Schema.String, label: Schema.optionalKey(Schema.String), ...About }),
-  Schema.Struct({ source: Schema.String, item: Schema.String, ...About }),
+  Schema.Struct({ url: Schema.String, ...About }).annotate({ identifier: 'SourceUrl' }),
+  Schema.Struct({
+    identifier: Schema.String,
+    label: Schema.optionalKey(Schema.String),
+    ...About,
+  }).annotate({ identifier: 'SourceIdentifier' }),
+  Schema.Struct({ source: Schema.String, item: Schema.String, ...About }).annotate({
+    identifier: 'SourceItem',
+  }),
 ] as const
 
 /**
@@ -35,9 +41,14 @@ export type SourceKept = typeof SourceKept.Type
 
 /** A source as it is read: an entry with its slug and title. */
 export const Source = Schema.Union([
-  Schema.Struct({ entry: Schema.String, slug: Schema.String, title: Schema.String, ...About }),
+  Schema.Struct({
+    entry: Schema.String,
+    slug: Schema.String,
+    title: Schema.String,
+    ...About,
+  }).annotate({ identifier: 'SourceEntry' }),
   ...Elsewhere,
-])
+]).annotate({ identifier: 'Source' })
 export type Source = typeof Source.Type
 
 /** An entry as it is read: the base fields of `docs/model.md` and the values of its type. */
@@ -61,7 +72,7 @@ export const Entry = Schema.Struct({
   valid_until: Schema.NullOr(Schema.String),
   superseded_by: Schema.NullOr(Schema.String),
   archived_at: Schema.NullOr(Schema.String),
-})
+}).annotate({ identifier: 'Entry' })
 export type Entry = typeof Entry.Type
 
 /** A child of an entry, as listed under it. */
@@ -71,7 +82,7 @@ export const Child = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   summary: Schema.String,
-})
+}).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
 /**
@@ -115,7 +126,7 @@ export const Link = Schema.Struct({
   id: Schema.String,
   slug: Schema.String,
   title: Schema.String,
-})
+}).annotate({ identifier: 'Link' })
 export type Link = typeof Link.Type
 
 /** A file attached to an entry, as the entry is read: its record, and where to fetch it. */
@@ -123,16 +134,16 @@ export const Medium = Schema.Struct({
   id: Schema.String,
   kind: Schema.String,
   mime: Schema.String,
-  size: Schema.Number,
+  size: Schema.Int,
   sha256: Schema.String,
-  width: Schema.NullOr(Schema.Number),
-  height: Schema.NullOr(Schema.Number),
-  duration: Schema.NullOr(Schema.Number),
+  width: Schema.NullOr(Schema.Int),
+  height: Schema.NullOr(Schema.Int),
+  duration: Schema.NullOr(Schema.Finite),
   source_url: Schema.NullOr(Schema.String),
   alt: Schema.String,
-  position: Schema.Number,
+  position: Schema.Int,
   url: Schema.String,
-})
+}).annotate({ identifier: 'Medium' })
 export type Medium = typeof Medium.Type
 
 /**
@@ -146,9 +157,9 @@ export const EntryRead = Schema.Struct({
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),
   children: Schema.Array(Child),
-  hidden_children: Schema.Number,
+  hidden_children: Schema.Int,
   cited_by: Schema.Array(
     Schema.Struct({ id: Schema.String, slug: Schema.String, title: Schema.String }),
   ),
-})
+}).annotate({ identifier: 'EntryRead' })
 export type EntryRead = typeof EntryRead.Type

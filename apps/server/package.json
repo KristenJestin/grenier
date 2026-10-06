@@ -11,6 +11,7 @@
     "grenier": "bun --env-file=../../.env src/cli.ts",
     "import": "bun --env-file=../../.env src/import/main.ts",
     "db:generate": "drizzle-kit generate",
+    "openapi": "bun src/openapi.ts ../../packages/api/openapi.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "oxlint -c ../../.oxlintrc.json .",
     "fmt:check": "oxfmt -c ../../.oxfmtrc.json --check .",
