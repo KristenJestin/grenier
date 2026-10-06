@@ -322,19 +322,7 @@
             "type": "string"
           },
           "rank": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "type": "number"
           }
         },
         "required": [
@@ -405,19 +393,7 @@
             }
           },
           "hidden_children": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "type": "integer"
           },
           "cited_by": {
             "type": "array",
@@ -542,19 +518,7 @@
             "type": "string"
           },
           "size": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "type": "integer"
           },
           "sha256": {
             "type": "string"
@@ -562,19 +526,7 @@
           "width": {
             "anyOf": [
               {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
-                  }
-                ]
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -584,19 +536,7 @@
           "height": {
             "anyOf": [
               {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
-                  }
-                ]
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -606,19 +546,7 @@
           "duration": {
             "anyOf": [
               {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
-                  }
-                ]
+                "type": "number"
               },
               {
                 "type": "null"
@@ -639,19 +567,7 @@
             "type": "string"
           },
           "position": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "type": "integer"
           },
           "url": {
             "type": "string"

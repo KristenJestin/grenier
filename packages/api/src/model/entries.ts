@@ -123,14 +123,14 @@ export const Medium = Schema.Struct({
   id: Schema.String,
   kind: Schema.String,
   mime: Schema.String,
-  size: Schema.Number,
+  size: Schema.Int,
   sha256: Schema.String,
-  width: Schema.NullOr(Schema.Number),
-  height: Schema.NullOr(Schema.Number),
-  duration: Schema.NullOr(Schema.Number),
+  width: Schema.NullOr(Schema.Int),
+  height: Schema.NullOr(Schema.Int),
+  duration: Schema.NullOr(Schema.Finite),
   source_url: Schema.NullOr(Schema.String),
   alt: Schema.String,
-  position: Schema.Number,
+  position: Schema.Int,
   url: Schema.String,
 }).annotate({ identifier: 'Medium' })
 export type Medium = typeof Medium.Type
@@ -146,7 +146,7 @@ export const EntryRead = Schema.Struct({
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),
   children: Schema.Array(Child),
-  hidden_children: Schema.Number,
+  hidden_children: Schema.Int,
   cited_by: Schema.Array(
     Schema.Struct({ id: Schema.String, slug: Schema.String, title: Schema.String }),
   ),

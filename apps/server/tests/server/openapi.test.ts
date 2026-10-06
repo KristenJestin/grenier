@@ -18,4 +18,10 @@ describe('the clients are generated from the OpenAPI document of the schemas', (
       expect.arrayContaining(['Entry', 'EntryRead', 'Source', 'TypeDefinition', 'SearchResult']),
     )
   })
+
+  test('numbers are whole or finite, so a generated type is a number, not a union with NaN', () => {
+    expect(openApiDocument()).not.toContain('Infinity')
+    const { components } = JSON.parse(openApiDocument())
+    expect(components.schemas.Medium.properties.size).toEqual({ type: 'integer' })
+  })
 })
