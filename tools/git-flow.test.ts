@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, test } from 'vite-plus/test'
+import { describe, expect, test } from 'vitest'
 
 import { validateBranch, validateCommitMessage } from './commit-message.ts'
 

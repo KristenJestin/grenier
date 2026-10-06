@@ -13,9 +13,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24.21.0
+          bun-version: 1.4.2
       # The first push of a branch has no `before` (GitHub sends forty zeros): every commit the
       # branch holds is checked then, which for the first push of the repository is its first.
       - name: Check the Angular commit convention
@@ -23,9 +23,9 @@ jobs:
           base="${{ github.event.pull_request.base.sha || github.event.before }}"
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           if [ -z "${base//0/}" ]; then
-            node tools/commit-message.ts --range "$head"
+            bun tools/commit-message.ts --range "$head"
           else
-            node tools/commit-message.ts --range "$base..$head"
+            bun tools/commit-message.ts --range "$base..$head"
           fi
 
   # Grenier runs on a Linux server: one target, with the PostgreSQL of docker-compose.yml as a
@@ -50,18 +50,16 @@ jobs:
       DATABASE_URL: postgres://grenier:grenier@127.0.0.1:55432/grenier
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24.21.0
-      - name: Enable the pinned package manager
-        run: corepack enable
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm fmt:check
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bunx turbo run typecheck
+      - run: bunx turbo run lint
+      - run: bunx turbo run fmt:check
       - name: Test
         timeout-minutes: 20
-        run: pnpm test
+        run: bunx turbo run test
 
   # The image of the server, built on every pull request as it will be on the owner's server. It is
   # built only: nothing is pushed to any registry.

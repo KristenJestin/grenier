@@ -1,7 +1,7 @@
 # Branch protection
 
 `main` and `dev` are protected. Locally, the versioned `pre-commit` hook refuses any commit
-made directly on them; run `node tools/install-hooks.ts` once after cloning to enable it.
+made directly on them; run `bun tools/install-hooks.ts` once after cloning to enable it.
 
 On GitHub, the same rule is a ruleset on `main` and `dev`: no direct push, no deletion, no
 force push, a pull request and the `commit-messages` and `verify` checks required.

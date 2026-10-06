@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "semi": false,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "endOfLine": "lf",
+  "ignorePatterns": [
+    "reports/**",
+    "dist/**",
+    "**/dist/**",
+    "**/routeTree.gen.ts",
+    "**/node_modules/**",
+    ".turbo/**",
+    "**/.turbo/**",
+    "tools/oxlint/**",
+    "**/*.md"
+  ]
+}

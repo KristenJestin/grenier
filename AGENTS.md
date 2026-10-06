@@ -5,7 +5,7 @@ to this file: there is one contract, not two that drift apart. This file holds w
 everywhere; a package with rules of its own has its own `AGENTS.md`, read **in addition** to
 this one:
 
-- `packages/core/AGENTS.md`: Effect and Schema, wherever Effect is written.
+- `apps/server/AGENTS.md`: Effect and Schema, wherever Effect is written.
 
 ## Project overview
 
@@ -33,77 +33,88 @@ Everything in this repository is in English: documents, code, comments, commits,
 pull requests. The interface may be in French.
 
 ```
-packages/core     @grenier/core    The model, the database (Effect SQL, migrations), validation,
-                                   search, the event log. The only package that reaches the
-                                   database. Schemas and their conventions: `@grenier/core/schema`.
-packages/mcp      @grenier/mcp     The MCP tools, on top of core; stdio for development, mounted
-                                   over HTTP by apps/server. Started and declared to an MCP
-                                   client as its README says.
-apps/server       @grenier/server  TanStack Start: the web interface (Mantine), the HTTP API and
-                                   the MCP endpoint, in one process. Today: `/mcp` and `/health`.
-apps/import       @grenier/import  Imports a folder of Markdown notes with YAML front matter;
-                                   its README says how to run it and how notes are read.
-tools/            —                commit-message, branch-guard, install-hooks, boundaries, and
-                                   the vendored lint rules. TypeScript run by Node, tested by
+packages/api      @grenier/api     The contract between the server and its clients: the Effect
+                                   schemas of what they exchange, and their conventions
+                                   (`@grenier/api/schema`). No database, no Node or Bun API:
+                                   a browser application may import it.
+apps/server       @grenier/server  Everything else, one program and its folders:
+                                   `src/core`     the model, the database (Effect SQL,
+                                                  migrations), validation, search, the event
+                                                  log, authentication: the only folder that
+                                                  reaches the database;
+                                   `src/mcp`      the MCP tools, over stdio and over HTTP;
+                                   `src/import`   the importer of Markdown notes;
+                                   the HTTP server (`/mcp`, `/health`) and the command lines.
+tools/            @grenier/tools   commit-message, branch-guard, install-hooks, boundaries, and
+                                   the vendored lint rules. TypeScript run by Bun, tested by
                                    Vitest.
 ```
 
-A package or an application is created by the first issue that needs it, not before.
+A package or an application is created by the first issue that needs it, not before. Later in
+this monorepo: `apps/desktop` (Rust), `apps/android` (Kotlin), maybe `apps/web`, each behind a
+`package.json` that calls its own toolchain for Turborepo.
 
-`packages/*` and `apps/*` form the pnpm workspace. Import another package only through its
-`exports`; never reach into another package's `src`. **Every access to the data goes through
-`@grenier/core`**: `node tools/boundaries.ts` (part of `pnpm lint`) refuses a SQL client imported
-anywhere else, so validation and the event log can never be bypassed.
+`packages/*`, `apps/*` and `tools` form the Bun workspace; Turborepo runs their tasks. Import
+another package only through its `exports`; never reach into another package's `src`. **Every
+access to the data goes through `apps/server/src/core`**: `bun tools/boundaries.ts` (part of
+`bun run lint`) refuses a SQL client imported anywhere else, so validation and the event log can
+never be bypassed, and refuses a contract (`packages/api`) that imports an application or a
+runtime.
 
-Every version is pinned exactly: Node, pnpm, Vite+, Effect, PostgreSQL, and whatever a change
-adds.
+Every version is pinned exactly: Bun, Turborepo, oxlint, oxfmt, Vitest, TypeScript, Effect,
+PostgreSQL, and whatever a change adds.
 
 ## Commands
 
 ```
-pnpm install --frozen-lockfile   # once, at the root; no per-package lockfiles
-node tools/install-hooks.ts      # once after cloning: the commit hooks
-docker compose up -d             # the local PostgreSQL (port 55432), for the suites that need it
-pnpm typecheck                   # tsc per package, through Vite+ task running
-pnpm lint                        # oxlint, then the boundaries check
-pnpm fmt                         # oxfmt (fmt:check in CI)
-pnpm test                        # vitest (in a terminal: `pnpm exec vp test run`, no watching)
-pnpm check                       # typecheck, lint, fmt:check and test, in that order
+bun install --frozen-lockfile    # once, at the root; one text lockfile, `bun.lock`
+bun tools/install-hooks.ts       # once after cloning: the commit hooks
+docker compose up -d postgres    # the local PostgreSQL (port 55432), for the suites that need it
+bun run typecheck                # tsc per package (turbo run typecheck)
+bun run lint                     # oxlint with the vendored rules, then the boundaries check
+bun run fmt                      # oxfmt (fmt:check in CI)
+bun run test                     # Vitest under Bun, per package (turbo run test)
+bun run check                    # typecheck, lint, fmt:check and test, in that order
 ```
+
+Turborepo caches every task: a second `bun run check` with nothing changed answers from the
+cache. Inside one package, the task is run by its own script (`bun run test` in `apps/server`).
 
 The server, in development (`/mcp` and `/health` on `PORT`, 3000 by default). It needs
 `BETTER_AUTH_SECRET` in `.env`; every request to `/mcp` carries a key, whose name is the actor of
-its writes:
+its writes. From `apps/server`:
 
 ```
-pnpm --filter @grenier/server grenier owner:create --email owner@example.org
-pnpm --filter @grenier/server grenier key:create --name agent-laptop --rights read,write
-pnpm --filter @grenier/server dev                  # or: build, then start
+bun run grenier owner:create --email owner@example.org
+bun run grenier key:create --name agent-laptop --rights read,write
+bun run dev                                       # or: bun run build, then bun run start
 claude mcp add --transport http grenier http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```
 
-`key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one.
+`key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one. The other
+entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
+and `bun run import` (see `src/import/README.md`).
 
 Grenier with Docker, server and database in one command (the image is built from
-`apps/server/Dockerfile`, runs as the `node` user, migrates the database before it listens, and
-keeps data in the `postgres` and `media` volumes):
+`apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database
+before it listens, and keeps data in the `postgres` and `media` volumes):
 
 ```
 cp .env.production.example .env.production        # then set BETTER_AUTH_SECRET in it
 docker compose up -d                              # /health answers 200 once it is up
-docker compose exec grenier node src/cli.ts key:create --name local --rights read,write \
+docker compose exec grenier bun src/cli.ts key:create --name local --rights read,write \
   --owner owner@example.org                       # prints the key, once
 claude mcp add --transport http grenier http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```
 
-`docker compose up -d postgres` starts the database alone, for development and the tests.
 `GRENIER_PORT` and `POSTGRES_PORT` change the published ports; `GRENIER_BIND=0.0.0.0` publishes
 the server to the network.
 
-Configuration lives in one place: `vite.config.ts` at the root holds the `lint`, `fmt` and
-`test` blocks. The database URL comes from `DATABASE_URL` (see `.env.example`).
+Configuration: `.oxlintrc.json` (lint), `.oxfmtrc.json` (format), `vitest.config.ts` (tests),
+`turbo.json` (tasks, their inputs and outputs), at the root. The database URL comes from
+`DATABASE_URL` (see `.env.example`).
 
 ## Principles
 
@@ -159,15 +170,16 @@ Two rule sets run on oxlint beside the built-in ones:
   reached through its own accessor, a branch on a tagged value goes through `Effect.match`.
 
 Vendored rules are resynced by copying upstream files over; never edit them in place. No zod
-anywhere: Effect `Schema` replaces it (see `packages/core/AGENTS.md`).
+anywhere: Effect `Schema` replaces it (see `apps/server/AGENTS.md`).
 
 When the interface exists, React code follows the `vercel-react-best-practices` skill, and React
 Doctor will join the checks.
 
 ## Testing
 
-- `pnpm test` runs the `repository` project on Node.
-- Always `vp test run`: plain `vp test` starts watch mode and never ends.
+- `bun run test` runs Vitest **under Bun** (`bun --bun vitest run`), the runtime of the server,
+  in each package, with the `repository` project of `vitest.config.ts`.
+- Always `vitest run`: plain `vitest` starts watch mode and never ends.
 - A suite that needs PostgreSQL uses the local one of `docker-compose.yml` (in CI, the same image
   as a service), creates its own database with a unique name, and drops it at the end. It never
   touches a database that holds real data.
@@ -201,7 +213,7 @@ nothing else: no GitHub account, no pull request, no CI. Then:
 
 - Clone read-only, work on one branch per issue from `origin/dev`, named `feat/<n>-<topic>` or
   `fix/<n>-<topic>`.
-- Run every verification locally, since no CI runs: `pnpm check` with the local PostgreSQL up.
+- Run every verification locally, since no CI runs: `bun run check` with the local PostgreSQL up.
 - Commit with the identity you are given, subjects checked by `tools/commit-message.ts`.
 - At the end of a session, deliver what you are asked for (typically a `git bundle` of the
   branches and one report per issue: what is done, decisions taken, verifications run with their
@@ -212,14 +224,14 @@ nothing else: no GitHub account, no pull request, no CI. Then:
 - Git flow without release branches: `main` (released versions), `dev` (integration),
   `feat/<n>-<topic>` and `fix/<n>-<topic>` from `dev`, `hotfix/<topic>` from `main`.
 - **Never commit, merge, rebase, push or force-push on `main` or `dev` directly.** If you are on
-  one of these branches, create a branch first. `node tools/install-hooks.ts` installs the hooks
+  one of these branches, create a branch first. `bun tools/install-hooks.ts` installs the hooks
   that refuse it.
 - Never rewrite published history. No `--no-verify`.
 - One commit = one intent. No `wip` commits. Don't mix formatting and logic in one commit.
 - Commits use the Git user configured on the machine.
 - The subject is `<type>(<scope>): <subject>`: the **scope is required**, the subject is 72
   characters at most, and the type is one of feat, fix, refactor, test, docs, chore, build, ci,
-  perf. `node tools/commit-message.ts --range origin/dev..HEAD` is the judge; run it before
+  perf. `bun tools/commit-message.ts --range origin/dev..HEAD` is the judge; run it before
   delivering, the `commit-messages` check runs the same tool.
 - **Pull requests are merged by squash, and by squash only.** The squash commit takes the pull
   request's title, so the title is a plain Angular subject: semantic-release reads those
@@ -259,5 +271,16 @@ BREAKING CHANGE: <description — only if a schema or a public API changes>
 
 ## When done
 
-Run `pnpm check` with the local PostgreSQL up, and report the real output. If something fails,
+Run `bun run check` with the local PostgreSQL up, and report the real output. If something fails,
 say so; don't claim green.
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

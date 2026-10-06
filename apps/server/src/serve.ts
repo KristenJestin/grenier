@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
- * Runs the built server (`vp build` first): the database is brought to the latest version, then
+ * Runs the built server (`bun run build` first): the database is brought to the latest version, then
  * the server listens on `PORT` (3000 by default). A failed migration stops it with its message.
  */
-import { layer as database, migrate } from '@grenier/core/database'
+import { layer as database, migrate } from './core/database/index.ts'
 import { Effect } from 'effect'
 import { serve } from 'srvx'
 import { staticMiddleware } from 'srvx/static'
