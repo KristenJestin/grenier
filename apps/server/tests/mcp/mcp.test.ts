@@ -58,6 +58,7 @@ describe('the server answers over stdio', () => {
       'unverified',
       'upcoming',
       'write',
+      'write_many',
     ])
     for (const { inputSchema } of tools) expect(inputSchema.type).toBe('object')
   })
@@ -336,6 +337,22 @@ describe('an agent tells the owner what waits for review', () => {
     })
     expect(await mcp().call('write', { entry: 'onion-soup', verified: true })).toEqual({
       error: 'The field `verified` can be set to true by the owner only.',
+    })
+  })
+})
+
+describe('an agent writes several entries in one call', () => {
+  test('notes that cite each other need one call', async () => {
+    expect(
+      await mcp().call('write_many', {
+        entries: [
+          { type: 'note', title: 'Hedge plan', body: 'See [[hedge-plants]].' },
+          { type: 'note', title: 'Hedge plants', body: 'For the [[hedge-plan]].' },
+        ],
+      }),
+    ).toMatchObject({ result: { entries: [{ slug: 'hedge-plan' }, { slug: 'hedge-plants' }] } })
+    expect(await mcp().call('read', { entry: 'hedge-plan' })).toMatchObject({
+      result: { backlinks: [{ slug: 'hedge-plants' }] },
     })
   })
 })
