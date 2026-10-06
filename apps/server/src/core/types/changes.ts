@@ -241,6 +241,12 @@ export const changeField = Effect.fn('changeField')(
     if (invalid.length > 0) return yield* refusedFor(invalid)
     yield* sql`UPDATE types SET fields = ${JSON.stringify(next.fields)}::jsonb, updated = now()
       WHERE name = ${type.name}`
+    // A link `fulfills` names the date field it closes: it follows the field's new name.
+    if (name !== old.name) {
+      yield* sql`UPDATE links l SET field = ${name} FROM entries e
+        WHERE l.relation = 'fulfills' AND l.field = ${old.name} AND e.id = l.target_id
+          AND e.type = ${type.name}`
+    }
     yield* recordEvent(
       actor,
       { entryId: null, typeName: type.name },

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { entryHistory, typeHistory } from '../../src/core/events/index.ts'
+import { backlinksOf, link } from '../../src/core/links/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { committedOnceAwaited } from '../../src/core/testing.ts'
 import {
@@ -131,6 +132,28 @@ describe('renaming a field', () => {
     expect(entry.fields).not.toHaveProperty('pages')
     expect(entry.provenance).toEqual({ page_count: 'extracted', author: 'inferred' })
     expect((await run(getType('book'))).fields.map(({ name }) => name)).toContain('page_count')
+  })
+})
+
+describe('renaming a date field', () => {
+  test('the fulfills links that close it name it under its new name', async () => {
+    await run(
+      defineType({
+        name: 'licence',
+        label: 'Licence',
+        description: 'A licence renewed every year.',
+        fields: [{ name: 'expires', kind: 'date', recurs: { every: 'yearly', notice: 'P30D' } }],
+      }),
+    )
+    await run(
+      writeEntry({ type: 'licence', title: 'Parking permit', fields: { expires: '2026-04-01' } }),
+    )
+    await run(writeEntry({ type: 'licence', title: 'Permit receipt' }))
+    await run(link('permit-receipt', 'parking-permit', 'fulfills', '2026', 'expires'))
+    await run(changeField({ type: 'licence', field: 'expires', rename: 'renews_on' }))
+    expect(await run(backlinksOf('parking-permit'))).toMatchObject([
+      { relation: 'fulfills', period: '2026', field: 'renews_on', slug: 'permit-receipt' },
+    ])
   })
 })
 
