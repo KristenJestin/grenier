@@ -1,11 +1,11 @@
 import { GrenierApi } from '@grenier/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
 import { Auth, Rights } from './core/auth/index.ts'
-import type { VerifiedKey } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
 import { readMedia } from './core/media/index.ts'
 import { mcpHttpHandlerFor } from './mcp/http.ts'
 import { instructions } from './mcp/instructions.ts'
+import { mcpSessions } from './sessions.ts'
 import type { Database } from './mcp/http.ts'
 import { Effect, Layer, Result } from 'effect'
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from 'effect/http'
@@ -43,30 +43,23 @@ const health = HttpRouter.add(
 /**
  * The MCP endpoint, for a valid key only: a request without one, or with an unknown, expired or
  * revoked one, is refused with 401 and one sentence. Each key has an MCP server of its own: its
- * name is the actor of the writes, its rights bound the tools. Only the database is shared.
+ * name is the actor of the writes, its rights bound the tools. Only the database is shared. A
+ * session belongs to the key that opened it: sent with another key, or once forgotten, it is
+ * answered 404, as for an unknown session.
  */
 const mcp = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const shared: Database = yield* databaseServices
-    type Server = ReturnType<typeof mcpHttpHandlerFor>
-    // A server per key and per instructions: a session starts with the types as they are then.
-    const servers = new Map<string, Server>()
-    // A session stays on the server that opened it, though the types change meanwhile.
-    const sessions = new Map<string, Server>()
-    const serverOf = ({ name, rights }: VerifiedKey, told: string) => {
-      const id = `${name} ${rights.join(',')} ${told}`
-      const server =
-        servers.get(id) ??
+    const sessions = mcpSessions({
+      create: ({ name, rights }, told) =>
         mcpHttpHandlerFor({
           actor: name,
           rights,
           path: '/mcp',
           instructions: told,
           database: shared,
-        })
-      servers.set(id, server)
-      return server
-    }
+        }),
+    })
     yield* router.add('*', '/mcp', (request) =>
       Effect.gen(function* () {
         const verified = yield* verify(request)
@@ -80,13 +73,18 @@ const mcp = HttpRouter.use((router) =>
           )
         }
         const session = request.headers['mcp-session-id']
-        const server =
-          (session === undefined ? undefined : sessions.get(session)) ??
-          serverOf(verified.success, yield* instructions)
+        // A session keeps the instructions it started with.
+        const told = session === undefined ? yield* instructions : ''
         const web = yield* HttpServerRequest.toWeb(request)
-        const response = yield* Effect.promise(() => server.handler(web))
-        const opened = response.headers.get('mcp-session-id')
-        if (session === undefined && opened !== null) sessions.set(opened, server)
+        const response = yield* Effect.promise(() =>
+          sessions.handle(verified.success, told, session, web),
+        )
+        if (response === undefined) {
+          return HttpServerResponse.jsonUnsafe(
+            { error: 'This session is not known: open a new one with `initialize`.' },
+            { status: 404 },
+          )
+        }
         return HttpServerResponse.fromWeb(response)
       }),
     )
