@@ -1,29 +1,46 @@
-import { Effect } from 'effect'
-import { SqlClient } from 'effect/sql'
 import { Link } from '@grenier/api/model'
+import { and, asc, eq, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
+import { Effect } from 'effect'
+import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 
 const links = rowsOf(Link)
 
 /** The relation `[[slug]]` references of a body are kept as. */
 export const MENTIONS = 'mentions'
 
+const { entries } = tables
+
+/** The links whose `end` matches, with the entry at the other end, by relation and title. */
+const linksWhere = (other: typeof tables.links.target_id, where: SQL | undefined) =>
+  Effect.flatMap(drizzle, (db) =>
+    links(
+      db
+        .select({
+          relation: tables.links.relation,
+          period: sql<string | null>`nullif(${tables.links.period}, '')`,
+          field: sql<string | null>`nullif(${tables.links.field}, '')`,
+          id: entries.id,
+          slug: entries.slug,
+          title: entries.title,
+        })
+        .from(tables.links)
+        .innerJoin(entries, eq(entries.id, other))
+        .where(where)
+        .orderBy(asc(tables.links.relation), asc(entries.title)),
+    ),
+  )
+
 /** The links that leave an entry, by relation and title. */
 export const outgoing = Effect.fn('outgoing')(function* (id: string) {
-  const sql = yield* SqlClient.SqlClient
-  return yield* links(sql`
-    SELECT l.relation, nullif(l.period, '') AS period, nullif(l.field, '') AS field, e.id::text AS id, e.slug, e.title
-    FROM links l JOIN entries e ON e.id = l.target_id
-    WHERE l.source_id = ${id}::uuid ORDER BY l.relation, e.title`)
+  return yield* linksWhere(tables.links.target_id, eq(tables.links.source_id, id))
 })
 
 /** The links that reach an entry, by relation and title. */
 export const incoming = Effect.fn('incoming')(function* (id: string) {
-  const sql = yield* SqlClient.SqlClient
-  return yield* links(sql`
-    SELECT l.relation, nullif(l.period, '') AS period, nullif(l.field, '') AS field, e.id::text AS id, e.slug, e.title
-    FROM links l JOIN entries e ON e.id = l.source_id
-    WHERE l.target_id = ${id}::uuid ORDER BY l.relation, e.title`)
+  return yield* linksWhere(tables.links.source_id, eq(tables.links.target_id, id))
 })
 
 /** Replaces the `mentions` links of an entry with links to these entries. */
@@ -31,10 +48,13 @@ export const replaceMentions = Effect.fn('replaceMentions')(function* (
   id: string,
   targets: ReadonlyArray<string>,
 ) {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`DELETE FROM links WHERE source_id = ${id}::uuid AND relation = ${MENTIONS}`
-  yield* sql`INSERT INTO links (source_id, target_id, relation)
-    SELECT ${id}::uuid, target::uuid, ${MENTIONS}
-    FROM jsonb_array_elements_text(${JSON.stringify(targets)}::jsonb) AS target
-    ON CONFLICT DO NOTHING`
+  const db = yield* drizzle
+  yield* db
+    .delete(tables.links)
+    .where(and(eq(tables.links.source_id, id), eq(tables.links.relation, MENTIONS)))
+  if (targets.length === 0) return
+  yield* db
+    .insert(tables.links)
+    .values(targets.map((target) => ({ source_id: id, target_id: target, relation: MENTIONS })))
+    .onConflictDoNothing()
 })

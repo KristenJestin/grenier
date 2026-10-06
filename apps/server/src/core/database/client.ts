@@ -1,4 +1,5 @@
 import { PgClient } from '@effect/sql-pg'
+import * as PgDrizzle from 'drizzle-orm/effect-postgres'
 import { Config, Context, Effect, Layer, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 
@@ -41,3 +42,9 @@ export const databaseReachable = Effect.gen(function* () {
   Effect.as(true),
   Effect.catchCause(() => Effect.succeed(false)),
 )
+
+/**
+ * Drizzle on the pool of the core. Its queries go through the same client as Effect SQL, so they
+ * run in the transaction of the fiber when there is one.
+ */
+export const drizzle = PgDrizzle.makeWithDefaults()

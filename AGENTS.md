@@ -39,8 +39,8 @@ packages/api      @grenier/api     The contract between the server and its clien
                                    conventions (`@grenier/api/schema`). No database, no Node
                                    or Bun API: a browser application may import it.
 apps/server       @grenier/server  Everything else, one program and its folders:
-                                   `src/core`     the model, the database (Effect SQL,
-                                                  migrations), validation, search, the event
+                                   `src/core`     the model, the database (Drizzle on Effect
+                                                  SQL, migrations), validation, search, the event
                                                   log, authentication: the only folder that
                                                   reaches the database;
                                    `src/mcp`      the MCP tools, over stdio and over HTTP;

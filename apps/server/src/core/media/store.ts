@@ -1,16 +1,38 @@
-import { Effect } from 'effect'
-import { SqlClient } from 'effect/sql'
 import { Medium } from '@grenier/api/model'
+import { asc, eq, sql } from 'drizzle-orm'
+import { Effect } from 'effect'
+import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 
-const media = rowsOf(Medium)
+export const asMedia = rowsOf(Medium)
 
-export const MEDIUM_COLUMNS = `id::text AS id, kind, mime, size, sha256, width, height, duration,
-  source_url, alt, position, '/media/' || sha256 AS url`
+const { media } = tables
+
+/** A medium as an entry is read with it: its record, and where to fetch it. */
+export const MEDIUM_COLUMNS = {
+  id: media.id,
+  kind: media.kind,
+  mime: media.mime,
+  size: media.size,
+  sha256: media.sha256,
+  width: media.width,
+  height: media.height,
+  duration: media.duration,
+  source_url: media.source_url,
+  alt: media.alt,
+  position: media.position,
+  url: sql<string>`'/media/' || ${media.sha256}`,
+}
 
 /** The media of an entry, in their order. */
 export const mediaOf = Effect.fn('mediaOf')(function* (entryId: string) {
-  const sql = yield* SqlClient.SqlClient
-  return yield* media(sql`SELECT ${sql.literal(MEDIUM_COLUMNS)} FROM media
-    WHERE entry_id = ${entryId}::uuid ORDER BY position`)
+  const db = yield* drizzle
+  return yield* asMedia(
+    db
+      .select(MEDIUM_COLUMNS)
+      .from(media)
+      .where(eq(media.entry_id, entryId))
+      .orderBy(asc(media.position)),
+  )
 })

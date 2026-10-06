@@ -10,8 +10,16 @@ Effect is written: in `apps/server` (`src/core`, `src/mcp`, `src/import`, the HT
 - For Effect code, read `node_modules/effect/AGENTS.md` and its `ai-docs/` first.
 - Schema for every value that crosses a boundary: the database, an MCP call, an HTTP request, a
   file read by the importer.
-- The database is reached with Effect SQL (`@effect/sql-pg`), from `apps/server/src/core/` only.
-  Migrations are Effect SQL migrations, kept there. No ORM.
+- The database is reached from `apps/server/src/core/` only, through one `@effect/sql-pg` pool.
+  The tables are described with Drizzle in `src/core/database/schema.ts`; queries go through
+  Drizzle on Effect (`drizzle-orm/effect-postgres`) where it says them plainly, and stay Effect
+  SQL statements for what it does not express exactly (recursive tree walks with their cycle
+  guard, weighted full-text search, row and advisory locks). Rows cross into the domain through
+  the core's schemas. No `pg` driver.
+- A schema change is a change of `schema.ts`, then `bun run db:generate` in `apps/server`:
+  drizzle-kit writes the migration under `src/core/database/migrations/`; review it, commit both.
+  A test fails when the schema and the migrations differ. Migrations run when the server, the
+  MCP server or the importer starts.
 - No zod: the lint refuses its import. Effect `Schema` replaces it everywhere.
 - Components stay plain React: they receive values and call functions. A thin layer of hooks
   between the components and the server may use Effect. No `Effect`, `Layer`, `Stream` or fiber

@@ -1,13 +1,15 @@
+import { eq, sql } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 import { findEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { fetchFile, readFileOf, storeFile, typeOf } from './files.ts'
-import { Medium } from '@grenier/api/model'
-import { MEDIUM_COLUMNS } from './store.ts'
+import { asMedia, MEDIUM_COLUMNS } from './store.ts'
 
 const BYTES_LIMIT = 20 * 1024 * 1024
 
@@ -21,15 +23,19 @@ export const AttachMediaInput = Schema.Struct({
 })
 export type AttachMediaInput = typeof AttachMediaInput.Type
 
-const media = rowsOf(Medium)
 const owners = rowsOf(Schema.Struct({ entry_id: Schema.String, alt: Schema.String }))
 
 /** The descriptions of an entry's media, kept on the entry for search. */
 const refreshMediaText = Effect.fn('refreshMediaText')(function* (entryId: string) {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`UPDATE entries SET media_text = coalesce(
-      (SELECT string_agg(alt, ' ' ORDER BY position) FROM media WHERE entry_id = ${entryId}::uuid), '')
-    WHERE id = ${entryId}::uuid`
+  const db = yield* drizzle
+  const { entries, media } = tables
+  yield* db
+    .update(entries)
+    .set({
+      media_text: sql`coalesce((SELECT string_agg(${media.alt}, ' ' ORDER BY ${media.position})
+        FROM ${media} WHERE ${media.entry_id} = ${entryId}), '')`,
+    })
+    .where(eq(entries.id, entryId))
 })
 
 /**
@@ -38,7 +44,8 @@ const refreshMediaText = Effect.fn('refreshMediaText')(function* (entryId: strin
  * disk, by its hash, however many entries it is attached to.
  */
 export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMediaInput) {
-  const sql = yield* SqlClient.SqlClient
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const actor = yield* currentActor
   const entry = yield* findEntry(input.entry)
   if ((input.data === undefined) === (input.url === undefined)) {
@@ -55,14 +62,25 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
   }
   const { mime, kind } = yield* typeOf(bytes)
   const hash = yield* storeFile(bytes)
-  return yield* sql.withTransaction(
+  return yield* client.withTransaction(
     Effect.gen(function* () {
-      const [medium] = yield* media(sql`
-        INSERT INTO media (entry_id, kind, mime, size, sha256, source_url, alt, position)
-        VALUES (${entry.id}::uuid, ${kind}, ${mime}, ${bytes.length}, ${hash}, ${input.url ?? null},
-          ${input.alt ?? ''},
-          (SELECT coalesce(max(position), 0) + 1 FROM media WHERE entry_id = ${entry.id}::uuid))
-        RETURNING ${sql.literal(MEDIUM_COLUMNS)}`)
+      const { media } = tables
+      const [medium] = yield* asMedia(
+        db
+          .insert(media)
+          .values({
+            entry_id: entry.id,
+            kind,
+            mime,
+            size: bytes.length,
+            sha256: hash,
+            source_url: input.url ?? null,
+            alt: input.alt ?? '',
+            position: sql`(SELECT coalesce(max(${media.position}), 0) + 1 FROM ${media}
+              WHERE ${media.entry_id} = ${entry.id})`,
+          })
+          .returning(MEDIUM_COLUMNS),
+      )
       if (medium === undefined) return yield* Effect.die('a medium just written cannot be read')
       yield* refreshMediaText(entry.id)
       yield* recordEvent(actor, { entryId: entry.id, typeName: null }, 'attach', [
@@ -79,18 +97,24 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
 
 /** Sets the description of a medium: what an agent saw in it, searched with its entry. */
 export const describeMedia = Effect.fn('describeMedia')(function* (id: string, alt: string) {
-  const sql = yield* SqlClient.SqlClient
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const actor = yield* currentActor
-  return yield* sql.withTransaction(
+  const { media } = tables
+  return yield* client.withTransaction(
     Effect.gen(function* () {
       const [owner] = yield* owners(
-        sql`SELECT entry_id::text AS entry_id, alt FROM media WHERE id::text = ${id}`,
+        db
+          .select({ entry_id: media.entry_id, alt: media.alt })
+          .from(media)
+          .where(sql`${media.id}::text = ${id}`),
       )
       if (owner === undefined) {
         return yield* new Refused({ message: `There is no medium \`${id}\`.` })
       }
-      const [medium] = yield* media(sql`UPDATE media SET alt = ${alt} WHERE id = ${id}::uuid
-        RETURNING ${sql.literal(MEDIUM_COLUMNS)}`)
+      const [medium] = yield* asMedia(
+        db.update(media).set({ alt }).where(eq(media.id, id)).returning(MEDIUM_COLUMNS),
+      )
       if (medium === undefined) return yield* Effect.die('a medium just found cannot be updated')
       yield* refreshMediaText(owner.entry_id)
       yield* recordEvent(actor, { entryId: owner.entry_id, typeName: null }, 'update', [
@@ -103,9 +127,11 @@ export const describeMedia = Effect.fn('describeMedia')(function* (id: string, a
 
 /** A file by its hash, with the type its record gives, to serve it. */
 export const readMedia = Effect.fn('readMedia')(function* (hash: string) {
-  const sql = yield* SqlClient.SqlClient
-  const [medium] = yield* media(sql`SELECT ${sql.literal(MEDIUM_COLUMNS)} FROM media
-    WHERE sha256 = ${hash} LIMIT 1`)
+  const db = yield* drizzle
+  const { media } = tables
+  const [medium] = yield* asMedia(
+    db.select(MEDIUM_COLUMNS).from(media).where(eq(media.sha256, hash)).limit(1),
+  )
   if (medium === undefined) return yield* new Refused({ message: `There is no file \`${hash}\`.` })
   return { mime: medium.mime, bytes: yield* readFileOf(hash) }
 })

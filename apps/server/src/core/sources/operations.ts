@@ -1,6 +1,8 @@
+import { and, eq, sql } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
-import { SqlClient } from 'effect/sql'
+import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
+import { sources } from '../database/schema.ts'
 
 /** What the registry knows of an item read from a source: the entry it gave, and its hash. */
 export const SourceItem = Schema.Struct({ entry_id: Schema.String, hash: Schema.String })
@@ -13,9 +15,13 @@ export const findSourceItem = Effect.fn('findSourceItem')(function* (
   source: string,
   identifier: string,
 ) {
-  const sql = yield* SqlClient.SqlClient
-  const [item] = yield* items(sql`SELECT entry_id::text AS entry_id, hash FROM sources
-    WHERE source = ${source} AND identifier = ${identifier}`)
+  const db = yield* drizzle
+  const [item] = yield* items(
+    db
+      .select({ entry_id: sources.entry_id, hash: sources.hash })
+      .from(sources)
+      .where(and(eq(sources.source, source), eq(sources.identifier, identifier))),
+  )
   return item
 })
 
@@ -26,9 +32,12 @@ export const recordSourceItem = Effect.fn('recordSourceItem')(function* (
   entryId: string,
   hash: string,
 ) {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`INSERT INTO sources (source, identifier, entry_id, hash)
-    VALUES (${source}, ${identifier}, ${entryId}::uuid, ${hash})
-    ON CONFLICT (source, identifier)
-    DO UPDATE SET entry_id = excluded.entry_id, hash = excluded.hash, imported_at = now()`
+  const db = yield* drizzle
+  yield* db
+    .insert(sources)
+    .values({ source, identifier, entry_id: entryId, hash })
+    .onConflictDoUpdate({
+      target: [sources.source, sources.identifier],
+      set: { entry_id: entryId, hash, imported_at: sql`now()` },
+    })
 })

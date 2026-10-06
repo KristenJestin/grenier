@@ -31,6 +31,8 @@ describe('Every access to the data goes through the core', () => {
     ['the Effect Postgres client', "import { PgClient } from '@effect/sql-pg'\n"],
     ['the Effect SQL module', "import { SqlClient } from 'effect/sql'\n"],
     ['a raw Postgres driver', "import pg from 'pg'\n"],
+    ['Drizzle', "import { eq } from 'drizzle-orm'\n"],
+    ['drizzle-kit', "import { defineConfig } from 'drizzle-kit'\n"],
   ])('the MCP server reaching %s is refused', (_, source) => {
     expect(storageRefusalsOf('apps/server/src/mcp/tools.ts', source)).toHaveLength(1)
   })
@@ -43,6 +45,17 @@ describe('Every access to the data goes through the core', () => {
   test('the core may reach the database', () => {
     const source = "import { PgClient } from '@effect/sql-pg'\n"
     expect(storageRefusalsOf('apps/server/src/core/database.ts', source)).toEqual([])
+  })
+
+  test('the tests of the core may reach the database, the other tests may not', () => {
+    const source = "import { SqlClient } from 'effect/sql'\n"
+    expect(storageRefusalsOf('apps/server/tests/core/migrations.test.ts', source)).toEqual([])
+    expect(storageRefusalsOf('apps/server/tests/mcp/tools.test.ts', source)).toHaveLength(1)
+  })
+
+  test("drizzle-kit's configuration may import drizzle-kit", () => {
+    const source = "import { defineConfig } from 'drizzle-kit'\n"
+    expect(storageRefusalsOf('apps/server/drizzle.config.ts', source)).toEqual([])
   })
 
   test('a shared package importing React is refused, an application is not', () => {
