@@ -287,6 +287,8 @@ occurrence of the finding of the same kind and place whose title shares at least
 words (lowercased, without punctuation or common English words); otherwise it is a new finding.
 
 An unexpected failure of the server (a defect, never a refusal), in a tool or a route, becomes an
-occurrence of a `bug` at that tool or route by itself, its message as the title. Findings are not
+occurrence of a `bug` at that tool or route by itself: in production, only the tag or class of
+the error (`SqlError`, `TypeError`), the place and a fixed sentence, since a message, a stack or
+a statement could carry the owner's data; elsewhere, its message as the title and its stack. Findings are not
 the owner's data, and are not entries; the owner reads them in full from the command line
 (`findings:list`, `findings:show`, `findings:export`), never through MCP or a client.

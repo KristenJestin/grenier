@@ -1,5 +1,5 @@
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm'
-import { Cause, Effect, Schema, Struct } from 'effect'
+import { Cause, Effect, Option, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
@@ -211,30 +211,44 @@ const firstLine = (text: string, length: number) => {
   return line.length > length ? `${line.slice(0, length - 1)}…` : line
 }
 
+/** The tag of a tagged error, such as `SqlError`. */
+const Tagged = Schema.Struct({ _tag: Schema.String })
+
 /**
  * Records an unexpected failure of the server (a defect, never a refusal) as an occurrence of a
- * `bug` at `place`, when diagnostics are on; does nothing otherwise. Its title is the error's
- * message; its stack goes with what happened. Recording never fails the request it is about.
+ * `bug` at `place`, when diagnostics are on; does nothing otherwise. In production, where a
+ * message, a stack or a statement could carry the owner's data, it keeps only the tag or class of
+ * the error, the place and the tool; elsewhere, the message as the title and the stack with what
+ * happened. Recording never fails the request it is about.
  */
 export const recordDefect = Effect.fn('recordDefect')(function* <E>(
   place: string,
   cause: Cause.Cause<E>,
   call?: Call,
 ) {
-  if (!(yield* Instance).diagnostics || !Cause.hasDies(cause)) return
+  const instance = yield* Instance
+  if (!instance.diagnostics || !Cause.hasDies(cause)) return
   const error = Cause.squash(cause)
+  const production = instance.name === 'production'
   const message = error instanceof Error ? error.message : String(error)
+  // The tag of a tagged error, else the name of its class: `SqlError`, `TypeError`.
+  const name = Option.match(Schema.decodeUnknownOption(Tagged)(error), {
+    onSome: ({ _tag }) => _tag,
+    onNone: () => (error instanceof Error ? error.name : 'unknown'),
+  })
   yield* reportFinding(
     {
-      title: `Unexpected error: ${firstLine(message, 180) || 'no message'}`,
+      title: `Unexpected error: ${production ? name : firstLine(message, 180) || 'no message'}`,
       kind: 'bug',
       place,
       severity: 'blocks',
       trying: call === undefined ? `A request to ${place}.` : `A call of the tool ${call.tool}.`,
-      happened: Cause.pretty(cause).slice(0, 4000),
+      happened: production
+        ? 'The server failed unexpectedly; in production, its message and stack are not kept.'
+        : Cause.pretty(cause).slice(0, 4000),
       expected: 'An answer or a refusal, not an unexpected error.',
     },
-    call,
+    call === undefined || !production ? call : { tool: call.tool, arguments: null },
     'server',
   ).pipe(
     Effect.catchCause((failed) =>

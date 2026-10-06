@@ -1,11 +1,12 @@
 import { HIDDEN } from '@grenier/api/model'
-import { Effect } from 'effect'
+import { Cause, Effect, Schema } from 'effect'
 import { describe, expect, test } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'
 import {
   findingsWithOccurrences,
   listFindings,
   maskedCall,
+  recordDefect,
   reportFinding,
   titleSimilarity,
 } from '../../src/core/findings/index.ts'
@@ -206,5 +207,41 @@ describe('the call a finding is about is kept masked', () => {
     const occurrence = all.flatMap(({ occurrences }) => occurrences).at(-1)
     expect(occurrence?.call_tool).toBe('write')
     expect(occurrence?.call_arguments).toContain('Office safe')
+  })
+})
+
+class SqlError extends Schema.TaggedError<SqlError>()('SqlError', { message: Schema.String }) {}
+
+describe('an unexpected error keeps nothing of the data in production', () => {
+  const defect = (name: 'production' | 'local', cause: Cause.Cause<never>, place: string) =>
+    run(
+      Effect.andThen(
+        recordDefect(place, cause, { tool: place, arguments: { title: 'Plum tart' } }),
+        findingsWithOccurrences({ place }),
+      ).pipe(Effect.provideService(Instance, { ...onDiagnostics, name })),
+    )
+
+  test('in production, only the class or tag of the error, its place and a fixed sentence', async () => {
+    const [typed] = await defect(
+      'production',
+      Cause.die(new TypeError('cannot read 7-3-9 of the safe')),
+      'read',
+    )
+    expect(typed?.finding.title).toBe('Unexpected error: TypeError')
+    const [tagged] = await defect(
+      'production',
+      Cause.die(new SqlError({ message: "SELECT * FROM entries WHERE body = 'Plum tart'" })),
+      'search',
+    )
+    expect(tagged?.finding.title).toBe('Unexpected error: SqlError')
+    const kept = JSON.stringify([typed, tagged])
+    for (const leak of ['7-3-9', 'Plum tart', 'SELECT', 'at ']) expect(kept).not.toContain(leak)
+    expect(tagged?.occurrences[0]).toMatchObject({ call_tool: 'search', call_arguments: null })
+  })
+
+  test('elsewhere, the message and the stack, cut short', async () => {
+    const [local] = await defect('local', Cause.die(new TypeError('cannot read x')), 'history')
+    expect(local?.finding.title).toBe('Unexpected error: cannot read x')
+    expect(local?.occurrences[0]?.happened).toContain('TypeError')
   })
 })
