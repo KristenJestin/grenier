@@ -24,7 +24,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 
-const at = { withTimezone: true, mode: 'string' } as const
+const at = { withTimezone: true, mode: 'date' } as const
 
 /** A text search configuration, such as `simple` or `grenier_french`. */
 const regconfig = customType<{ data: string }>({ dataType: () => 'regconfig' })

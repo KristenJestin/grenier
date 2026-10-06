@@ -1,7 +1,10 @@
+import { and, asc, eq, isNull, like, ne, or, sql } from 'drizzle-orm'
 import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
+import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
@@ -30,9 +33,32 @@ const ancestors = rowsOf(Schema.Struct({ id: Schema.String, title: Schema.String
 const slugs = rowsOf(Schema.Struct({ slug: Schema.String }))
 const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
-const COLUMNS = `id::text AS id, type, title, slug, aliases, tags, parent_id::text AS parent_id,
-  fields, provenance, body, summary, verified, created, updated, valid_from::text AS valid_from,
-  valid_until::text AS valid_until, superseded_by::text AS superseded_by, archived_at`
+const { entries: table } = tables
+
+const COLUMNS = {
+  id: table.id,
+  type: table.type,
+  title: table.title,
+  slug: table.slug,
+  aliases: table.aliases,
+  tags: table.tags,
+  parent_id: table.parent_id,
+  fields: table.fields,
+  provenance: table.provenance,
+  body: table.body,
+  summary: table.summary,
+  verified: table.verified,
+  created: table.created,
+  updated: table.updated,
+  valid_from: table.valid_from,
+  valid_until: table.valid_until,
+  superseded_by: table.superseded_by,
+  archived_at: table.archived_at,
+}
+
+/** The entry named by its slug or its id, given as text so that any text may name none. */
+const named = (reference: string) =>
+  or(eq(table.slug, reference), sql`${table.id}::text = ${reference}`)
 
 const toEntry = (row: typeof Row.Type): Entry => ({
   ...row,
@@ -43,19 +69,15 @@ const toEntry = (row: typeof Row.Type): Entry => ({
 
 /** The id of the entry named by its id or its slug, if there is one. */
 export const idOf = Effect.fn('idOf')(function* (reference: string) {
-  const sql = yield* SqlClient.SqlClient
-  const [row] = yield* ids(
-    sql`SELECT id::text AS id FROM entries WHERE slug = ${reference} OR id::text = ${reference}`,
-  )
+  const db = yield* drizzle
+  const [row] = yield* ids(db.select({ id: table.id }).from(table).where(named(reference)))
   return row?.id
 })
 
 const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked: boolean) {
-  const sql = yield* SqlClient.SqlClient
-  const [row] = yield* entries(
-    sql`SELECT ${sql.literal(COLUMNS)} FROM entries WHERE slug = ${reference} OR id::text = ${reference}
-      ${locked ? sql`FOR NO KEY UPDATE` : sql``}`,
-  )
+  const db = yield* drizzle
+  const query = db.select(COLUMNS).from(table).where(named(reference))
+  const [row] = yield* entries(locked ? query.for('no key update') : query)
   if (row === undefined) {
     return yield* new Refused({ message: `The entry \`${reference}\` does not exist.` })
   }
@@ -78,8 +100,8 @@ const TREE_LOCK = 7_418_309
 
 /** The entry and its ancestors, from the root down to the entry itself. */
 export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
-  const sql = yield* SqlClient.SqlClient
-  return yield* ancestors(sql`
+  const client = yield* SqlClient.SqlClient
+  return yield* ancestors(client`
     WITH RECURSIVE up AS (
       SELECT id, parent_id, title, 0 AS depth FROM entries WHERE id = ${id}::uuid
       UNION ALL
@@ -94,7 +116,7 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
  * by title.
  */
 export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
-  const sql = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const entry = yield* findEntry(reference)
   const lineage = yield* lineageOf(entry.id)
   return {
@@ -103,9 +125,19 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     links: yield* outgoing(entry.id),
     media: yield* mediaOf(entry.id),
     backlinks: yield* incoming(entry.id),
-    children: yield* children(sql`
-      SELECT id::text AS id, slug, type, title, summary FROM entries
-      WHERE parent_id = ${entry.id}::uuid AND archived_at IS NULL ORDER BY title`),
+    children: yield* children(
+      db
+        .select({
+          id: table.id,
+          slug: table.slug,
+          type: table.type,
+          title: table.title,
+          summary: table.summary,
+        })
+        .from(table)
+        .where(and(eq(table.parent_id, entry.id), isNull(table.archived_at)))
+        .orderBy(asc(table.title)),
+    ),
   }
 })
 
@@ -120,11 +152,14 @@ export const slugOf = (title: string) =>
 
 /** The slug of a title that no entry uses yet, with a numeric suffix when needed. */
 const freeSlugOf = Effect.fn('freeSlugOf')(function* (title: string) {
-  const sql = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const base = slugOf(title)
   const taken = new Set(
     (yield* slugs(
-      sql`SELECT slug FROM entries WHERE slug = ${base} OR slug LIKE ${`${base}-%`}`,
+      db
+        .select({ slug: table.slug })
+        .from(table)
+        .where(or(eq(table.slug, base), like(table.slug, `${base}-%`))),
     )).map(({ slug }) => slug),
   )
   let suffix = 1
@@ -205,15 +240,16 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
  * per problem, all problems at once. A write that changes nothing writes nothing.
  */
 export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryInput) {
-  const sql = yield* SqlClient.SqlClient
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const actor = yield* currentActor
   const configuration = yield* searchConfiguration
-  return yield* sql.withTransaction(
+  return yield* client.withTransaction(
     Effect.gen(function* () {
       // Taken before any row lock, and only by a move: the cycle check below reads a tree that
       // no other move changes until this one commits.
       if (input.entry !== undefined && Predicate.isString(input.parent)) {
-        yield* sql`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
+        yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
       }
       // Locked until the write commits: a concurrent write waits, then starts from this one. The
       // lock lets other writes still point to the entry (as a parent, through a foreign key).
@@ -358,22 +394,42 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
       const verified = entry.verified && (byOwner || changesWith(true).length === 0)
       const changes = changesWith(verified)
       if (existing !== undefined && changes.length === 0) return existing
-      const values = sql`
-        ${entry.type}, ${entry.title}, ${entry.slug}, ${JSON.stringify(entry.aliases)}::jsonb,
-        ${JSON.stringify(entry.tags)}::jsonb, ${parentId}::uuid, ${JSON.stringify(references)}::jsonb,
-        ${JSON.stringify(entry.provenance)}::jsonb, ${entry.body}, ${entry.summary},
-        ${verified}, ${entry.valid_from}::date, ${entry.valid_until}::date,
-        ${supersededBy}::uuid, ${configuration}::regconfig`
-      const columns = sql.literal(`type, title, slug, aliases, tags, parent_id, fields, provenance,
-        body, summary, verified, valid_from, valid_until, superseded_by, search_language`)
+      const values = {
+        type: entry.type,
+        title: entry.title,
+        slug: entry.slug,
+        aliases: entry.aliases,
+        tags: entry.tags,
+        parent_id: parentId,
+        fields: references,
+        provenance: entry.provenance,
+        body: entry.body,
+        summary: entry.summary,
+        verified,
+        valid_from: entry.valid_from,
+        valid_until: entry.valid_until,
+        superseded_by: supersededBy,
+        search_language: configuration,
+      }
       const [written] =
         existing === undefined
-          ? yield* ids(sql`INSERT INTO entries (${columns}, created, updated)
-              VALUES (${values}, coalesce(${instantOf(created)}::timestamptz, now()),
-                coalesce(${instantOf(updated ?? created)}::timestamptz, now()))
-              RETURNING id::text AS id`)
-          : yield* ids(sql`UPDATE entries SET (${columns}, updated) = (${values}, now())
-              WHERE id = ${existing.id}::uuid RETURNING id::text AS id`)
+          ? yield* ids(
+              db
+                .insert(table)
+                .values({
+                  ...values,
+                  created: sql`coalesce(${instantOf(created)}::timestamptz, now())`,
+                  updated: sql`coalesce(${instantOf(updated ?? created)}::timestamptz, now())`,
+                })
+                .returning({ id: table.id }),
+            )
+          : yield* ids(
+              db
+                .update(table)
+                .set({ ...values, updated: sql`now()` })
+                .where(eq(table.id, existing.id))
+                .returning({ id: table.id }),
+            )
       const id = written?.id ?? ''
       yield* recordEvent(
         actor,
@@ -399,14 +455,22 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
   from: string,
   to: string,
 ) {
-  const sql = yield* SqlClient.SqlClient
-  const mentioning = yield* bodies(sql`
-    SELECT e.id::text AS id, e.body FROM links l JOIN entries e ON e.id = l.source_id
-    WHERE l.target_id = ${id}::uuid AND l.relation = ${MENTIONS} AND l.source_id <> ${id}::uuid`)
+  const db = yield* drizzle
+  const { links } = tables
+  const mentioning = yield* bodies(
+    db
+      .select({ id: table.id, body: table.body })
+      .from(links)
+      .innerJoin(table, eq(table.id, links.source_id))
+      .where(and(eq(links.target_id, id), eq(links.relation, MENTIONS), ne(links.source_id, id))),
+  )
   yield* Effect.forEach(mentioning, (source) =>
     Effect.gen(function* () {
       const body = renameReferences(source.body, from, to)
-      yield* sql`UPDATE entries SET body = ${body}, updated = now() WHERE id = ${source.id}::uuid`
+      yield* db
+        .update(table)
+        .set({ body, updated: sql`now()` })
+        .where(eq(table.id, source.id))
       yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
         { field: 'body', before: source.body, after: body },
       ])
@@ -416,13 +480,17 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
 
 /** Archives an entry: it stays in place, keeps its slug, and leaves the default views. */
 export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: string) {
-  const sql = yield* SqlClient.SqlClient
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
   const actor = yield* currentActor
-  return yield* sql.withTransaction(
+  return yield* client.withTransaction(
     Effect.gen(function* () {
       const entry = yield* findEntry(reference)
       if (entry.archived_at !== null) return entry
-      yield* sql`UPDATE entries SET archived_at = now(), updated = now() WHERE id = ${entry.id}::uuid`
+      yield* db
+        .update(table)
+        .set({ archived_at: sql`now()`, updated: sql`now()` })
+        .where(eq(table.id, entry.id))
       const archived = yield* findEntry(entry.id)
       yield* recordEvent(
         actor,
