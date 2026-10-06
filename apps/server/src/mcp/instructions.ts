@@ -9,10 +9,15 @@ const LISTED = 50
 /** What the instance is, said first: an agent connected to both must never mix them. */
 const INSTANCE = {
   development: [
-    'This is the DEVELOPMENT instance of Grenier: it holds test data only.',
+    'This is the shared DEVELOPMENT instance of Grenier, on the server: it holds test data only, which persists, and is used to try what has been merged.',
     "Never write the user's real information here.",
     'Use it only when the user is working on Grenier itself or testing it, or when they explicitly ask for this instance.',
     'Anything written here may be thrown away.',
+  ].join(' '),
+  local: [
+    'This is a LOCAL instance of Grenier, running on this machine: it holds throwaway data, for testing the code being written.',
+    "Never write the user's real information here.",
+    'Its data may be wiped at any time.',
   ].join(' '),
   production: [
     "This is the user's REAL instance of Grenier: what it holds is their own information.",

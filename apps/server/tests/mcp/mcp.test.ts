@@ -266,7 +266,7 @@ describe('the instance comes from GRENIER_INSTANCE', () => {
     const { code, stderr } = await startAndExit({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test' })
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
-      'The environment variable GRENIER_INSTANCE is missing: set it to `production` or `development`.',
+      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
     )
   })
 
@@ -279,13 +279,30 @@ describe('the instance comes from GRENIER_INSTANCE', () => {
     })
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
-      'GRENIER_INSTANCE must be `production` or `development`: `staging` is not one.',
+      'GRENIER_INSTANCE must be `production`, `development` or `local`: `staging` is not one.',
     )
   })
 
   test('the development instance announces itself as grenier-dev, and says so first', async () => {
     expect(mcp().serverInfo.name).toBe('grenier-dev')
-    expect(mcp().instructions?.startsWith('This is the DEVELOPMENT instance of Grenier')).toBe(true)
+    expect(
+      mcp().instructions?.startsWith('This is the shared DEVELOPMENT instance of Grenier'),
+    ).toBe(true)
+  })
+
+  test('a local instance announces itself as grenier-local, and says so first', async () => {
+    const url = await database.runPromise(scratchUrl)
+    const local = await startServer({
+      DATABASE_URL: url,
+      GRENIER_ACTOR: 'agent-test',
+      GRENIER_INSTANCE: 'local',
+    })
+    try {
+      expect(local.serverInfo).toEqual({ name: 'grenier-local', version: 'unknown' })
+      expect(local.instructions?.startsWith('This is a LOCAL instance of Grenier')).toBe(true)
+    } finally {
+      local.close()
+    }
   })
 
   test('the production instance announces itself as grenier, with the version of the server', async () => {

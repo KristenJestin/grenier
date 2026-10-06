@@ -1090,9 +1090,10 @@
             "type": "string",
             "enum": [
               "production",
-              "development"
+              "development",
+              "local"
             ],
-            "description": "`production` holds the owner's real data; `development` holds test data only."
+            "description": "`production` holds the owner's real data; `development` (shared) and `local` (on one machine) hold test data only."
           },
           "label": {
             "anyOf": [

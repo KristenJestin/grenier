@@ -57,11 +57,14 @@ describe('agents learn how to choose a type from the instructions', () => {
 describe('the instructions start with what the instance is', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('the development instance says it holds test data only, and when to use it', () => {
+  test('the development instance says it is shared, holds test data only, and when to use it', () => {
     const instructions = instructionsFor(types, development)
-    expect(instructions.startsWith('This is the DEVELOPMENT instance of Grenier')).toBe(true)
+    expect(instructions.startsWith('This is the shared DEVELOPMENT instance of Grenier')).toBe(true)
     const [first = ''] = instructions.split('\n\n')
+    expect(first).toContain('on the server')
     expect(first).toContain('test data only')
+    expect(first).toContain('persists')
+    expect(first).toContain('what has been merged')
     expect(first).toContain("Never write the user's real information here")
     expect(first).toContain('may be thrown away')
   })
@@ -72,6 +75,17 @@ describe('the instructions start with what the instance is', () => {
     const [first = ''] = instructions.split('\n\n')
     expect(first).toContain('Never write test, sample or invented data here')
     expect(first).toContain('use the development instance instead')
+  })
+
+  test('a local instance says it runs on this machine and holds throwaway data', () => {
+    const instructions = instructionsFor(types, { name: 'local', diagnostics: false })
+    expect(instructions.startsWith('This is a LOCAL instance of Grenier')).toBe(true)
+    const [first = ''] = instructions.split('\n\n')
+    expect(first).toContain('running on this machine')
+    expect(first).toContain('throwaway data')
+    expect(first).toContain('the code being written')
+    expect(first).toContain("Never write the user's real information here")
+    expect(first).toContain('wiped at any time')
   })
 
   test('the types follow the paragraph of the instance', () => {

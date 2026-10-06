@@ -686,21 +686,21 @@ describe('the server knows which instance it is', () => {
     const missing = await startAndExit({})
     expect(missing.code).toBe(1)
     expect(missing.stderr.trim()).toBe(
-      'The environment variable GRENIER_INSTANCE is missing: set it to `production` or `development`.',
+      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
     )
     const unknown = await startAndExit({ GRENIER_INSTANCE: 'Production' })
     expect(unknown.code).toBe(1)
     expect(unknown.stderr.trim()).toBe(
-      'GRENIER_INSTANCE must be `production` or `development`: `Production` is not one.',
+      'GRENIER_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
     )
   })
 
   test('over MCP, the development instance announces itself as grenier-dev with its version', async () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
     expect(client.serverInfo).toEqual({ name: 'grenier-dev', version: '1.2.3-test' })
-    expect(client.instructions?.startsWith('This is the DEVELOPMENT instance of Grenier')).toBe(
-      true,
-    )
+    expect(
+      client.instructions?.startsWith('This is the shared DEVELOPMENT instance of Grenier'),
+    ).toBe(true)
   })
 })
 

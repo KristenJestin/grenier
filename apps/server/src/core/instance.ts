@@ -28,20 +28,20 @@ export const Instance = Context.Reference<Instance>('@grenier/core/instance/Inst
   }),
 })
 
-/** The name the MCP server announces: `grenier` in production, `grenier-dev` in development. */
+/** The name the MCP server announces, distinct for each instance. */
 export const mcpServerName = (name: InstanceName) =>
-  name === 'production' ? 'grenier' : 'grenier-dev'
+  ({ production: 'grenier', development: 'grenier-dev', local: 'grenier-local' })[name]
 
 export class InstanceMissing extends Schema.TaggedError<InstanceMissing>()('InstanceMissing', {}) {
   override readonly message =
-    'The environment variable GRENIER_INSTANCE is missing: set it to `production` or `development`.'
+    'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.'
 }
 
 export class InstanceUnknown extends Schema.TaggedError<InstanceUnknown>()('InstanceUnknown', {
   value: Schema.String,
 }) {
   override get message() {
-    return `GRENIER_INSTANCE must be \`production\` or \`development\`: \`${this.value}\` is not one.`
+    return `GRENIER_INSTANCE must be \`production\`, \`development\` or \`local\`: \`${this.value}\` is not one.`
   }
 }
 

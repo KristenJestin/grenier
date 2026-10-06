@@ -6,7 +6,7 @@
 pub struct About {
     #[doc = "The commit it was built from, or `unknown`."]
     pub commit: ::std::string::String,
-    #[doc = "`production` holds the owner's real data; `development` holds test data only."]
+    #[doc = "`production` holds the owner's real data; `development` (shared) and `local` (on one machine) hold test data only."]
     pub instance: AboutInstance,
     #[doc = "A name to show for the instance, when the owner gave one."]
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
@@ -14,7 +14,7 @@ pub struct About {
     #[doc = "The version of the server, or `unknown`."]
     pub version: ::std::string::String,
 }
-#[doc = "`production` holds the owner's real data; `development` holds test data only."]
+#[doc = "`production` holds the owner's real data; `development` (shared) and `local` (on one machine) hold test data only."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -32,12 +32,15 @@ pub enum AboutInstance {
     Production,
     #[serde(rename = "development")]
     Development,
+    #[serde(rename = "local")]
+    Local,
 }
 impl ::std::fmt::Display for AboutInstance {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Production => f.write_str("production"),
             Self::Development => f.write_str("development"),
+            Self::Local => f.write_str("local"),
         }
     }
 }
@@ -47,6 +50,7 @@ impl ::std::str::FromStr for AboutInstance {
         match value {
             "production" => Ok(Self::Production),
             "development" => Ok(Self::Development),
+            "local" => Ok(Self::Local),
             _ => Err("invalid value".into()),
         }
     }
