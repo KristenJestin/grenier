@@ -223,7 +223,7 @@ Doctor will join the checks.
 | The maintainer | decides what is built, accepts each tranche in the running application, and merges what they have not delegated |
 | The lead agent | turns the maintainer's decisions into issues, reviews the work, opens and merges the pull requests, keeps the tracker honest, and never hides a failure |
 | The developing agent | implements the issues it is given: the failing test first, then the code and the verification |
-| CI | `verify`, `commit-messages` and `shape` on every pull request; releases from `dev` and `main` (semantic-release) |
+| CI | `verify`, `commit-messages` and `shape` on every pull request; releases from `main` only (semantic-release, `0.x`) |
 
 ### The tracker
 
@@ -262,7 +262,10 @@ nothing else: no GitHub account, no pull request, no CI. Then:
   characters at most, and the type is one of feat, fix, refactor, test, docs, chore, build, ci,
   perf. `bun tools/commit-message.ts --range origin/dev..HEAD` is the judge; run it before
   delivering, the `commit-messages` check runs the same tool.
-- **Pull requests are merged by squash, and by squash only.** The squash commit takes the pull
+- **Pull requests into `dev` are merged by squash, and by squash only.** A release merges `dev`
+  into `main` with a merge commit (never a squash), so both branches keep one history. The rules
+  live in `.github/rulesets/` and are applied with `bun tools/apply-rulesets.ts`.
+- **About squash merges into `dev`:** The squash commit takes the pull
   request's title, so the title is a plain Angular subject: semantic-release reads those
   subjects to decide the version. The description ends with `Closes #<n>`.
 

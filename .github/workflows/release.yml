@@ -4,15 +4,16 @@
 # puts on a branch is the version. No plugin here writes a commit, so the history of a branch is
 # what was merged into it and nothing the pipeline added afterwards.
 #
-# One version line for both branches: `dev` publishes the next version as a pre-release,
-# `vX.Y.Z-beta.N`; merging into `main` publishes `vX.Y.Z`. Breaking changes move the minor: a
+# Only `main` publishes: merging `dev` into `main` (a merge commit, never a squash) publishes
+# `vX.Y.Z`, read from the subjects of the squashed pull requests it brings. `dev` publishes
+# nothing: it is the integration branch. Grenier starts in `0.x`. Breaking changes move the minor: a
 # 2.0 is a decision, not something a commit message brings about.
 
 name: release
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
 
 # One release at a time per branch, in the order of the pushes: two tags are never computed
 # from the same history.
