@@ -1,0 +1,30 @@
+[
+  {
+    "name": "note",
+    "label": "Note",
+    "description": "A free note.",
+    "fields": []
+  },
+  {
+    "name": "project",
+    "label": "Project",
+    "description": "A project and the container of its notes.",
+    "fields": [{ "name": "status", "kind": "enum", "values": ["active", "done"] }]
+  },
+  {
+    "name": "decision",
+    "label": "Decision",
+    "description": "A decision and why it was taken.",
+    "fields": [{ "name": "decided", "kind": "date", "required": true }]
+  },
+  {
+    "name": "contract",
+    "label": "Contract",
+    "description": "A contract followed over time.",
+    "fields": [
+      { "name": "provider", "kind": "text", "required": true },
+      { "name": "start", "kind": "date", "required": true },
+      { "name": "renewal", "kind": "enum", "values": ["tacit", "manual", "none"] }
+    ]
+  }
+]

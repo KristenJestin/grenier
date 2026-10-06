@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main, dev]
+  workflow_dispatch:
 
 jobs:
   commit-messages:
@@ -12,9 +13,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24.21.0
+          bun-version: 1.4.2
       # The first push of a branch has no `before` (GitHub sends forty zeros): every commit the
       # branch holds is checked then, which for the first push of the repository is its first.
       - name: Check the Angular commit convention
@@ -22,10 +23,19 @@ jobs:
           base="${{ github.event.pull_request.base.sha || github.event.before }}"
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           if [ -z "${base//0/}" ]; then
-            node tools/commit-message.ts --range "$head"
+            bun tools/commit-message.ts --range "$head"
           else
-            node tools/commit-message.ts --range "$base..$head"
+            bun tools/commit-message.ts --range "$base..$head"
           fi
+      # A pull request into dev is squashed: its title becomes the subject of the commit, so the
+      # title is held to the same convention as a commit.
+      - name: Check the title of the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          bun tools/commit-message.ts "$RUNNER_TEMP/title"
 
   # Grenier runs on a Linux server: one target, with the PostgreSQL of docker-compose.yml as a
   # service, so the suites that need a database get the same one as on a developer's machine.
@@ -49,15 +59,55 @@ jobs:
       DATABASE_URL: postgres://grenier:grenier@127.0.0.1:55432/grenier
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24.21.0
-      - name: Enable the pinned package manager
-        run: corepack enable
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm fmt:check
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # What GPUI needs on Linux to build the desktop app (as GPUI Kit's own CI installs it).
+      - name: Install the libraries of the desktop app
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev libwayland-dev libxkbcommon-x11-dev \
+            libx11-xcb-dev libssl-dev libzstd-dev libasound2-dev libvulkan1
+      - run: bunx turbo run typecheck
+      - run: bunx turbo run lint
+      - run: bunx turbo run fmt:check
       - name: Test
-        timeout-minutes: 20
-        run: pnpm test
+        timeout-minutes: 40
+        run: bunx turbo run test
+      - name: Build the desktop app
+        run: bunx turbo run build --filter=@grenier/desktop
+
+  # The desktop app on Windows, its other platform: both binaries built (rustup installs the Rust
+  # of rust-toolchain.toml).
+  desktop-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --locked -p story -p app
+
+  # The clients' types are generated from the schemas (the OpenAPI document, then the Rust types
+  # of apps/desktop): regenerated here, they must be what is committed.
+  generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run generate
+      - name: The generated files are those committed
+        run: git diff --exit-code
+
+  # The image of the server, built on every pull request as it will be on the owner's server. It is
+  # built only: nothing is pushed to any registry.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image of the server
+        run: docker build -f apps/server/Dockerfile -t grenier:ci .

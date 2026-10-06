@@ -1,8 +1,0 @@
-packages:
-  - apps/*
-  - packages/*
-
-# A dependency only runs an install script if it is allowed here. msgpackr-extract is Effect's
-# optional native accelerator: Effect works without it.
-allowBuilds:
-  msgpackr-extract: false

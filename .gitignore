@@ -3,3 +3,8 @@ dist/
 *.tsbuildinfo
 reports/
 .env
+.env.production
+.turbo/
+target/
+CLAUDE.local.md
+.claude/settings.local.json

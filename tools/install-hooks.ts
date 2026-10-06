@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** Points git at the versioned hooks of this repository. */
 
 import { spawnSync } from 'node:child_process'

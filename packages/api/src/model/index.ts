@@ -1,0 +1,18 @@
+/** The model of Grenier as its clients see it: the instance, types, entries and search results. */
+export { About, INSTANCES } from './about.ts'
+export { ISO_DURATION, FIELD_KINDS, FieldDefinition, TypeDefinition } from './types.ts'
+export {
+  Child,
+  Entry,
+  EntryRead,
+  HIDDEN,
+  Link,
+  Medium,
+  PROVENANCES,
+  Source,
+  SourceGiven,
+  SourceKept,
+  TreeEntry,
+  WriteEntryInput,
+} from './entries.ts'
+export { SearchOptions, SearchResult } from './search.ts'

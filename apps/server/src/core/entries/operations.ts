@@ -1,0 +1,852 @@
+import { and, asc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
+import { Effect, Predicate, Result, Schema } from 'effect'
+import { SqlClient } from 'effect/sql'
+import { Rights } from '../auth/rights.ts'
+import { drizzle } from '../database/client.ts'
+import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
+import { currentActor } from '../events/actor.ts'
+import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
+import type { Snapshot } from '../events/record.ts'
+import { Refused } from '../refused.ts'
+import { sensitivity } from '../sensitive.ts'
+import { referencesIn, renameReferences } from '../links/references.ts'
+import { incoming, MENTIONS, outgoing, replaceMentions } from '../links/store.ts'
+import { formatSchemaError } from '@grenier/api/schema'
+import { mediaOf } from '../media/store.ts'
+import { searchConfiguration } from '../search/language.ts'
+import { findType } from '../types/operations.ts'
+import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@grenier/api/model'
+import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
+import { findSourceItem } from '../sources/operations.ts'
+import { INBOX, inboxHolds } from '../inbox/store.ts'
+import { refusingContention } from './contention.ts'
+import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
+
+const Row = Schema.Struct({
+  ...Entry.fields,
+  sources: Schema.Array(SourceKept),
+  created: Schema.Date,
+  updated: Schema.Date,
+  archived_at: Schema.NullOr(Schema.Date),
+})
+
+const entries = rowsOf(Row)
+const children = rowsOf(Child)
+const listed = rowsOf(TreeEntry)
+const ids = rowsOf(Schema.Struct({ id: Schema.String }))
+const ancestors = rowsOf(
+  Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
+)
+const slugs = rowsOf(Schema.Struct({ slug: Schema.String }))
+const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
+
+const { entries: table } = tables
+
+const COLUMNS = {
+  id: table.id,
+  type: table.type,
+  title: table.title,
+  slug: table.slug,
+  aliases: table.aliases,
+  tags: table.tags,
+  parent_id: table.parent_id,
+  fields: table.fields,
+  provenance: table.provenance,
+  sources: table.sources,
+  body: table.body,
+  summary: table.summary,
+  verified: table.verified,
+  created: table.created,
+  updated: table.updated,
+  valid_from: table.valid_from,
+  valid_until: table.valid_until,
+  superseded_by: table.superseded_by,
+  archived_at: table.archived_at,
+}
+
+/** The entry named by its slug or its id, given as text so that any text may name none. */
+const named = (reference: string) =>
+  or(eq(table.slug, reference), sql`${table.id}::text = ${reference}`)
+
+/** An entry as it is kept: its sources name entries by id only. */
+type Kept = Omit<Entry, 'sources'> & { readonly sources: ReadonlyArray<SourceKept> }
+
+const cited = rowsOf(
+  Schema.Struct({
+    id: Schema.String,
+    slug: Schema.String,
+    title: Schema.String,
+    type: Schema.String,
+  }),
+)
+
+const toEntry = (row: typeof Row.Type): Kept => ({
+  ...row,
+  created: row.created.toISOString(),
+  updated: row.updated.toISOString(),
+  archived_at: row.archived_at === null ? null : row.archived_at.toISOString(),
+})
+
+/** The id of the entry named by its id or its slug, if there is one. */
+export const idOf = Effect.fn('idOf')(function* (reference: string) {
+  const db = yield* drizzle
+  const [row] = yield* ids(db.select({ id: table.id }).from(table).where(named(reference)))
+  return row?.id
+})
+
+const typed = rowsOf(Schema.Struct({ id: Schema.String, type: Schema.String }))
+
+/**
+ * The id of the entry named by its id or its slug, if there is one the caller may see: for a key
+ * without the right `sensitive`, an entry of a sensitive type is one that does not exist.
+ */
+export const visibleIdOf = Effect.fn('visibleIdOf')(function* (reference: string) {
+  const db = yield* drizzle
+  const [row] = yield* typed(
+    db.select({ id: table.id, type: table.type }).from(table).where(named(reference)),
+  )
+  return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row.id
+})
+
+const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked: boolean) {
+  const db = yield* drizzle
+  const query = db.select(COLUMNS).from(table).where(named(reference))
+  const [row] = yield* entries(locked ? query.for('no key update') : query)
+  // An entry of a type the caller may not see is, for that caller, an entry that does not exist.
+  if (row === undefined || (yield* sensitivity).hidesType(row.type)) {
+    return yield* new Refused({ message: `The entry \`${reference}\` does not exist.` })
+  }
+  return toEntry(row)
+})
+
+/** The entry named by its id or its slug; refused when there is none. */
+export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
+  return yield* masked(yield* entryNamed(reference, false))
+})
+
+/**
+ * An entry as the caller may see it: its sensitive values replaced by the marker, and each entry
+ * it comes from with its slug and title (hidden, when the caller may not see that entry).
+ */
+const masked = Effect.fn('masked')(function* (entry: Kept) {
+  const { maskFields, hidesType } = yield* sensitivity
+  const db = yield* drizzle
+  const sourceIds = entry.sources.flatMap((source) => ('entry' in source ? [source.entry] : []))
+  const found =
+    sourceIds.length === 0
+      ? []
+      : yield* cited(
+          db
+            .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
+            .from(table)
+            .where(inArray(table.id, sourceIds)),
+        )
+  const sources = entry.sources.map((source): Source => {
+    if (!('entry' in source)) return source
+    const other = found.find(({ id }) => id === source.entry)
+    const hidden = other === undefined || hidesType(other.type)
+    return {
+      ...source,
+      slug: hidden ? HIDDEN : other.slug,
+      title: hidden ? HIDDEN : other.title,
+    }
+  })
+  return { ...entry, fields: maskFields(entry.type, entry.fields), sources }
+})
+
+/** The titles of the ancestors of an entry, from the root; a hidden one shows as hidden. */
+export const pathOf = Effect.fn('pathOf')(function* (id: string) {
+  const { hidesType } = yield* sensitivity
+  const lineage = yield* lineageOf(id)
+  return lineage.slice(0, -1).map(({ title, type }) => (hidesType(type) ? HIDDEN : title))
+})
+
+/**
+ * How deep a walk of the tree goes, far beyond any real tree. With the `CYCLE` clause of each
+ * walk, it keeps a damaged tree from hanging a read.
+ */
+export const TREE_DEPTH = 1000
+
+/** Serialises the writes that move an entry, so that two moves cannot close a cycle together. */
+const TREE_LOCK = 7_418_309
+
+/** The entry and its ancestors, from the root down to the entry itself. */
+export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
+  const client = yield* SqlClient.SqlClient
+  return yield* ancestors(client`
+    WITH RECURSIVE up AS (
+      SELECT id, parent_id, title, type, 0 AS depth FROM entries WHERE id = ${id}::uuid
+      UNION ALL
+      SELECT e.id, e.parent_id, e.title, e.type, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
+      WHERE up.depth < ${TREE_DEPTH}
+    ) CYCLE id SET looped USING trail
+    SELECT id::text AS id, title, type FROM up WHERE NOT looped ORDER BY depth DESC`)
+})
+
+/**
+ * An entry, the titles of its ancestors from the root, and its children that are not archived,
+ * by title.
+ */
+export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
+  const db = yield* drizzle
+  const { hiddenTypes } = yield* sensitivity
+  const entry = yield* findEntry(reference)
+  const all = yield* children(
+    db
+      .select({
+        id: table.id,
+        slug: table.slug,
+        type: table.type,
+        title: table.title,
+        summary: table.summary,
+      })
+      .from(table)
+      .where(and(eq(table.parent_id, entry.id), isNull(table.archived_at)))
+      .orderBy(asc(table.title)),
+  )
+  const shown = all.filter(({ type }) => !hiddenTypes.includes(type))
+  const citing = yield* cited(
+    db
+      .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
+      .from(table)
+      .where(sql`${table.sources} @> ${JSON.stringify([{ entry: entry.id }])}::jsonb`)
+      .orderBy(asc(table.title)),
+  )
+  return {
+    entry,
+    path: yield* pathOf(entry.id),
+    links: yield* outgoing(entry.id, hiddenTypes),
+    media: yield* mediaOf(entry.id),
+    backlinks: yield* incoming(entry.id, hiddenTypes),
+    children: shown,
+    hidden_children: all.length - shown.length,
+    cited_by: citing
+      .filter(({ type }) => !hiddenTypes.includes(type))
+      .map(({ id, slug, title }) => ({ id, slug, title })),
+  }
+})
+
+/**
+ * The whole tree in one read: every entry the caller may see that is not archived, by title,
+ * with the id of the entry it is filed under.
+ */
+export const listEntries = Effect.fn('listEntries')(function* () {
+  const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
+  const all = yield* listed(
+    db
+      .select({
+        id: table.id,
+        slug: table.slug,
+        type: table.type,
+        title: table.title,
+        parent_id: table.parent_id,
+      })
+      .from(table)
+      .where(isNull(table.archived_at))
+      .orderBy(asc(table.title)),
+  )
+  return all.filter(({ type }) => !hidesType(type))
+})
+
+/** The slug of a title: `Château de Bois` gives `chateau-de-bois`. */
+export const slugOf = (title: string) =>
+  title
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'entry'
+
+/**
+ * The slug of a title that no entry uses yet, nor one of `reserved`, with a numeric suffix when
+ * needed.
+ */
+const freeSlugOf = Effect.fn('freeSlugOf')(function* (
+  title: string,
+  reserved: ReadonlySet<string> = new Set(),
+) {
+  const db = yield* drizzle
+  const base = slugOf(title)
+  const taken = new Set(
+    (yield* slugs(
+      db
+        .select({ slug: table.slug })
+        .from(table)
+        .where(or(eq(table.slug, base), like(table.slug, `${base}-%`))),
+    )).map(({ slug }) => slug),
+  )
+  for (const slug of reserved) taken.add(slug)
+  let suffix = 1
+  while (taken.has(suffix === 1 ? base : `${base}-${suffix}`)) suffix += 1
+  return suffix === 1 ? base : `${base}-${suffix}`
+})
+
+/** The instant a date or a date and time names, in ISO 8601; a date is taken at midnight UTC. */
+const instantOf = (value: string | undefined) => {
+  if (value === undefined) return null
+  const instant = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value
+  return /^\d{4}-\d{2}-\d{2}T/.test(instant) && !Number.isNaN(Date.parse(instant))
+    ? new Date(instant).toISOString()
+    : undefined
+}
+
+const withoutNulls = <V>(record: Readonly<Record<string, V | null>>): Record<string, V> =>
+  Object.fromEntries(Object.entries(record).filter((pair): pair is [string, V] => pair[1] !== null))
+
+const CREATED = {
+  aliases: [],
+  tags: [],
+  parent: null,
+  fields: {},
+  provenance: {},
+  sources: [],
+  body: '',
+  summary: '',
+  verified: false,
+  valid_from: null,
+  valid_until: null,
+  superseded_by: null,
+}
+
+/** What a write may change of an existing entry, in the shape of a write. */
+const stateOf = ({ type, title, slug, parent_id, ...entry }: Kept) => ({
+  type,
+  title,
+  slug,
+  aliases: entry.aliases,
+  tags: entry.tags,
+  parent: parent_id,
+  fields: entry.fields,
+  provenance: entry.provenance,
+  sources: entry.sources,
+  body: entry.body,
+  summary: entry.summary,
+  verified: entry.verified,
+  valid_from: entry.valid_from,
+  valid_until: entry.valid_until,
+  superseded_by: entry.superseded_by,
+})
+
+type Recorded = Omit<Entry, 'id' | 'created' | 'updated' | 'provenance' | 'sources'> & {
+  readonly provenance: Snapshot
+  readonly sources: ReadonlyArray<SourceKept | Source>
+}
+
+/** What the event log keeps of an entry: every field a write can change. */
+const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
+  type: base.type,
+  title: base.title,
+  slug: base.slug,
+  aliases: base.aliases,
+  tags: base.tags,
+  parent_id: base.parent_id,
+  body: base.body,
+  summary: base.summary,
+  verified: base.verified,
+  valid_from: base.valid_from,
+  valid_until: base.valid_until,
+  superseded_by: base.superseded_by,
+  archived_at: base.archived_at,
+  // Kept as the database keeps them: an entry by its id.
+  sources: base.sources.map((source): SourceKept => {
+    if (!('entry' in source)) return source
+    const { entry, note } = source
+    return note === undefined ? { entry } : { entry, note }
+  }),
+  ...prefixed('fields', fields),
+  ...prefixed('provenance', provenance),
+})
+
+/**
+ * Why an entry may not take another type, if it may not. A key without the right `sensitive` may
+ * not move an entry that holds sensitive values, since the values would go with it; and only the
+ * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
+ */
+const retypeRefusal = Effect.fn('retypeRefusal')(function* (
+  existing: Kept,
+  type: TypeDefinition,
+  fields: { readonly [name: string]: Schema.Json },
+  byOwner: boolean,
+) {
+  const from = yield* findType(existing.type, 'share')
+  if (from === undefined) return undefined
+  const { allowed } = yield* sensitivity
+  const sensitiveFields = from.fields.filter(({ sensitive }) => sensitive === true)
+  if (!allowed && sensitiveFields.some(({ name }) => Object.hasOwn(existing.fields, name))) {
+    return `The entry \`${existing.slug}\` holds sensitive values: this key may not change its type; ask the owner of Grenier for a key with the right \`sensitive\`.`
+  }
+  if (byOwner || type.sensitive === true) return undefined
+  if (from.sensitive === true) {
+    return `The type \`${from.name}\` is sensitive and \`${type.name}\` is not: only the owner of Grenier may move this entry out of it.`
+  }
+  const exposed = sensitiveFields.filter(
+    ({ name }) =>
+      Object.hasOwn(fields, name) &&
+      !type.fields.some((field) => field.name === name && field.sensitive === true),
+  )
+  if (exposed.length === 0) return undefined
+  return exposed
+    .map(
+      ({ name }) =>
+        `The field \`fields.${name}\` is sensitive in \`${from.name}\` and would not be in \`${type.name}\`: only the owner of Grenier may change the type of this entry to it.`,
+    )
+    .join(' ')
+})
+
+/**
+ * What a batch knows of its entries as they stand once all are written: the slugs they end with,
+ * which a body may refer to already; the slugs it renames away, each to its new one; and the slugs
+ * a new title would take but cannot, each with the title and the slug it takes instead.
+ */
+type Batch = {
+  readonly coming: ReadonlySet<string>
+  readonly renamed: ReadonlyMap<string, string>
+  readonly displaced: ReadonlyMap<string, { readonly title: string; readonly slug: string }>
+}
+
+const ALONE: Batch = { coming: new Set(), renamed: new Map(), displaced: new Map() }
+
+/**
+ * Creates an entry, or updates the one `entry` names. The result is validated against the
+ * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
+ * per problem, all problems at once. A write that changes nothing writes nothing.
+ */
+export const writeEntry = Effect.fn('writeEntry')(function* (
+  input: WriteEntryInput,
+  batch: Batch = ALONE,
+) {
+  const { coming, renamed: renamedAway, displaced } = batch
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  const actor = yield* currentActor
+  const configuration = yield* searchConfiguration
+  return yield* refusingContention(
+    client.withTransaction(
+      Effect.gen(function* () {
+        // Taken before any row lock, and only by a move: the cycle check below reads a tree that
+        // no other move changes until this one commits.
+        if (input.entry !== undefined && Predicate.isString(input.parent)) {
+          yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
+        }
+        // The types first, then the entry, in the order a change of a type takes them: two writes
+        // never wait for each other in a circle.
+        const current =
+          input.entry === undefined
+            ? undefined
+            : (yield* typed(
+                db.select({ id: table.id, type: table.type }).from(table).where(named(input.entry)),
+              ))[0]?.type
+        const locked = [...new Set([current, input.type].filter(Predicate.isString))].toSorted()
+        yield* Effect.forEach(locked, (name) => findType(name, 'share'))
+        // Locked until the write commits: a concurrent write waits, then starts from this one. The
+        // lock lets other writes still point to the entry (as a parent, through a foreign key).
+        const existing =
+          input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
+        const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
+        const base = existing === undefined ? CREATED : stateOf(existing)
+        const state = {
+          ...base,
+          ...given,
+          fields: withoutNulls({ ...base.fields, ...fields }),
+          provenance: withoutNulls({ ...base.provenance, ...provenance }),
+        }
+        const slug = state.slug ?? (yield* freeSlugOf(state.title ?? ''))
+        const type = state.type === undefined ? undefined : yield* findType(state.type, 'share')
+        const hidden = yield* sensitivity
+        if (type !== undefined && hidden.hidesType(type.name)) {
+          return yield* new Refused({
+            message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+          })
+        }
+        const byOwner = (yield* Rights).includes('owner')
+        if (existing !== undefined && type !== undefined && type.name !== existing.type) {
+          const refusal = yield* retypeRefusal(existing, type, state.fields, byOwner)
+          if (refusal !== undefined) return yield* new Refused({ message: refusal })
+        }
+        const forbidden =
+          type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
+        if (forbidden.length > 0) {
+          return yield* new Refused({
+            message: forbidden
+              .map(
+                (name) =>
+                  `The field \`fields.${name}\` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+              )
+              .join(' '),
+          })
+        }
+
+        const decoded = Schema.decodeUnknownResult(
+          Schema.Struct({
+            type: Schema.String,
+            title: Text,
+            slug: Slug,
+            aliases: Schema.Array(Text),
+            tags: Schema.Array(Text),
+            parent: Schema.NullOr(Schema.String),
+            fields: type === undefined ? Schema.Record(Schema.String, Schema.Json) : fieldsOf(type),
+            provenance: Schema.Record(Schema.String, Provenance),
+            body: Schema.String,
+            summary: Schema.String,
+            verified: Schema.Boolean,
+            valid_from: Schema.NullOr(DateText),
+            valid_until: Schema.NullOr(DateText),
+            superseded_by: Schema.NullOr(Schema.String),
+            sources: Schema.Array(SourceGiven),
+          }),
+        )({ ...state, slug }, { errors: 'all', onExcessProperty: 'error' })
+        const problems = Result.isFailure(decoded) ? [formatSchemaError(decoded.failure)] : []
+
+        if (state.type !== undefined && type === undefined) {
+          problems.push(
+            `The field \`type\` must name an existing type: \`${state.type}\` does not exist.`,
+          )
+        }
+        for (const name of Object.keys(state.provenance)) {
+          if (type !== undefined && !type.fields.some((field) => field.name === name)) {
+            problems.push(
+              `The field \`provenance.${name}\` must name a field of the type \`${type.name}\`.`,
+            )
+          }
+        }
+        const instants = { created, updated }
+        for (const [field, value] of Object.entries(instants)) {
+          if (value === undefined) continue
+          if (existing !== undefined) {
+            problems.push(`The field \`${field}\` can be given only when the entry is created.`)
+          } else if (instantOf(value) === undefined) {
+            problems.push(
+              `The field \`${field}\` must be a date such as \`2026-10-05\` or a date and time such as \`2026-10-05T14:30:00Z\`.`,
+            )
+          }
+        }
+        const createdAt = instantOf(created) ?? new Date().toISOString()
+        const updatedAt = instantOf(updated)
+        if (
+          existing === undefined &&
+          updatedAt !== undefined &&
+          updatedAt !== null &&
+          updatedAt < createdAt
+        ) {
+          problems.push(
+            'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
+          )
+        }
+        if (input.verified === true && !byOwner) {
+          problems.push('The field `verified` can be set to true by the owner only.')
+        }
+        const owner = yield* idOf(slug)
+        if (owner !== undefined && owner !== existing?.id) {
+          // Said without confirming that an entry the caller may not see uses it.
+          problems.push(
+            (yield* visibleIdOf(slug)) === undefined
+              ? `The field \`slug\` cannot be \`${slug}\`: choose another slug.`
+              : `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
+          )
+        }
+
+        /** The id of the entry a field names, or a problem when there is none. */
+        const resolve = Effect.fn('resolve')(function* (field: string, reference: string | null) {
+          if (reference === null) return null
+          const id = yield* visibleIdOf(reference)
+          if (id !== undefined) return id
+          problems.push(
+            `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
+          )
+          return null
+        })
+
+        const parentId = yield* resolve('parent', state.parent)
+        if (parentId !== null && existing !== undefined) {
+          const lineage = yield* lineageOf(parentId)
+          if (lineage.some(({ id }) => id === existing.id)) {
+            problems.push(
+              `The field \`parent\` cannot be \`${state.parent}\`: an entry cannot be filed under itself or one of its descendants.`,
+            )
+          }
+        }
+        const supersededBy = yield* resolve('superseded_by', state.superseded_by)
+        const references = { ...state.fields }
+        for (const field of type?.fields ?? []) {
+          const value = state.fields[field.name]
+          if (field.kind === 'entry' && Predicate.isString(value)) {
+            references[field.name] = (yield* resolve(`fields.${field.name}`, value)) ?? value
+          }
+        }
+
+        // The entries a source names, by id; a URL that is a web address; a registry item it holds.
+        const sources: Array<SourceKept> = []
+        for (const [index, source] of state.sources.entries()) {
+          const at = `\`sources.${index}\``
+          if ('entry' in source) {
+            const id = yield* visibleIdOf(source.entry)
+            if (id === undefined)
+              problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
+            else sources.push({ ...source, entry: id })
+          } else if (
+            'url' in source &&
+            !(/^https?:\/\//.test(source.url) && URL.canParse(source.url))
+          ) {
+            problems.push(
+              `The source ${at} must be an http or https URL: \`${source.url}\` is not.`,
+            )
+          } else if (
+            'item' in source &&
+            !(source.source === INBOX
+              ? yield* inboxHolds(source.item)
+              : (yield* findSourceItem(source.source, source.item)) !== undefined)
+          ) {
+            problems.push(
+              `The source ${at} names the item \`${source.item}\` of \`${source.source}\`, which the registry does not hold.`,
+            )
+          } else sources.push(source)
+        }
+
+        for (const reference of referencesIn(state.body)) {
+          const away = renamedAway.get(reference)
+          const other = displaced.get(reference)
+          if (away !== undefined && reference !== existing?.slug) {
+            problems.push(
+              `The field \`body\` refers to \`${reference}\`, which this batch renames to \`${away}\`: refer to \`${away}\`.`,
+            )
+          } else if (other !== undefined) {
+            problems.push(
+              `The field \`body\` refers to \`${reference}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+            )
+          } else if (
+            reference !== slug &&
+            !coming.has(reference) &&
+            (yield* visibleIdOf(reference)) === undefined
+          ) {
+            problems.push(
+              `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
+            )
+          }
+        }
+
+        if (Result.isFailure(decoded) || problems.length > 0) {
+          return yield* new Refused({ message: problems.join(' ') })
+        }
+        const renamed = existing !== undefined && existing.slug !== decoded.success.slug
+        const entry = renamed
+          ? {
+              ...decoded.success,
+              body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
+            }
+          : decoded.success
+        const changesWith = (verified: boolean) =>
+          changesBetween(
+            existing === undefined ? {} : snapshotOf(existing),
+            snapshotOf({
+              ...entry,
+              verified,
+              parent_id: parentId,
+              fields: references,
+              sources,
+              superseded_by: supersededBy,
+              archived_at: existing?.archived_at ?? null,
+            }),
+          )
+        // What the owner verified is no longer verified once a writer without `owner` changes it.
+        const verified = entry.verified && (byOwner || changesWith(true).length === 0)
+        const changes = changesWith(verified)
+        if (existing !== undefined && changes.length === 0) return yield* masked(existing)
+        const values = {
+          type: entry.type,
+          title: entry.title,
+          slug: entry.slug,
+          aliases: entry.aliases,
+          tags: entry.tags,
+          parent_id: parentId,
+          fields: references,
+          provenance: entry.provenance,
+          sources,
+          body: entry.body,
+          summary: entry.summary,
+          verified,
+          valid_from: entry.valid_from,
+          valid_until: entry.valid_until,
+          superseded_by: supersededBy,
+          search_language: configuration,
+        }
+        const [written] =
+          existing === undefined
+            ? yield* ids(
+                db
+                  .insert(table)
+                  .values({
+                    ...values,
+                    created: sql`coalesce(${instantOf(created)}::timestamptz, now())`,
+                    updated: sql`coalesce(${instantOf(updated ?? created)}::timestamptz, now())`,
+                  })
+                  .returning({ id: table.id }),
+              )
+            : yield* ids(
+                db
+                  .update(table)
+                  .set({ ...values, updated: sql`now()` })
+                  .where(eq(table.id, existing.id))
+                  .returning({ id: table.id }),
+              )
+        const id = written?.id ?? ''
+        yield* recordEvent(
+          actor,
+          { entryId: id, typeName: null },
+          existing === undefined ? 'create' : 'update',
+          changes,
+        )
+        const mentioned = yield* Effect.forEach(referencesIn(entry.body), idOf)
+        yield* replaceMentions(id, mentioned.filter(Predicate.isString))
+        if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
+        return yield* findEntry(id)
+      }),
+    ),
+  )
+})
+
+/**
+ * After a slug changes from `from` to `to`, points the references of every body that mentions
+ * the entry to the new slug, each rewrite recorded as a change of that body.
+ */
+const rewriteReferences = Effect.fn('rewriteReferences')(function* (
+  actor: string,
+  id: string,
+  from: string,
+  to: string,
+) {
+  const db = yield* drizzle
+  const { links } = tables
+  const mentioning = yield* bodies(
+    db
+      .select({ id: table.id, body: table.body })
+      .from(links)
+      .innerJoin(table, eq(table.id, links.source_id))
+      .where(and(eq(links.target_id, id), eq(links.relation, MENTIONS), ne(links.source_id, id))),
+  )
+  yield* Effect.forEach(mentioning, (source) =>
+    Effect.gen(function* () {
+      const body = renameReferences(source.body, from, to)
+      yield* db
+        .update(table)
+        .set({ body, updated: sql`now()` })
+        .where(eq(table.id, source.id))
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
+        { field: 'body', before: source.body, after: body },
+      ])
+    }),
+  )
+})
+
+/** Archives an entry: it stays in place, keeps its slug, and leaves the default views. */
+export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: string) {
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  const actor = yield* currentActor
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      const entry = yield* findEntry(reference)
+      if (entry.archived_at !== null) return entry
+      yield* db
+        .update(table)
+        .set({ archived_at: sql`now()`, updated: sql`now()` })
+        .where(eq(table.id, entry.id))
+      const archived = yield* findEntry(entry.id)
+      yield* recordEvent(
+        actor,
+        { entryId: entry.id, typeName: null },
+        'archive',
+        changesBetween(snapshotOf(entry), snapshotOf(archived)),
+      )
+      return archived
+    }),
+  )
+})
+
+/** How many entries one batch writes at most. */
+const BATCH_LIMIT = 100
+
+/** The name of an entry of a batch in a refusal: its place, and its title or what names it. */
+const labelOf = (input: WriteEntryInput, index: number) => {
+  const name = input.title ?? input.entry ?? input.slug
+  return name === undefined ? `Entry ${index + 1}` : `Entry ${index + 1} (\`${name}\`)`
+}
+
+/**
+ * The slug each entry of a batch ends with, found before any is written: a new entry named by its
+ * title alone gets its free slug now, so its body and the others refer to the slug it will have.
+ */
+const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEntryInput>) {
+  const db = yield* drizzle
+  const coming = new Set<string>()
+  const renamed = new Map<string, string>()
+  const displaced = new Map<string, { title: string; slug: string }>()
+  const planned: Array<WriteEntryInput> = []
+  for (const input of batch) {
+    if (input.entry !== undefined) {
+      const [found] = yield* slugs(
+        db.select({ slug: table.slug }).from(table).where(named(input.entry)),
+      )
+      const to = input.slug ?? found?.slug
+      if (to !== undefined) coming.add(to)
+      if (found !== undefined && to !== undefined && to !== found.slug) renamed.set(found.slug, to)
+      planned.push(input)
+    } else if (input.slug === undefined && input.title !== undefined) {
+      const slug = yield* freeSlugOf(input.title, coming)
+      coming.add(slug)
+      if (slug !== slugOf(input.title))
+        displaced.set(slugOf(input.title), { title: input.title, slug })
+      planned.push({ ...input, slug })
+    } else {
+      if (input.slug !== undefined) coming.add(input.slug)
+      planned.push(input)
+    }
+  }
+  // A slug one entry leaves and another takes, in the same batch, names the one that takes it.
+  for (const slug of coming) {
+    renamed.delete(slug)
+    displaced.delete(slug)
+  }
+  return { planned, known: { coming, renamed, displaced } }
+})
+
+/**
+ * Writes several entries in one transaction, each by the rules of `writeEntry`, and their bodies
+ * may refer to one another as if all existed already. One refused entry refuses the batch: the
+ * refusal names each refused entry with its sentences, and nothing is written.
+ */
+export const writeEntries = Effect.fn('writeEntries')(function* (
+  batch: ReadonlyArray<WriteEntryInput>,
+) {
+  const client = yield* SqlClient.SqlClient
+  if (batch.length > BATCH_LIMIT) {
+    return yield* new Refused({
+      message: `A batch holds ${BATCH_LIMIT} entries at most: this one holds ${batch.length}. Split it.`,
+    })
+  }
+  return yield* refusingContention(
+    client.withTransaction(
+      Effect.gen(function* () {
+        const { planned, known } = yield* planBatch(batch)
+        // A refusal is kept as a value, so that every entry of the batch is checked.
+        const results = yield* Effect.forEach(planned, (input) =>
+          writeEntry(input, known).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
+        )
+        const isRefused = Schema.is(Refused)
+        const refusals = results.flatMap((result, index) =>
+          isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],
+        )
+        if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
+        const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+        // The references to entries written later in the batch are linked now that all exist.
+        yield* Effect.forEach(written, (entry) =>
+          Effect.flatMap(Effect.forEach(referencesIn(entry.body), idOf), (mentioned) =>
+            replaceMentions(entry.id, mentioned.filter(Predicate.isString)),
+          ),
+        )
+        return written
+      }),
+    ),
+  )
+})

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tsconfig.base.json"],
+      "outputs": []
+    },
+    "lint": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxlintrc.json", "$TURBO_ROOT$/tools/oxlint/**"],
+      "outputs": []
+    },
+    "fmt:check": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxfmtrc.json"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest.config.ts", "$TURBO_ROOT$/.env"],
+      "outputs": [],
+      "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
+    },
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "@grenier/tools#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/.oxlintrc.json",
+        "$TURBO_ROOT$/tsconfig.base.json",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/apps/**/*.ts",
+        "$TURBO_ROOT$/apps/**/package.json",
+        "$TURBO_ROOT$/packages/**/*.ts",
+        "$TURBO_ROOT$/packages/**/package.json"
+      ],
+      "outputs": []
+    },
+    "@grenier/tools#test": {
+      "dependsOn": ["transit"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/.oxlintrc.json",
+        "$TURBO_ROOT$/tsconfig.base.json",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/apps/**/*.ts",
+        "$TURBO_ROOT$/apps/**/package.json",
+        "$TURBO_ROOT$/packages/**/*.ts",
+        "$TURBO_ROOT$/packages/**/package.json",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/.githooks/**",
+        "$TURBO_ROOT$/.env"
+      ],
+      "outputs": [],
+      "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
+    },
+    "@grenier/server#openapi": {
+      "inputs": ["src/openapi.ts", "$TURBO_ROOT$/packages/api/src/**"],
+      "outputs": ["$TURBO_ROOT$/packages/api/openapi.json"]
+    },
+    "@grenier/server#test": {
+      "dependsOn": ["transit"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/.env",
+        "$TURBO_ROOT$/packages/api/openapi.json"
+      ],
+      "outputs": [],
+      "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
+    },
+    "@grenier/desktop#generate": {
+      "dependsOn": ["@grenier/server#openapi"],
+      "inputs": [
+        "crates/api-gen/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "$TURBO_ROOT$/packages/api/openapi.json"
+      ],
+      "outputs": ["crates/api/src/types.rs"]
+    },
+    "@grenier/desktop#test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/api/openapi.json"],
+      "outputs": []
+    },
+    "@grenier/desktop#build": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["target/debug/story", "target/debug/app"]
+    }
+  }
+}

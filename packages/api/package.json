@@ -1,0 +1,21 @@
+{
+  "name": "@grenier/api",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    "./http": "./src/http/index.ts",
+    "./model": "./src/model/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint -c ../../.oxlintrc.json .",
+    "fmt:check": "oxfmt -c ../../.oxfmtrc.json --check .",
+    "test": "bun --bun vitest run --config ../../vitest.config.ts --dir ."
+  },
+  "dependencies": {
+    "effect": "4.0.0"
+  }
+}

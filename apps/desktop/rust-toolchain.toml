@@ -1,0 +1,4 @@
+# The Rust the desktop app is built with, pinned; CI installs it, rustup honours it.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]

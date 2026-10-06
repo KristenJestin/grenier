@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, test } from 'vite-plus/test'
+import { describe, expect, test } from 'vitest'
 
-import { validateBranch, validateCommitMessage } from './commit-message.ts'
+import { exceptionsIn, validateBranch, validateCommitMessage } from './commit-message.ts'
 
 const repository = resolve(import.meta.dirname, '..')
 
@@ -131,6 +131,14 @@ describe('Commit hors convention', { timeout: 60_000 }, () => {
     'fix(tools): build the beta package on linux, give the type check time (#7)',
   ])('%p is accepted', (message) => {
     expect(validateCommitMessage(message).ok).toBe(true)
+  })
+
+  test('the published commits listed as exceptions are full hashes with a reason', () => {
+    const text = readFileSync(join(repository, 'tools', 'commit-message-exceptions.txt'), 'utf8')
+    const exceptions = exceptionsIn(text)
+    expect(exceptions.size).toBeGreaterThan(0)
+    for (const hash of exceptions) expect(hash).toMatch(/^[0-9a-f]{40}$/)
+    expect(exceptionsIn('# a comment\n\nabc123  a reason\n')).toEqual(new Set(['abc123']))
   })
 
   test('the number a squash merge appends is not counted against the author', () => {
