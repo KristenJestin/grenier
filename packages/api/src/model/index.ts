@@ -1,4 +1,5 @@
-/** The model of Grenier as its clients see it: types, entries and search results. */
+/** The model of Grenier as its clients see it: the instance, types, entries and search results. */
+export { About, INSTANCES } from './about.ts'
 export { ISO_DURATION, FIELD_KINDS, FieldDefinition, TypeDefinition } from './types.ts'
 export {
   Child,

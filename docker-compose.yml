@@ -24,9 +24,15 @@ services:
     build:
       context: .
       dockerfile: apps/server/Dockerfile
+      args:
+        GRENIER_VERSION: ${GRENIER_VERSION:-unknown}
+        GRENIER_COMMIT: ${GRENIER_COMMIT:-unknown}
     env_file:
       - path: .env.production
         required: true
+    environment:
+      # A stack started from this file is a local one unless told: `GRENIER_INSTANCE=production`.
+      GRENIER_INSTANCE: ${GRENIER_INSTANCE:-local}
     ports:
       - '${GRENIER_BIND:-127.0.0.1}:${GRENIER_PORT:-3000}:3000'
     volumes:

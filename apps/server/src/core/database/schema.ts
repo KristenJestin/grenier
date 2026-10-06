@@ -448,3 +448,72 @@ export const inbox = pgTable(
     index('inbox_status').on(table.status, table.received_at),
   ],
 )
+
+/**
+ * What diagnostics found wrong with Grenier itself, one row per problem: reports of agents and
+ * unexpected errors of the server, the same problem counted once with its occurrences.
+ */
+export const findings = pgTable(
+  'findings',
+  {
+    number: integer().primaryKey().generatedAlwaysAsIdentity(),
+    title: text().notNull(),
+    kind: text().notNull(),
+    place: text().notNull(),
+    // The worst severity of its occurrences.
+    severity: text().notNull(),
+    occurrences: integer().notNull().default(1),
+    first_seen: timestamp(at)
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    last_seen: timestamp(at)
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (table) => [
+    check(
+      'findings_kind',
+      sql`kind IN ('bug', 'tool_error', 'unclear_refusal', 'missing_capability', 'wrong_state', 'slow', 'model_friction', 'other')`,
+    ),
+    check('findings_severity', sql`severity IN ('blocks', 'hurts', 'cosmetic')`),
+    index('findings_kind_place').on(table.kind, table.place),
+  ],
+)
+
+/**
+ * Each time a finding was seen: what the agent wrote (or the server, for an unexpected error),
+ * and what the server adds: the instance, its version and commit, the key, the time, and the tool
+ * call it is about, its arguments masked and cut short.
+ */
+export const findingOccurrences = pgTable(
+  'finding_occurrences',
+  {
+    id: bigint({ mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    finding: integer().notNull(),
+    at: timestamp(at)
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    origin: text().notNull(),
+    title: text().notNull(),
+    severity: text().notNull(),
+    trying: text().notNull(),
+    happened: text().notNull(),
+    expected: text().notNull(),
+    steps: text().notNull().default(''),
+    instance: text().notNull(),
+    version: text().notNull(),
+    commit: text().notNull(),
+    key_name: text(),
+    call_tool: text(),
+    call_arguments: text(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'finding_occurrences_finding_fkey',
+      columns: [table.finding],
+      foreignColumns: [findings.number],
+    }),
+    check('finding_occurrences_origin', sql`origin IN ('agent', 'server')`),
+    index('finding_occurrences_finding').on(table.finding, table.at),
+  ],
+)

@@ -54,3 +54,13 @@ export const emptyScratchDatabase = Layer.unwrap(
 export const scratchDatabase = Layer.effectDiscard(migrate).pipe(
   Layer.provideMerge(emptyScratchDatabase),
 )
+
+/**
+ * Renames a table of the current database: what reads it then fails unexpectedly, as on a broken
+ * database, for the suites that check how the server records such a failure.
+ */
+export const renameTable = (from: string, to: string) =>
+  Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql`ALTER TABLE ${sql(from)} RENAME TO ${sql(to)}`,
+  ).pipe(Effect.asVoid)

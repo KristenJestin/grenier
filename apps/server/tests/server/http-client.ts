@@ -5,8 +5,11 @@ const Response = Schema.Struct({
   error: Schema.optionalKey(Schema.Struct({ code: Schema.Number, message: Schema.String })),
 })
 
-/** The result of `initialize`: what matters here, the instructions to the agent. */
-const Initialized = Schema.Struct({ instructions: Schema.optionalKey(Schema.String) })
+/** The result of `initialize`: what matters here, the server's name and its instructions. */
+const Initialized = Schema.Struct({
+  serverInfo: Schema.Struct({ name: Schema.String, version: Schema.String }),
+  instructions: Schema.optionalKey(Schema.String),
+})
 
 const ToolResult = Schema.Struct({
   isError: Schema.optionalKey(Schema.Boolean),
@@ -73,6 +76,8 @@ export async function connect(
   return {
     /** What the server told the agent at initialisation. */
     instructions: Schema.decodeUnknownSync(Initialized)(initialized).instructions,
+    /** The name and version the server announced. */
+    serverInfo: Schema.decodeUnknownSync(Initialized)(initialized).serverInfo,
     /** The id of the session the server opened. */
     session: () => session,
     request,

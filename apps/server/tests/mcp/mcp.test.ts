@@ -260,6 +260,71 @@ describe('the actor comes from GRENIER_ACTOR', () => {
   })
 })
 
+describe('the instance comes from GRENIER_INSTANCE', () => {
+  test('without GRENIER_INSTANCE the server refuses to start, in one sentence', async () => {
+    const url = await database.runPromise(scratchUrl)
+    const { code, stderr } = await startAndExit({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test' })
+    expect(code).toBe(1)
+    expect(stderr.trim()).toBe(
+      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
+    )
+  })
+
+  test('an instance Grenier does not know stops the server, in one sentence', async () => {
+    const url = await database.runPromise(scratchUrl)
+    const { code, stderr } = await startAndExit({
+      DATABASE_URL: url,
+      GRENIER_ACTOR: 'agent-test',
+      GRENIER_INSTANCE: 'staging',
+    })
+    expect(code).toBe(1)
+    expect(stderr.trim()).toBe(
+      'GRENIER_INSTANCE must be `production`, `development` or `local`: `staging` is not one.',
+    )
+  })
+
+  test('the development instance announces itself as grenier-dev, and says so first', async () => {
+    expect(mcp().serverInfo.name).toBe('grenier-dev')
+    expect(
+      mcp().instructions?.startsWith('This is the shared DEVELOPMENT instance of Grenier'),
+    ).toBe(true)
+  })
+
+  test('a local instance announces itself as grenier-local, and says so first', async () => {
+    const url = await database.runPromise(scratchUrl)
+    const local = await startServer({
+      DATABASE_URL: url,
+      GRENIER_ACTOR: 'agent-test',
+      GRENIER_INSTANCE: 'local',
+    })
+    try {
+      expect(local.serverInfo).toEqual({ name: 'grenier-local', version: 'unknown' })
+      expect(local.instructions?.startsWith('This is a LOCAL instance of Grenier')).toBe(true)
+    } finally {
+      local.close()
+    }
+  })
+
+  test('the production instance announces itself as grenier, with the version of the server', async () => {
+    const url = await database.runPromise(scratchUrl)
+    const production = await startServer({
+      DATABASE_URL: url,
+      GRENIER_ACTOR: 'agent-test',
+      GRENIER_INSTANCE: 'production',
+      GRENIER_VERSION: '1.2.3',
+      GRENIER_COMMIT: 'abc1234',
+    })
+    try {
+      expect(production.serverInfo).toEqual({ name: 'grenier', version: '1.2.3' })
+      expect(
+        production.instructions?.startsWith("This is the user's REAL instance of Grenier"),
+      ).toBe(true)
+    } finally {
+      production.close()
+    }
+  })
+})
+
 describe('the rights come from GRENIER_RIGHTS', () => {
   test('by default the server reads and writes, and sees no sensitive value', async () => {
     await mcp().call('define_type', {

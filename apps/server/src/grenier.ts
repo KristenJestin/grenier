@@ -2,12 +2,15 @@ import { GrenierApi } from '@grenier/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
 import { Auth, Rights } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
+import { Actor } from './core/events/index.ts'
+import { recordDefect } from './core/findings/index.ts'
+import { Instance } from './core/instance.ts'
 import { readMedia } from './core/media/index.ts'
 import { mcpHttpHandlerFor } from './mcp/http.ts'
 import { instructions } from './mcp/instructions.ts'
 import { mcpSessions } from './sessions.ts'
 import type { Database } from './mcp/http.ts'
-import { Effect, Layer, Result } from 'effect'
+import { Cause, Effect, Layer, Result } from 'effect'
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { HttpApiScalar } from 'effect/http-api'
 
@@ -31,13 +34,24 @@ const verify = (request: HttpServerRequest.HttpServerRequest) =>
     return yield* Effect.result((yield* Auth).verifyKey(bearerOf(request)))
   })
 
-/** 200 when the database answers, 503 when it does not. */
-const health = HttpRouter.add(
-  'GET',
-  '/health',
-  Effect.map(databaseReachable, (up) =>
-    HttpServerResponse.jsonUnsafe({ database: up ? 'up' : 'down' }, { status: up ? 200 : 503 }),
-  ),
+/**
+ * 200 when the database answers, 503 when it does not; either way with the instance, the version
+ * and the commit of the server.
+ */
+const health = HttpRouter.use((router) =>
+  Effect.gen(function* () {
+    const { name, version, commit } = yield* Instance
+    yield* router.add(
+      'GET',
+      '/health',
+      Effect.map(databaseReachable, (up) =>
+        HttpServerResponse.jsonUnsafe(
+          { status: up ? 'up' : 'down', instance: name, version, commit },
+          { status: up ? 200 : 503 },
+        ),
+      ),
+    )
+  }),
 )
 
 /**
@@ -50,9 +64,11 @@ const health = HttpRouter.add(
 const mcp = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const shared: Database = yield* databaseServices
+    const instance = yield* Instance
     const sessions = mcpSessions({
       create: ({ name, rights }, told) =>
         mcpHttpHandlerFor({
+          instance,
           actor: name,
           rights,
           path: '/mcp',
@@ -74,7 +90,10 @@ const mcp = HttpRouter.use((router) =>
         }
         const session = request.headers['mcp-session-id']
         // A session keeps the instructions it started with.
-        const told = session === undefined ? yield* instructions : ''
+        const told =
+          session === undefined
+            ? yield* Effect.provideService(instructions, Instance, instance)
+            : ''
         const web = yield* HttpServerRequest.toWeb(request)
         const response = yield* Effect.promise(() =>
           sessions.handle(verified.success, told, session, web),
@@ -90,6 +109,31 @@ const mcp = HttpRouter.use((router) =>
     )
   }),
 )
+
+/**
+ * Records an unexpected failure of a request (a defect, which answers 500) as an occurrence of a
+ * bug at its route, `GET /api/types`, under the name of the request's key when it has a valid one;
+ * only when diagnostics are on. The query string is left out: it may hold what was searched.
+ */
+export const recordingDefects = <E, R>(
+  app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  app.pipe(
+    Effect.tapCause((cause) =>
+      Effect.gen(function* () {
+        if (!(yield* Instance).diagnostics || !Cause.hasDies(cause)) return
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const verified = yield* verify(request)
+        const path = new URL(request.url, 'http://localhost').pathname
+        yield* recordDefect(`${request.method} ${path}`, cause).pipe(
+          Effect.provideService(
+            Actor,
+            Result.isSuccess(verified) ? verified.success.name : undefined,
+          ),
+        )
+      }),
+    ),
+  )
 
 /**
  * A file attached to an entry, for a valid key with the right `read`. A file never changes under

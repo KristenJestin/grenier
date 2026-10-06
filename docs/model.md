@@ -257,3 +257,38 @@ search configuration, `simple` by default) and accents never matter.
 `define_type`, `write`, `read` (section by section for long entries), `search` (titles, tags and
 summaries first, then full text), `link`, `history`, then `upcoming` and `briefing`. Each tool
 decodes its input with an Effect schema and declares it through `toToolInputSchema`.
+
+## Instances
+
+The same code runs as several instances, each with its own database: `production` (the owner's
+real data), `development` (a shared test server, whose test data persists, to try what has been
+merged) and `local` (a stack on a developer's machine, with throwaway data). An agent may be
+connected to more than one at once, so each says what it is: its MCP server is announced as
+`grenier`, `grenier-dev` or `grenier-local`, with the version of the server, and its instructions
+start with a paragraph on what the instance holds and when to use it (never test data in
+production, never real data elsewhere). `/health` and `GET /api/about` tell the instance, the
+version and the commit. The instance is set by `GRENIER_INSTANCE`, which the server requires.
+
+## Diagnostics
+
+With diagnostics on (`GRENIER_DIAGNOSTICS=on`), the agents also test Grenier itself. Their
+instructions say so after the instance paragraph, and two tools exist that are absent otherwise:
+`grenier_report` (right `write`) records a problem with Grenier, and `grenier_reports` (right
+`read`) lists what is recorded, titles only.
+
+A **finding** is one problem: a number, a title, a kind (`bug`, `tool_error`, `unclear_refusal`,
+`missing_capability`, `wrong_state`, `slow`, `model_friction`, `other`), a place (a tool or a
+route), the worst severity seen (`blocks`, `hurts`, `cosmetic`), how many times it was seen, and
+when first and last. Each time is an **occurrence**: what the agent wrote (what it was trying to
+do, what happened, what it expected, the steps), and what the server adds (the instance, its
+version and commit, the key, the time, and the tool call the report names, its arguments masked
+as for a key without the right `sensitive` and cut to 300 characters). A report is one more
+occurrence of the finding of the same kind and place whose title shares at least half of its
+words (lowercased, without punctuation or common English words); otherwise it is a new finding.
+
+An unexpected failure of the server (a defect, never a refusal), in a tool or a route, becomes an
+occurrence of a `bug` at that tool or route by itself: in production, only the tag or class of
+the error (`SqlError`, `TypeError`), the place and a fixed sentence, since a message, a stack or
+a statement could carry the owner's data; elsewhere, its message as the title and its stack. Findings are not
+the owner's data, and are not entries; the owner reads them in full from the command line
+(`findings:list`, `findings:show`, `findings:export`), never through MCP or a client.
