@@ -394,3 +394,46 @@ describe('changing a field never shows a sensitive value', () => {
     expect(refused.message).not.toContain('zebracode')
   })
 })
+
+describe('the history keeps a value hidden after its field is renamed or its entry retyped', () => {
+  test('after a rename, the past values of the old field name stay hidden', async () => {
+    await trusted(
+      Effect.gen(function* () {
+        yield* defineType({
+          name: 'safe',
+          label: 'Safe',
+          description: 'A safe and its combination.',
+          fields: [{ name: 'combination', kind: 'text', sensitive: true }],
+        })
+        yield* writeEntry({ type: 'safe', title: 'Hall safe', fields: { combination: 'zebra-1' } })
+        yield* writeEntry({ entry: 'hall-safe', fields: { combination: 'zebra-2' } })
+        yield* changeField({ type: 'safe', field: 'combination', rename: 'code' })
+      }),
+    )
+    const events = await plain(entryHistory('hall-safe'))
+    expect(events.map(({ action }) => action)).toEqual(['create', 'update', 'update'])
+    expect(JSON.stringify(events)).not.toContain('zebra-')
+    expect(await plain(fieldHistory('hall-safe', 'fields.combination'))).toMatchObject([
+      { before: HIDDEN, after: HIDDEN },
+      { before: HIDDEN, after: HIDDEN },
+    ])
+    expect(await trusted(fieldHistory('hall-safe', 'fields.combination'))).toMatchObject([
+      { before: 'zebra-1', after: 'zebra-2' },
+      { before: 'zebra-2', after: null },
+    ])
+  })
+
+  test('after a change of type, the past values of a field sensitive in the old type stay hidden', async () => {
+    await trusted(
+      Effect.gen(function* () {
+        yield* writeEntry({ type: 'account', title: 'Old card', fields: { number: 'zebra-7' } })
+        yield* writeEntry({ entry: 'old-card', type: 'folder', fields: { number: null } })
+      }),
+    )
+    expect((await plain(readEntry('old-card'))).entry.type).toBe('folder')
+    expect(JSON.stringify(await plain(entryHistory('old-card')))).not.toContain('zebra-7')
+    expect(await plain(fieldHistory('old-card', 'fields.number'))).toMatchObject([
+      { before: HIDDEN, after: HIDDEN },
+    ])
+  })
+})
