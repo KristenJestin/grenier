@@ -1,10 +1,18 @@
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll } from 'vitest'
+import { Rights } from '../../src/core/auth/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import { scratchDatabase } from '../../src/core/testing.ts'
 
-/** Every write of a suite is made by this actor, unless the test provides another one. */
-const suite = Layer.merge(scratchDatabase, Layer.succeed(Actor, 'test-suite'))
+/**
+ * Every write of a suite is made by this actor, who may see sensitive values, unless the test
+ * provides another actor or other rights.
+ */
+const suite = Layer.mergeAll(
+  scratchDatabase,
+  Layer.succeed(Actor, 'test-suite'),
+  Layer.succeed(Rights, ['read', 'write', 'sensitive']),
+)
 type Suite = Layer.Success<typeof suite>
 
 /**

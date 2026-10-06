@@ -2,6 +2,8 @@ import { Context, Effect, Match, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { Actor } from '../events/actor.ts'
+import { HIDDEN } from '@grenier/api/model'
+import { sensitivity } from '../sensitive.ts'
 import { listTypes } from '../types/operations.ts'
 import {
   addDays,
@@ -112,6 +114,25 @@ const occurrence = (
   deadline: rule.deadline,
 })
 
+/**
+ * What the caller may see of occurrences: the date of a sensitive field shows only that something
+ * is due; an entry of a sensitive type shows neither its name nor its dates.
+ */
+const visible = Effect.gen(function* () {
+  const { hidesType, fieldsOf } = yield* sensitivity
+  const entryOf = (entry: typeof EntrySummary.Type) =>
+    hidesType(entry.type) ? { ...entry, slug: HIDDEN, title: HIDDEN } : entry
+  return {
+    entryOf,
+    occurrences: (all: ReadonlyArray<Occurrence>) =>
+      all.map((each) =>
+        hidesType(each.entry.type) || fieldsOf(each.entry.type).includes(each.field)
+          ? { ...each, entry: entryOf(each.entry), date: HIDDEN, period: HIDDEN, age: null }
+          : each,
+      ),
+  }
+})
+
 const byDate = (left: Occurrence, right: Occurrence) =>
   left.date.localeCompare(right.date) || left.entry.title.localeCompare(right.entry.title)
 
@@ -133,7 +154,7 @@ const occurrencesBetween = Effect.fn('occurrencesBetween')(function* (from: stri
 /** The occurrences between two dates that no entry fulfills yet, by date. */
 export const upcoming = Effect.fn('upcoming')(function* (from: string, to: string) {
   const { all, isClosed } = yield* occurrencesBetween(from, to)
-  return all.filter((each) => !isClosed(each)).toSorted(byDate)
+  return (yield* visible).occurrences(all.filter((each) => !isClosed(each)).toSorted(byDate))
 })
 
 /**
@@ -163,9 +184,11 @@ export const headsUp = Effect.gen(function* () {
     ON CONFLICT DO NOTHING
     RETURNING entry_id::text AS entry_id, field, period`)
   const fresh = new Set(told.map(({ entry_id, field, period }) => `${entry_id} ${field} ${period}`))
-  return due
-    .filter(({ entry, field, period }) => fresh.has(`${entry.id} ${field} ${period}`))
-    .toSorted(byDate)
+  return (yield* visible).occurrences(
+    due
+      .filter(({ entry, field, period }) => fresh.has(`${entry.id} ${field} ${period}`))
+      .toSorted(byDate),
+  )
 })
 
 /** How far back a recurring deadline is looked for: its last occurrence before today. */
@@ -214,16 +237,19 @@ export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod)
     .filter((each) => !closed.has(`${each.entry.id} ${each.field} ${each.period}`))
     .toSorted(byDate)
   const [yearFrom, yearTo] = [addMonths(from, -12), addMonths(to, -12)]
+  const mask = yield* visible
   return {
     from,
     to,
     upcoming: yield* upcoming(from, to),
-    overdue,
+    overdue: mask.occurrences(overdue),
     a_year_ago: {
-      created: yield* created(sql`SELECT id::text AS id, slug, title, type FROM entries
+      created: (yield* created(sql`SELECT id::text AS id, slug, title, type FROM entries
         WHERE created::date BETWEEN ${yearFrom}::date AND ${yearTo}::date AND archived_at IS NULL
-        ORDER BY created`),
-      occurrences: (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),
+        ORDER BY created`)).map(mask.entryOf),
+      occurrences: mask.occurrences(
+        (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),
+      ),
     },
   }
 })

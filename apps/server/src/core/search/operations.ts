@@ -1,7 +1,8 @@
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
-import { findEntry, lineageOf, TREE_DEPTH } from '../entries/operations.ts'
+import { findEntry, pathOf, TREE_DEPTH } from '../entries/operations.ts'
+import { sensitivity } from '../sensitive.ts'
 import { searchConfiguration } from './language.ts'
 import { SearchResult } from '@grenier/api/model'
 import type { SearchOptions } from '@grenier/api/model'
@@ -19,6 +20,7 @@ const HEADLINE = 'StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=12, Ma
 export const search = Effect.fn('search')(function* (query: string, options: SearchOptions = {}) {
   const sql = yield* SqlClient.SqlClient
   const configuration = yield* searchConfiguration
+  const { hiddenTypes, hiddenFields } = yield* sensitivity
   const under = options.under === undefined ? null : (yield* findEntry(options.under)).id
   const rows = yield* found(sql`
     WITH RECURSIVE query AS (
@@ -29,22 +31,27 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
       SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
       WHERE s.depth < ${TREE_DEPTH}
     ) CYCLE id SET looped USING trail
+    , found AS (
+      -- The values of the fields, but those the caller may not see, weigh as much as a body.
+      SELECT e.*, e.search || setweight(jsonb_to_tsvector(${configuration}::regconfig,
+          e.fields - coalesce(ARRAY(SELECT jsonb_array_elements_text(
+            ${JSON.stringify(hiddenFields)}::jsonb -> e.type)), '{}'), '["string", "numeric"]'),
+          'C') AS words
+      FROM entries e WHERE NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
+    )
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, NULL AS path,
       ts_headline(${configuration}::regconfig,
         concat_ws(' — ', e.title, nullif(e.summary, ''), nullif(e.body, '')), query.q,
         ${HEADLINE}) AS excerpt,
-      ts_rank(e.search, query.q)::float8 AS rank
-    FROM entries e, query
-    WHERE e.search @@ query.q
+      ts_rank(e.words, query.q)::float8 AS rank
+    FROM found e, query
+    WHERE e.words @@ query.q
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})
       AND (${options.archived ?? false} OR e.archived_at IS NULL)
       AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
     ORDER BY rank DESC, e.title
     LIMIT ${options.limit ?? 20}`)
   return yield* Effect.forEach(rows, (row) =>
-    Effect.map(lineageOf(row.id), (lineage): SearchResult => ({
-      ...row,
-      path: lineage.slice(0, -1).map(({ title }) => title),
-    })),
+    Effect.map(pathOf(row.id), (path): SearchResult => ({ ...row, path })),
   )
 })

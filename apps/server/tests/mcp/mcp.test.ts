@@ -1,3 +1,4 @@
+import { HIDDEN } from '@grenier/api/model'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { Effect, ManagedRuntime, Schema } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
@@ -41,6 +42,7 @@ describe('the server answers over stdio', () => {
       'attach_media',
       'briefing',
       'change_field',
+      'change_type',
       'confirm_proposal',
       'define_type',
       'describe_media',
@@ -247,6 +249,53 @@ describe('the actor comes from GRENIER_ACTOR', () => {
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
       'The environment variable GRENIER_ACTOR is missing: set it to the name of the agent that writes, such as `agent-laptop`.',
+    )
+  })
+})
+
+describe('the rights come from GRENIER_RIGHTS', () => {
+  test('by default the server reads and writes, and sees no sensitive value', async () => {
+    await mcp().call('define_type', {
+      name: 'locker',
+      label: 'Locker',
+      description: 'A locker and its code.',
+      fields: [{ name: 'code', kind: 'text', sensitive: true }],
+    })
+    expect(
+      await mcp().call('write', { type: 'locker', title: 'Gym locker', fields: { code: '0042' } }),
+    ).toEqual({
+      error:
+        'The field `fields.code` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right `sensitive`.',
+    })
+    const url = await database.runPromise(scratchUrl)
+    const trusted = await startServer({
+      DATABASE_URL: url,
+      GRENIER_ACTOR: 'agent-trusted',
+      GRENIER_RIGHTS: 'read,write,sensitive',
+    })
+    try {
+      await trusted.call('write', { type: 'locker', title: 'Gym locker', fields: { code: '0042' } })
+      expect(await trusted.call('read', { entry: 'gym-locker' })).toMatchObject({
+        result: { entry: { fields: { code: '0042' } } },
+      })
+      expect(await mcp().call('read', { entry: 'gym-locker' })).toMatchObject({
+        result: { entry: { fields: { code: HIDDEN } } },
+      })
+    } finally {
+      trusted.close()
+    }
+  })
+
+  test('a right Grenier does not know stops the server, in one sentence', async () => {
+    const url = await database.runPromise(scratchUrl)
+    const { code, stderr } = await startAndExit({
+      DATABASE_URL: url,
+      GRENIER_ACTOR: 'agent-test',
+      GRENIER_RIGHTS: 'read,admin',
+    })
+    expect(code).toBe(1)
+    expect(stderr.trim()).toBe(
+      'GRENIER_RIGHTS must list rights among `read`, `write`, `sensitive`, `owner`, separated by commas: `admin` is not one.',
     )
   })
 })

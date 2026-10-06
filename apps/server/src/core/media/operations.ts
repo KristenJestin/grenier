@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, notInArray, sql } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
@@ -8,6 +8,7 @@ import { findEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { sensitivity } from '../sensitive.ts'
 import { fetchFile, readFileOf, storeFile, typeOf } from './files.ts'
 import { asMedia, MEDIUM_COLUMNS } from './store.ts'
 
@@ -128,9 +129,20 @@ export const describeMedia = Effect.fn('describeMedia')(function* (id: string, a
 /** A file by its hash, with the type its record gives, to serve it. */
 export const readMedia = Effect.fn('readMedia')(function* (hash: string) {
   const db = yield* drizzle
-  const { media } = tables
+  const { media, entries } = tables
+  const { hiddenTypes } = yield* sensitivity
+  // A file attached only to entries the caller may not see is, for that caller, no file.
   const [medium] = yield* asMedia(
-    db.select(MEDIUM_COLUMNS).from(media).where(eq(media.sha256, hash)).limit(1),
+    db
+      .select(MEDIUM_COLUMNS)
+      .from(media)
+      .innerJoin(entries, eq(entries.id, media.entry_id))
+      .where(
+        hiddenTypes.length === 0
+          ? eq(media.sha256, hash)
+          : and(eq(media.sha256, hash), notInArray(entries.type, [...hiddenTypes])),
+      )
+      .limit(1),
   )
   if (medium === undefined) return yield* new Refused({ message: `There is no file \`${hash}\`.` })
   return { mime: medium.mime, bytes: yield* readFileOf(hash) }

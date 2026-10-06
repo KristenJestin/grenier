@@ -9,13 +9,14 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing, replaceMentions } from '../links/store.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
-import { Child, Entry } from '@grenier/api/model'
+import { Child, Entry, HIDDEN } from '@grenier/api/model'
 import type { WriteEntryInput } from '@grenier/api/model'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
 
@@ -29,7 +30,9 @@ const Row = Schema.Struct({
 const entries = rowsOf(Row)
 const children = rowsOf(Child)
 const ids = rowsOf(Schema.Struct({ id: Schema.String }))
-const ancestors = rowsOf(Schema.Struct({ id: Schema.String, title: Schema.String }))
+const ancestors = rowsOf(
+  Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
+)
 const slugs = rowsOf(Schema.Struct({ slug: Schema.String }))
 const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
@@ -78,7 +81,8 @@ const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked:
   const db = yield* drizzle
   const query = db.select(COLUMNS).from(table).where(named(reference))
   const [row] = yield* entries(locked ? query.for('no key update') : query)
-  if (row === undefined) {
+  // An entry of a type the caller may not see is, for that caller, an entry that does not exist.
+  if (row === undefined || (yield* sensitivity).hidesType(row.type)) {
     return yield* new Refused({ message: `The entry \`${reference}\` does not exist.` })
   }
   return toEntry(row)
@@ -86,7 +90,20 @@ const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked:
 
 /** The entry named by its id or its slug; refused when there is none. */
 export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
-  return yield* entryNamed(reference, false)
+  return yield* masked(yield* entryNamed(reference, false))
+})
+
+/** An entry as the caller may see it: its sensitive values replaced by the marker. */
+const masked = Effect.fn('masked')(function* (entry: Entry) {
+  const { maskFields } = yield* sensitivity
+  return { ...entry, fields: maskFields(entry.type, entry.fields) }
+})
+
+/** The titles of the ancestors of an entry, from the root; a hidden one shows as hidden. */
+export const pathOf = Effect.fn('pathOf')(function* (id: string) {
+  const { hidesType } = yield* sensitivity
+  const lineage = yield* lineageOf(id)
+  return lineage.slice(0, -1).map(({ title, type }) => (hidesType(type) ? HIDDEN : title))
 })
 
 /**
@@ -103,12 +120,12 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
   const client = yield* SqlClient.SqlClient
   return yield* ancestors(client`
     WITH RECURSIVE up AS (
-      SELECT id, parent_id, title, 0 AS depth FROM entries WHERE id = ${id}::uuid
+      SELECT id, parent_id, title, type, 0 AS depth FROM entries WHERE id = ${id}::uuid
       UNION ALL
-      SELECT e.id, e.parent_id, e.title, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
+      SELECT e.id, e.parent_id, e.title, e.type, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
       WHERE up.depth < ${TREE_DEPTH}
     ) CYCLE id SET looped USING trail
-    SELECT id::text AS id, title FROM up WHERE NOT looped ORDER BY depth DESC`)
+    SELECT id::text AS id, title, type FROM up WHERE NOT looped ORDER BY depth DESC`)
 })
 
 /**
@@ -117,27 +134,30 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
  */
 export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   const db = yield* drizzle
+  const { hiddenTypes } = yield* sensitivity
   const entry = yield* findEntry(reference)
-  const lineage = yield* lineageOf(entry.id)
+  const all = yield* children(
+    db
+      .select({
+        id: table.id,
+        slug: table.slug,
+        type: table.type,
+        title: table.title,
+        summary: table.summary,
+      })
+      .from(table)
+      .where(and(eq(table.parent_id, entry.id), isNull(table.archived_at)))
+      .orderBy(asc(table.title)),
+  )
+  const shown = all.filter(({ type }) => !hiddenTypes.includes(type))
   return {
     entry,
-    path: lineage.slice(0, -1).map(({ title }) => title),
-    links: yield* outgoing(entry.id),
+    path: yield* pathOf(entry.id),
+    links: yield* outgoing(entry.id, hiddenTypes),
     media: yield* mediaOf(entry.id),
-    backlinks: yield* incoming(entry.id),
-    children: yield* children(
-      db
-        .select({
-          id: table.id,
-          slug: table.slug,
-          type: table.type,
-          title: table.title,
-          summary: table.summary,
-        })
-        .from(table)
-        .where(and(eq(table.parent_id, entry.id), isNull(table.archived_at)))
-        .orderBy(asc(table.title)),
-    ),
+    backlinks: yield* incoming(entry.id, hiddenTypes),
+    children: shown,
+    hidden_children: all.length - shown.length,
   }
 })
 
@@ -264,6 +284,24 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
       }
       const slug = state.slug ?? (yield* freeSlugOf(state.title ?? ''))
       const type = state.type === undefined ? undefined : yield* findType(state.type)
+      const hidden = yield* sensitivity
+      if (type !== undefined && hidden.hidesType(type.name)) {
+        return yield* new Refused({
+          message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+        })
+      }
+      const forbidden =
+        type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
+      if (forbidden.length > 0) {
+        return yield* new Refused({
+          message: forbidden
+            .map(
+              (name) =>
+                `The field \`fields.${name}\` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+            )
+            .join(' '),
+        })
+      }
 
       const decoded = Schema.decodeUnknownResult(
         Schema.Struct({
@@ -393,7 +431,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
       // What the owner verified is no longer verified once a writer without `owner` changes it.
       const verified = entry.verified && (byOwner || changesWith(true).length === 0)
       const changes = changesWith(verified)
-      if (existing !== undefined && changes.length === 0) return existing
+      if (existing !== undefined && changes.length === 0) return yield* masked(existing)
       const values = {
         type: entry.type,
         title: entry.title,

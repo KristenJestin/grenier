@@ -8,6 +8,7 @@ import type { Server, Socket } from 'node:net'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { GrenierTools } from '../../src/mcp/tools.ts'
 import { Auth } from '../../src/core/auth/index.ts'
+import { HIDDEN } from '@grenier/api/model'
 import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
 import { Validator } from '@seriousme/openapi-schema-validator'
 import { ConfigProvider, Effect, Layer, ManagedRuntime, Predicate, Schema } from 'effect'
@@ -428,6 +429,30 @@ describe('the read API', () => {
     expect(await get('/api/search?q=wire&type=note&limit=5')).toEqual({
       status: 200,
       body: answerOf(found),
+    })
+  })
+
+  test('a key without the right `sensitive` gets the marker in place of a sensitive value', async () => {
+    const trusted = await createKey('api-trusted', ['read', 'write', 'sensitive'])
+    const agent = connectStateless(`${base}/mcp`, bearer(trusted))
+    await agent.call('define_type', {
+      name: 'safe',
+      label: 'Safe',
+      description: 'A safe and its combination.',
+      fields: [{ name: 'combination', kind: 'text', sensitive: true }],
+    })
+    await agent.call('write', {
+      type: 'safe',
+      title: 'Office safe',
+      fields: { combination: '7-3-9' },
+    })
+    expect(await get('/api/entries/office-safe')).toMatchObject({
+      status: 200,
+      body: { entry: { fields: { combination: HIDDEN } } },
+    })
+    expect(await get('/api/entries/office-safe', bearer(trusted))).toMatchObject({
+      status: 200,
+      body: { entry: { fields: { combination: '7-3-9' } } },
     })
   })
 

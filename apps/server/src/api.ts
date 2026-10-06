@@ -6,7 +6,7 @@ import {
   NotFound,
   Unauthorized,
 } from '@grenier/api/http'
-import { Auth } from './core/auth/index.ts'
+import { Auth, Rights } from './core/auth/index.ts'
 import { readEntry } from './core/entries/index.ts'
 import { Refused } from './core/refused.ts'
 import { search } from './core/search/index.ts'
@@ -31,7 +31,7 @@ const AuthorizationLayer = Layer.effect(
             .verifyKey(secret === '' ? undefined : secret)
             .pipe(Effect.mapError(({ message }) => new Unauthorized({ message })))
           if (!rights.includes('read')) return yield* new Forbidden({ message: MAY_NOT_READ })
-          return yield* route
+          return yield* Effect.provideService(route, Rights, rights)
         }),
     })
   }),

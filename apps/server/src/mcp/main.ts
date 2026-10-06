@@ -5,10 +5,12 @@
  *   GRENIER_ACTOR=agent-laptop bun run --cwd apps/server mcp
  *
  * `DATABASE_URL` names the database; `GRENIER_ACTOR`, required, names the agent every write is
- * recorded under. The database is brought to the latest version before the first request.
+ * recorded under; `GRENIER_RIGHTS` lists its rights, `read,write` unless told (add `sensitive`
+ * to see and write sensitive values). The database is brought to the latest version before the first request.
  */
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import * as BunStdio from '@effect/platform-bun/BunStdio'
+import { Right, RIGHTS, Rights } from '../core/auth/index.ts'
 import { layer as database, migrate } from '../core/database/index.ts'
 import { Actor } from '../core/events/index.ts'
 import { Config, Effect, Layer, Logger, Schema } from 'effect'
@@ -21,6 +23,24 @@ class ActorMissing extends Schema.TaggedError<ActorMissing>()('ActorMissing', {}
     'The environment variable GRENIER_ACTOR is missing: set it to the name of the agent that writes, such as `agent-laptop`.'
 }
 
+class RightsUnknown extends Schema.TaggedError<RightsUnknown>()('RightsUnknown', {
+  right: Schema.String,
+}) {
+  override get message() {
+    return `GRENIER_RIGHTS must list rights among ${RIGHTS.map((right) => `\`${right}\``).join(', ')}, separated by commas: \`${this.right}\` is not one.`
+  }
+}
+
+/** The rights of `GRENIER_RIGHTS`, `read,write` when it is not set. */
+const rightsOf = (listed: string) =>
+  Effect.forEach(
+    listed.split(',').map((right) => right.trim()),
+    (right) =>
+      Schema.decodeUnknownEffect(Right)(right).pipe(
+        Effect.mapError(() => new RightsUnknown({ right })),
+      ),
+  )
+
 const server = McpServer.layerStdio({
   name: 'grenier',
   version: '0.0.0',
@@ -31,10 +51,13 @@ const program = Effect.gen(function* () {
   const actor = yield* Config.String('GRENIER_ACTOR').pipe(
     Effect.mapError(() => new ActorMissing()),
   )
+  const rights = yield* rightsOf(
+    yield* Config.String('GRENIER_RIGHTS').pipe(Config.withDefault('read,write')),
+  )
   yield* migrate
   return yield* Layer.launch(
     McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers), Layer.provide(server)),
-  ).pipe(Effect.provideService(Actor, actor))
+  ).pipe(Effect.provideService(Actor, actor), Effect.provideService(Rights, rights))
 }).pipe(
   Effect.provide(database),
   Effect.provideService(Logger.LogToStderr, true),

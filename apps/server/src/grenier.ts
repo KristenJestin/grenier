@@ -1,6 +1,6 @@
 import { GrenierApi } from '@grenier/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
-import { Auth } from './core/auth/index.ts'
+import { Auth, Rights } from './core/auth/index.ts'
 import type { VerifiedKey } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
 import { readMedia } from './core/media/index.ts'
@@ -74,7 +74,9 @@ const media = HttpRouter.add('GET', '/media/:hash', (request) =>
     if (!verified.success.rights.includes('read'))
       return HttpServerResponse.jsonUnsafe({ error: MAY_NOT_READ }, { status: 403 })
     const { hash = '' } = yield* HttpRouter.params
-    const found = yield* Effect.result(readMedia(hash))
+    const found = yield* Effect.result(
+      Effect.provideService(readMedia(hash), Rights, verified.success.rights),
+    )
     if (Result.isFailure(found))
       return HttpServerResponse.jsonUnsafe({ error: found.failure.message }, { status: 404 })
     return HttpServerResponse.uint8Array(found.success.bytes, {
