@@ -77,16 +77,30 @@ const takeOver = Effect.gen(function* () {
 })
 
 /**
+ * Serialises the migration runs on a database: Drizzle's migrator takes no lock, and the server,
+ * the MCP server, the importer and every command line migrate when they start.
+ */
+const MIGRATION_LOCK = 7_418_311
+
+/**
  * Brings the database to the latest version, then indexes again for search the entries indexed
  * in another language than `SEARCH_LANGUAGE`. Returns the names of the migrations it applied.
+ * Two processes that start together migrate one after the other: the second waits for the first,
+ * then finds nothing to do.
  */
 export const migrate = Effect.gen(function* () {
-  yield* takeOver
-  const before = yield* applied
-  const db = yield* PgDrizzle.makeWithDefaults()
-  yield* applyMigrations(db, { migrationsFolder })
-  yield* reindexSearch
-  return local.map(({ name }) => name).filter((name) => !before.includes(name))
+  const sql = yield* SqlClient.SqlClient
+  return yield* sql.withTransaction(
+    Effect.gen(function* () {
+      yield* sql`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK}::bigint)`
+      yield* takeOver
+      const before = yield* applied
+      const db = yield* PgDrizzle.makeWithDefaults()
+      yield* applyMigrations(db, { migrationsFolder })
+      yield* reindexSearch
+      return local.map(({ name }) => name).filter((name) => !before.includes(name))
+    }),
+  )
 })
 
 /** The name of the last migration the code knows. */

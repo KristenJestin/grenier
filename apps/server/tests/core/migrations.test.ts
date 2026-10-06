@@ -144,6 +144,23 @@ describe('a database made by the migrations before Drizzle is taken over', () =>
   })
 })
 
+describe('two processes migrating at once', () => {
+  test('two migrations started together on a fresh database both succeed', async () => {
+    const [first, second, version] = await onScratch(
+      Effect.gen(function* () {
+        const both = yield* Effect.all([migrate, migrate], { concurrency: 2 })
+        return [...both, yield* schemaVersion] as const
+      }),
+    )
+    // One applies every migration, the other waits for it and then finds nothing to do.
+    expect([first, second].toSorted((a, b) => a.length - b.length)).toEqual([
+      [],
+      readdirSync(new URL('../../src/core/database/migrations', import.meta.url)).toSorted(),
+    ])
+    expect(version).toBe(latestVersion)
+  })
+})
+
 describe('the migrations follow the schema', () => {
   test('drizzle-kit, run on the schema, finds nothing to migrate', () => {
     const app = new URL('../..', import.meta.url).pathname
