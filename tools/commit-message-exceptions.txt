@@ -1,0 +1,11 @@
+# Commits already on a protected branch whose subject breaks the convention, accepted as they are
+# because published history is never rewritten. One full hash per line, then the reason.
+# Never add a commit that is not yet merged: fix its message instead.
+52038b9b06b01a2aa85a94ab49902de9967dc75a  pull request title over 72 characters (#76)
+60cb16a432b67c75af24f120433b379d1d497186  pull request title over 72 characters (#54)
+0d4e7ae3abcae7fe5db612dc43c411556871037f  pull request title over 72 characters (#68)
+574a4d075030f30857958c52a02372d6cae2d9a9  pull request title over 72 characters (#63)
+08864513feb2cdb6b7a2756f287e462c287c09c4  pull request title over 72 characters (#69)
+171f6fbe375987a0a5a53d07c22a02cf087f41bc  pull request title over 72 characters (#75)
+1ede1f195609ec88934820feff581a39fa6559e2  pull request title over 72 characters (#71)
+e991bc39a4fef447546f8a77274b1f0f8135c9ad  pull request title over 72 characters (#65)
