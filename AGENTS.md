@@ -6,6 +6,7 @@ everywhere; a package with rules of its own has its own `AGENTS.md`, read **in a
 this one:
 
 - `apps/server/AGENTS.md`: Effect and Schema, wherever Effect is written.
+- `apps/desktop/AGENTS.md`: the desktop viewer, its screens and their gallery.
 
 ## Project overview
 
@@ -47,14 +48,18 @@ apps/server       @grenier/server  Everything else, one program and its folders:
                                    `src/import`   the importer of Markdown notes;
                                    the HTTP server, Effect's on Bun (no web framework), and
                                    the command lines.
+apps/desktop      @grenier/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
+                                   `crates/api` (types generated from the OpenAPI document),
+                                   `crates/ui` (screens), `crates/story` (their gallery),
+                                   `crates/app` (the application). See its `AGENTS.md`.
 tools/            @grenier/tools   commit-message, branch-guard, install-hooks, boundaries, and
                                    the vendored lint rules. TypeScript run by Bun, tested by
                                    Vitest.
 ```
 
 A package or an application is created by the first issue that needs it, not before. Later in
-this monorepo: `apps/desktop` (Rust), `apps/android` (Kotlin), maybe `apps/web`, each behind a
-`package.json` that calls its own toolchain for Turborepo.
+this monorepo: `apps/android` (Kotlin), maybe `apps/web`, each behind a `package.json` that
+calls its own toolchain for Turborepo, as `apps/desktop` calls Cargo.
 
 `packages/*`, `apps/*` and `tools` form the Bun workspace; Turborepo runs their tasks. Import
 another package only through its `exports`; never reach into another package's `src`. **Every
