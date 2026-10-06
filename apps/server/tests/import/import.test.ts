@@ -10,6 +10,7 @@ import { Effect, ManagedRuntime } from 'effect'
 import type { Layer } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { importNotes } from '../../src/import/import.ts'
+import { readNote } from '../../src/import/note.ts'
 import { renderReport } from '../../src/import/report.ts'
 import type { Report } from '../../src/import/report.ts'
 
@@ -159,5 +160,15 @@ describe('an import run again', () => {
       { field: 'fields.status', before: 'active', after: 'done' },
     ])
     expect(await run(entryHistory('zebra'))).toEqual(historyBefore)
+  })
+})
+
+describe('the title of a note', () => {
+  test('a `# line` inside fenced code is not the title', async () => {
+    const shell = '---\ntype: area\n---\n```sh\n# install\nbun install\n```\n'
+    const titled = await Effect.runPromise(readNote('setup', `${shell}\n# Setting up\n`))
+    expect(titled.entry.title).toBe('Setting up')
+    const untitled = await Effect.runPromise(readNote('setup', shell))
+    expect(untitled.entry.title).toBe('setup')
   })
 })

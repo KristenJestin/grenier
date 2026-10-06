@@ -1,5 +1,6 @@
 import { slugOf } from '../core/entries/index.ts'
 import type { WriteEntryInput } from '@grenier/api/model'
+import { headingsOf } from '../mcp/sections.ts'
 import { Refused } from '../core/refused.ts'
 import { Effect, Schema } from 'effect'
 import { parse } from 'yaml'
@@ -21,7 +22,6 @@ const BASE_KEYS = new Set(Object.keys(FrontMatter.fields))
 const YamlMapping = Schema.Record(Schema.String, Schema.Json)
 
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n?---[ \t]*(?:\r?\n|$)/
-const TITLE = /^#\s+(.+?)\s*#*\s*$/m
 
 /** Keys whose single value stands for a list of one: `tags: home`. */
 const LISTS = new Set(['tags', 'aliases'])
@@ -67,7 +67,7 @@ export const readNote = Effect.fn('readNote')(function* (name: string, text: str
   return {
     entry: {
       ...base,
-      title: TITLE.exec(body)?.[1] ?? name,
+      title: headingsOf(body).find(({ level }) => level === 1)?.text ?? name,
       slug: slugOf(name),
       fields: Object.fromEntries(present.filter(([key]) => !BASE_KEYS.has(key))),
     },
