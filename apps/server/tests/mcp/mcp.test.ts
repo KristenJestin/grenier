@@ -48,6 +48,11 @@ describe('the server answers over stdio', () => {
       'describe_media',
       'get_type',
       'history',
+      'inbox_add',
+      'inbox_dismiss',
+      'inbox_done',
+      'inbox_list',
+      'inbox_take',
       'link',
       'list_proposals',
       'list_types',
@@ -353,6 +358,25 @@ describe('an agent writes several entries in one call', () => {
     ).toMatchObject({ result: { entries: [{ slug: 'hedge-plan' }, { slug: 'hedge-plants' }] } })
     expect(await mcp().call('read', { entry: 'hedge-plan' })).toMatchObject({
       result: { backlinks: [{ slug: 'hedge-plants' }] },
+    })
+  })
+})
+
+describe('an agent works through the inbox', () => {
+  test('it adds an item, takes it, writes the entry it gives, and marks it processed', async () => {
+    const added = await mcp().call('inbox_add', { kind: 'text', text: 'Rhubarb crumble.' })
+    const { item } = Schema.decodeUnknownSync(
+      Schema.Struct({ item: Schema.Struct({ id: Schema.String }) }),
+    )('result' in added ? added.result : null)
+    expect(await mcp().call('inbox_take', {})).toMatchObject({
+      result: { item: { id: item.id, text: 'Rhubarb crumble.' } },
+    })
+    await mcp().call('write', { type: 'note', title: 'Rhubarb crumble' })
+    expect(
+      await mcp().call('inbox_done', { id: item.id, entries: ['rhubarb-crumble'] }),
+    ).toMatchObject({ result: { item: { status: 'processed' } } })
+    expect(await mcp().call('read', { entry: 'rhubarb-crumble' })).toMatchObject({
+      result: { entry: { sources: [{ source: 'inbox', item: item.id }] } },
     })
   })
 })
