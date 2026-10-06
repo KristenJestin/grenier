@@ -2,7 +2,6 @@ import { Context, Effect, Match, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { Actor } from '../events/actor.ts'
-import { HIDDEN } from '@grenier/api/model'
 import { DateText } from '../entries/values.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
@@ -122,28 +121,19 @@ const occurrence = (
 })
 
 /**
- * What the caller may see of occurrences: the date of a sensitive field shows only that something
- * is due on that entry, without the date, the days left or the age (each would give the date
- * back); an entry of a sensitive type shows neither its name nor its dates.
+ * What the caller may see of occurrences and entries: for a key without the right `sensitive`,
+ * the occurrences of a sensitive date field and everything of an entry of a sensitive type are
+ * left out entirely, before any window, order or count is taken, so none of them gives a date
+ * back.
  */
 const visible = Effect.gen(function* () {
   const { hidesType, fieldsOf } = yield* sensitivity
-  const entryOf = (entry: typeof EntrySummary.Type) =>
-    hidesType(entry.type) ? { ...entry, slug: HIDDEN, title: HIDDEN } : entry
   return {
-    entryOf,
-    occurrences: (all: ReadonlyArray<Occurrence>) =>
-      all.map((each) =>
-        hidesType(each.entry.type) || fieldsOf(each.entry.type).includes(each.field)
-          ? {
-              ...each,
-              entry: entryOf(each.entry),
-              date: HIDDEN,
-              period: HIDDEN,
-              days_left: null,
-              age: null,
-            }
-          : each,
+    entries: <A extends { readonly type: string }>(all: ReadonlyArray<A>) =>
+      all.filter(({ type }) => !hidesType(type)),
+    dates: (all: ReadonlyArray<Dated>) =>
+      all.filter(
+        ({ entry, field }) => !hidesType(entry.type) && !fieldsOf(entry.type).includes(field),
       ),
   }
 })
@@ -155,11 +145,13 @@ const byDate = (left: Occurrence, right: Occurrence) =>
 const occurrencesBetween = Effect.fn('occurrencesBetween')(function* (from: string, to: string) {
   const today = (yield* Today)()
   const { dates, closed } = yield* datesAndClosures
-  const all = dates.flatMap((each) =>
-    datesBetween(each.rule.every, each.start, from, to).map((date) =>
-      occurrence(today, each, date),
-    ),
-  )
+  const all = (yield* visible)
+    .dates(dates)
+    .flatMap((each) =>
+      datesBetween(each.rule.every, each.start, from, to).map((date) =>
+        occurrence(today, each, date),
+      ),
+    )
   return {
     all,
     isClosed: (each: Occurrence) => closed.has(`${each.entry.id} ${each.field} ${each.period}`),
@@ -188,7 +180,7 @@ export const upcoming = Effect.fn('upcoming')(function* (from: string, to: strin
     })
   }
   const { all, isClosed } = yield* occurrencesBetween(from, to)
-  return (yield* visible).occurrences(all.filter((each) => !isClosed(each)).toSorted(byDate))
+  return all.filter((each) => !isClosed(each)).toSorted(byDate)
 })
 
 /**
@@ -201,7 +193,9 @@ export const headsUp = Effect.gen(function* () {
   const today = (yield* Today)()
   if (actor === undefined) return []
   const { dates, closed } = yield* datesAndClosures
-  const due = dates
+  // What the caller may not see is left out before it is recorded as told.
+  const due = (yield* visible)
+    .dates(dates)
     .flatMap((each) =>
       // Three days more than the notice: a notice in months reaches further from a month end
       // (31 March less a month is 28 February), and the filter below keeps only what is due.
@@ -225,11 +219,9 @@ export const headsUp = Effect.gen(function* () {
     ON CONFLICT DO NOTHING
     RETURNING entry_id::text AS entry_id, field, period`)
   const fresh = new Set(told.map(({ entry_id, field, period }) => `${entry_id} ${field} ${period}`))
-  return (yield* visible).occurrences(
-    due
-      .filter(({ entry, field, period }) => fresh.has(`${entry.id} ${field} ${period}`))
-      .toSorted(byDate),
-  )
+  return due
+    .filter(({ entry, field, period }) => fresh.has(`${entry.id} ${field} ${period}`))
+    .toSorted(byDate)
 })
 
 /** How far back a recurring deadline is looked for: its last occurrence before today. */
@@ -264,7 +256,9 @@ export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod)
   const today = (yield* Today)()
   const [from, to] = rangeOf(period, today)
   const { dates, closed } = yield* datesAndClosures
-  const overdue = dates
+  const allowed = yield* visible
+  const overdue = allowed
+    .dates(dates)
     .filter(({ rule }) => rule.deadline)
     .flatMap((each) => {
       const last = datesBetween(
@@ -278,20 +272,19 @@ export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod)
     .filter((each) => !closed.has(`${each.entry.id} ${each.field} ${each.period}`))
     .toSorted(byDate)
   const [yearFrom, yearTo] = [addMonths(from, -12), addMonths(to, -12)]
-  const mask = yield* visible
   return {
     from,
     to,
     upcoming: yield* upcoming(from, to),
-    overdue: mask.occurrences(overdue),
+    overdue,
     a_year_ago: {
-      created: (yield* created(sql`SELECT id::text AS id, slug, title, type FROM entries
+      created: allowed.entries(
+        yield* created(sql`SELECT id::text AS id, slug, title, type FROM entries
         WHERE (created AT TIME ZONE ${yield* TimeZone})::date BETWEEN ${yearFrom}::date
           AND ${yearTo}::date AND archived_at IS NULL
-        ORDER BY created`)).map(mask.entryOf),
-      occurrences: mask.occurrences(
-        (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),
+        ORDER BY created`),
       ),
+      occurrences: (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),
     },
   }
 })

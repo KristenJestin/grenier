@@ -72,11 +72,12 @@ backup, an export) stays where it went.
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker
 `[hidden]` wherever an entry is read, its history shows the change with both values hidden, a
-search does not match it, and a date field that is sensitive shows only that something is due
-on that entry: no date, no days left, no age, since each would give the date back.
+search does not match it, and the occurrences of a date field that is sensitive are left out of
+`upcoming`, `heads_up` and `briefing`, since their date, their order or their count in a window
+would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
-its occurrences show neither its name nor its date. Such a key may not write a sensitive field
+its occurrences are left out. Such a key may not write a sensitive field
 nor an entry of a sensitive type. Sensitive data
 is never sent to an external service, and an export leaves it out unless asked to include it.
 
