@@ -29,6 +29,10 @@ bookmark, a folder-like area. All entries share the same base:
 
 An entry is never deleted by an agent; it is archived.
 
+Several entries can be written in one call (`write_many`, 100 at most), in one transaction, each
+by the rules of a single write; their bodies may cite one another with `[[slug]]` as if all
+existed. One refused entry refuses the whole batch, naming each refused entry with its sentences.
+
 The values of the field kinds, as they are written and read: `date` as `2026-10-05`,
 `datetime` as `2026-10-05T14:30:00Z` (with an offset), `duration` as an ISO 8601 duration,
 `money` as an amount and an ISO 4217 currency (`12.50 EUR`), `url` as an `http` or `https`
