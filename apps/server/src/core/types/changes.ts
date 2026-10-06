@@ -59,21 +59,11 @@ const mappedOf = <V>(mapping: { readonly [key: string]: V }, key: string): V | u
 /** The key a value is mapped by: the text itself, or the JSON of anything else. */
 const keyOf = (value: Schema.Json) => (Predicate.isString(value) ? value : JSON.stringify(value))
 
-const types = rowsOf(TypeDefinition)
-
 const bySlug = (one: { slug: string }, other: { slug: string }) =>
   one.slug < other.slug ? -1 : one.slug > other.slug ? 1 : 0
 
 /** The type of that name, locked until the transaction ends; refused when there is none. */
-const lockedType = Effect.fn('lockedType')(function* (name: string) {
-  const sql = yield* SqlClient.SqlClient
-  const [type] = yield* types(sql`SELECT name, label, description, fields FROM types
-    WHERE name = ${name} AND deleted_at IS NULL FOR UPDATE`)
-  if (type === undefined) {
-    return yield* new Refused({ message: `The type \`${name}\` does not exist.` })
-  }
-  return type
-})
+const lockedType = (name: string) => getType(name, 'update')
 
 /**
  * The entries of a type, archived ones too: a change of type concerns every one of them. They are
@@ -121,7 +111,8 @@ const withEntryIds = Effect.fn('withEntryIds')(function* (
         if (id === undefined) {
           unknown.push({
             slug: rewrite.slug,
-            problem: `the field \`fields.${field}\` must name an existing entry: \`${value}\` does not exist`,
+            // The value is not quoted: a refusal never gives a stored value back.
+            problem: `the field \`fields.${field}\` must name an existing entry, and its value names none`,
           })
         } else {
           ids[field] = id
@@ -195,6 +186,19 @@ export const changeField = Effect.fn('changeField')(
       return yield* new Refused({
         message: `The type \`${type.name}\` has no field \`${input.field}\`.`,
       })
+    }
+    // A key that may not see the values may not change them, nor learn which entries hold them.
+    if (!(yield* Rights).includes('sensitive')) {
+      if (type.sensitive === true) {
+        return yield* new Refused({
+          message: `The type \`${type.name}\` is sensitive: this key may not change its fields; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+        })
+      }
+      if (old.sensitive === true) {
+        return yield* new Refused({
+          message: `The field \`${old.name}\` of \`${type.name}\` is sensitive: this key may not change it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+        })
+      }
     }
     // Lifting a field's sensitivity shows its values at once: the owner's call alone.
     if (old.sensitive === true && input.sensitive === false && !(yield* Rights).includes('owner')) {

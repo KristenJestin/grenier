@@ -320,3 +320,77 @@ describe('changing the type of an entry keeps its sensitive values protected', (
     })
   })
 })
+
+describe('changing a field never shows a sensitive value', () => {
+  beforeAll(() =>
+    trusted(
+      Effect.gen(function* () {
+        yield* defineType({
+          name: 'logbook',
+          label: 'Logbook',
+          description: 'A private logbook.',
+          fields: [{ name: 'mood', kind: 'text' }],
+          sensitive: true,
+        })
+        yield* writeEntry({ type: 'logbook', title: 'Still day', fields: { mood: 'serene' } })
+        yield* defineType({
+          name: 'loan',
+          label: 'Loan',
+          description: 'Something lent.',
+          fields: [{ name: 'holder', kind: 'text' }],
+        })
+        yield* writeEntry({ type: 'loan', title: 'Lent ladder', fields: { holder: 'nobody-xyz' } })
+      }),
+    ),
+  )
+
+  test('a key without the right may not change a sensitive field, even to try it', async () => {
+    const refused = await refusalOf(
+      changeField({
+        type: 'account',
+        field: 'number',
+        kind: 'entry',
+        mapping: { 'zebracode-4412': 'papers' },
+        dry_run: true,
+      }),
+    )
+    expect(refused.message).toBe(
+      'The field `number` of `account` is sensitive: this key may not change it; ask the owner of Grenier for a key with the right `sensitive`.',
+    )
+    expect(JSON.stringify(refused)).not.toContain('zebracode')
+    expect(JSON.stringify(refused)).not.toContain('current-account')
+  })
+
+  test('a key without the right may not change a field of a sensitive type, nor learn its entries', async () => {
+    const refused = await refusalOf(
+      changeField({
+        type: 'logbook',
+        field: 'mood',
+        kind: 'enum',
+        values: ['calm'],
+        dry_run: true,
+      }),
+    )
+    expect(refused.message).toBe(
+      'The type `logbook` is sensitive: this key may not change its fields; ask the owner of Grenier for a key with the right `sensitive`.',
+    )
+    expect(JSON.stringify(refused)).not.toContain('still-day')
+    expect(JSON.stringify(refused)).not.toContain('serene')
+  })
+
+  test('a refusal names the entries a change would break, never their values', async () => {
+    const { invalid } = await trusted(
+      changeField({ type: 'loan', field: 'holder', kind: 'entry', dry_run: true }),
+    )
+    expect(invalid).toEqual([
+      {
+        slug: 'lent-ladder',
+        problem: 'the field `fields.holder` must name an existing entry, and its value names none',
+      },
+    ])
+    const refused = await trusted(
+      Effect.flip(changeField({ type: 'account', field: 'number', kind: 'entry' })),
+    )
+    expect(refused.message).not.toContain('zebracode')
+  })
+})
