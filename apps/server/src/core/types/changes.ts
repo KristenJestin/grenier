@@ -2,7 +2,7 @@ import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
-import { idOf } from '../entries/operations.ts'
+import { visibleIdOf } from '../entries/operations.ts'
 import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
@@ -107,7 +107,7 @@ const withEntryIds = Effect.fn('withEntryIds')(function* (
       for (const field of fields) {
         const value = rewrite.fields[field]
         if (!Predicate.isString(value)) continue
-        const id = yield* idOf(value)
+        const id = yield* visibleIdOf(value)
         if (id === undefined) {
           unknown.push({
             slug: rewrite.slug,

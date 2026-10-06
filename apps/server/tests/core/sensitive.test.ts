@@ -437,3 +437,50 @@ describe('the history keeps a value hidden after its field is renamed or its ent
     ])
   })
 })
+
+describe('a write does not tell a key without the right that a hidden entry exists', () => {
+  beforeAll(() =>
+    trusted(
+      defineType({
+        name: 'pointer',
+        label: 'Pointer',
+        description: 'Points to another entry.',
+        fields: [{ name: 'target', kind: 'entry' }],
+      }),
+    ),
+  )
+
+  test('a hidden entry named as a parent, a successor, a field, a source or a reference does not exist', async () => {
+    const refused = await refusalOf(
+      writeEntry({
+        type: 'pointer',
+        title: 'Probe',
+        parent: 'quiet-morning',
+        superseded_by: 'quiet-morning',
+        fields: { target: 'quiet-morning' },
+        sources: [{ entry: 'quiet-morning' }],
+        body: 'See [[quiet-morning]].',
+      }),
+    )
+    expect(refused.message).toBe(
+      [
+        'The field `parent` must name an existing entry: `quiet-morning` does not exist.',
+        'The field `superseded_by` must name an existing entry: `quiet-morning` does not exist.',
+        'The field `fields.target` must name an existing entry: `quiet-morning` does not exist.',
+        'The source `sources.0` names `quiet-morning`, which is not an entry.',
+        'The field `body` refers to `quiet-morning`, which is not the slug of any entry.',
+      ].join(' '),
+    )
+  })
+
+  test('the slug of a hidden entry is refused without saying that an entry uses it', async () => {
+    const refused = await refusalOf(
+      writeEntry({ type: 'folder', title: 'Probe', slug: 'quiet-morning' }),
+    )
+    expect(refused.message).toBe('The field `slug` cannot be `quiet-morning`: choose another slug.')
+    const visible = await refusalOf(writeEntry({ type: 'folder', title: 'Probe', slug: 'papers' }))
+    expect(visible.message).toBe(
+      'The field `slug` must be unique: `papers` is already used by another entry.',
+    )
+  })
+})

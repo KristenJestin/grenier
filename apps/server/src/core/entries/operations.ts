@@ -93,6 +93,20 @@ export const idOf = Effect.fn('idOf')(function* (reference: string) {
   return row?.id
 })
 
+const typed = rowsOf(Schema.Struct({ id: Schema.String, type: Schema.String }))
+
+/**
+ * The id of the entry named by its id or its slug, if there is one the caller may see: for a key
+ * without the right `sensitive`, an entry of a sensitive type is one that does not exist.
+ */
+export const visibleIdOf = Effect.fn('visibleIdOf')(function* (reference: string) {
+  const db = yield* drizzle
+  const [row] = yield* typed(
+    db.select({ id: table.id, type: table.type }).from(table).where(named(reference)),
+  )
+  return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row.id
+})
+
 const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked: boolean) {
   const db = yield* drizzle
   const query = db.select(COLUMNS).from(table).where(named(reference))
@@ -468,15 +482,18 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
       }
       const owner = yield* idOf(slug)
       if (owner !== undefined && owner !== existing?.id) {
+        // Said without confirming that an entry the caller may not see uses it.
         problems.push(
-          `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
+          (yield* visibleIdOf(slug)) === undefined
+            ? `The field \`slug\` cannot be \`${slug}\`: choose another slug.`
+            : `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
         )
       }
 
       /** The id of the entry a field names, or a problem when there is none. */
       const resolve = Effect.fn('resolve')(function* (field: string, reference: string | null) {
         if (reference === null) return null
-        const id = yield* idOf(reference)
+        const id = yield* visibleIdOf(reference)
         if (id !== undefined) return id
         problems.push(
           `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
@@ -507,7 +524,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
       for (const [index, source] of state.sources.entries()) {
         const at = `\`sources.${index}\``
         if ('entry' in source) {
-          const id = yield* idOf(source.entry)
+          const id = yield* visibleIdOf(source.entry)
           if (id === undefined)
             problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
           else sources.push({ ...source, entry: id })
@@ -532,7 +549,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (
           reference !== slug &&
           !coming.has(reference) &&
-          (yield* idOf(reference)) === undefined
+          (yield* visibleIdOf(reference)) === undefined
         ) {
           problems.push(
             `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
