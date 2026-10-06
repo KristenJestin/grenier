@@ -1,5 +1,5 @@
-import { execFileSync, spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
@@ -8,9 +8,13 @@ import type { Server, Socket } from 'node:net'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { GrenierTools } from '../../src/mcp/tools.ts'
 import { Auth } from '../../src/core/auth/index.ts'
+import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
+import { Validator } from '@seriousme/openapi-schema-validator'
 import { ConfigProvider, Effect, Layer, ManagedRuntime, Predicate, Schema } from 'effect'
+import { FetchHttpClient, HttpClientRequest } from 'effect/http'
+import { HttpApiClient, HttpApiMiddleware } from 'effect/http-api'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { connect } from './http-client.ts'
+import { connect, connectStateless, messageOf } from './http-client.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
 const SECRET = 'a-secret-for-the-tests-only-0123456789abcdef'
@@ -95,7 +99,6 @@ let proxy: ReturnType<typeof proxyTo> | undefined
 let base = ''
 
 beforeAll(async () => {
-  execFileSync('bun', ['run', 'build'], { cwd: APP, stdio: 'ignore' })
   const url = new URL(
     await database.runPromise(
       Effect.gen(function* () {
@@ -306,6 +309,206 @@ describe('media over HTTP', () => {
     expect(await refused.json()).toEqual({
       error: 'This key may not read: ask the owner of Grenier for a key with the right `read`.',
     })
+  })
+})
+
+describe('MCP protocol versions', () => {
+  test('a client on 2026-07-28 and one on 2025-11-25 both list the tools and call one', async () => {
+    const expected = Object.keys(GrenierTools.tools).toSorted()
+    const stateless = connectStateless(`${base}/mcp`, bearer(writer))
+    const { result } = await stateless.request('tools/list', {})
+    expect(
+      Schema.decodeUnknownSync(Tools)(result)
+        .tools.map(({ name }) => name)
+        .toSorted(),
+    ).toEqual(expected)
+    expect(await stateless.call('read', { entry: 'over-the-wire' })).toMatchObject({
+      result: { entry: { title: 'Over the wire' } },
+    })
+    const stateful = await connect(`${base}/mcp`, bearer(writer), '2025-11-25')
+    const listed = await stateful.request('tools/list', {})
+    expect(
+      Schema.decodeUnknownSync(Tools)(listed.result)
+        .tools.map(({ name }) => name)
+        .toSorted(),
+    ).toEqual(expected)
+    expect(await stateful.call('read', { entry: 'over-the-wire' })).toMatchObject({
+      result: { entry: { title: 'Over the wire' } },
+    })
+  })
+
+  test('a 2026-07-28 request whose Mcp-Method header disagrees with its body is refused with 400', async () => {
+    const response = await connectStateless(`${base}/mcp`, {
+      ...bearer(writer),
+      'mcp-method': 'tools/call',
+    }).send('tools/list', {})
+    expect(response.status).toBe(400)
+    expect(await messageOf(response)).toMatchObject({
+      error: { message: 'Mcp-Method header does not match request method' },
+    })
+  })
+
+  test('a missing resource answers JSON-RPC -32602', async () => {
+    const uri = 'grenier://nothing-here'
+    const { error } = await connectStateless(`${base}/mcp`, bearer(writer)).request(
+      'resources/read',
+      { uri },
+      uri,
+    )
+    expect(error?.code).toBe(-32602)
+  })
+})
+
+const Answer = Schema.Record(Schema.String, Schema.Json)
+
+/**
+ * What a tool answered, without the notices MCP adds to every answer for the agent (`heads_up`):
+ * the read API returns the data alone.
+ */
+const answerOf = (answer: { result: Schema.Json } | { error: string }) => {
+  if (!('result' in answer)) throw new Error(`the tool refused: ${answer.error}`)
+  const { heads_up: _, ...data } = Schema.decodeUnknownSync(Answer)(answer.result)
+  return data
+}
+
+/** A typed client derived from the API definition, sending `secret` as its key when given. */
+const apiClient = (secret: string | undefined) =>
+  HttpApiClient.make(GrenierApi, { baseUrl: base }).pipe(
+    Effect.provide(
+      HttpApiMiddleware.layerClient(Authorization, ({ next, request }) =>
+        next(secret === undefined ? request : HttpClientRequest.bearerToken(request, secret)),
+      ),
+    ),
+    Effect.provide(FetchHttpClient.layer),
+  )
+
+describe('the read API', () => {
+  const get = (path: string, headers: Readonly<Record<string, string>> = bearer(writer)) =>
+    fetch(`${base}${path}`, { headers }).then(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    }))
+
+  test('GET /api/entries/{slug} with a read key returns what read returns over MCP', async () => {
+    const reader = await createKey('api-reader', ['read'])
+    const overMcp = await connectStateless(`${base}/mcp`, bearer(reader)).call('read', {
+      entry: 'over-the-wire',
+    })
+    expect(await get('/api/entries/over-the-wire', bearer(reader))).toEqual({
+      status: 200,
+      body: answerOf(overMcp),
+    })
+  })
+
+  test('without a key, 401; with a key that may not read, 403; an unknown entry, 404', async () => {
+    const anonymous = await get('/api/entries/over-the-wire', {})
+    expect(anonymous.status).toBe(401)
+    expect(Schema.decodeUnknownSync(Unauthorized)(anonymous.body).message).toBe(
+      'A key is required: send it as `Authorization: Bearer <key>`.',
+    )
+    const writeOnly = await createKey('api-write-only', ['write'])
+    const forbidden = await get('/api/entries/over-the-wire', bearer(writeOnly))
+    expect(forbidden.status).toBe(403)
+    expect(Schema.decodeUnknownSync(Forbidden)(forbidden.body).message).toBe(
+      'This key may not read: ask the owner of Grenier for a key with the right `read`.',
+    )
+    const unknown = await get('/api/entries/nowhere-at-all')
+    expect(unknown.status).toBe(404)
+    expect(Schema.decodeUnknownSync(NotFound)(unknown.body).message).toContain('nowhere-at-all')
+  })
+
+  test('types and search answer as list_types and search do over MCP', async () => {
+    const agent = connectStateless(`${base}/mcp`, bearer(writer))
+    const listed = await agent.call('list_types', {})
+    expect(await get('/api/types')).toEqual({
+      status: 200,
+      body: answerOf(listed),
+    })
+    const found = await agent.call('search', { query: 'wire', type: 'note', limit: 5 })
+    expect(await get('/api/search?q=wire&type=note&limit=5')).toEqual({
+      status: 200,
+      body: answerOf(found),
+    })
+  })
+
+  test('through the typed client: the same entry, and Unauthorized without a key', async () => {
+    const overMcp = await connectStateless(`${base}/mcp`, bearer(writer)).call('read', {
+      entry: 'over-the-wire',
+    })
+    const read = await Effect.runPromise(
+      Effect.flatMap(apiClient(writer), (client) =>
+        client.entries.read({ params: { entry: 'over-the-wire' } }),
+      ),
+    )
+    expect(read).toEqual(answerOf(overMcp))
+    const refused = await Effect.runPromise(
+      Effect.flatMap(apiClient(undefined), (client) =>
+        Effect.flip(client.entries.read({ params: { entry: 'over-the-wire' } })),
+      ),
+    )
+    expect(refused).toBeInstanceOf(Unauthorized)
+  })
+})
+
+describe('the API documentation', () => {
+  test('/api/openapi.json is a valid OpenAPI document of the three read routes, behind a bearer key', async () => {
+    const document = await fetch(`${base}/api/openapi.json`).then((response) => response.json())
+    expect(await new Validator().validate(document)).toMatchObject({ valid: true })
+    const Document = Schema.Struct({
+      paths: Schema.Record(
+        Schema.String,
+        Schema.Struct({
+          get: Schema.Struct({
+            security: Schema.Array(Schema.Record(Schema.String, Schema.Array(Schema.String))),
+            responses: Schema.Record(Schema.String, Schema.Json),
+          }),
+        }),
+      ),
+      components: Schema.Struct({
+        securitySchemes: Schema.Struct({
+          bearer: Schema.Struct({ type: Schema.String, scheme: Schema.String }),
+        }),
+      }),
+    })
+    const { paths, components } = Schema.decodeUnknownSync(Document)(document)
+    expect(Object.keys(paths).toSorted()).toEqual([
+      '/api/entries/{entry}',
+      '/api/search',
+      '/api/types',
+    ])
+    for (const { get } of Object.values(paths)) {
+      expect(get.security).toEqual([{ bearer: [] }])
+      expect(get.responses['200']).toBeDefined()
+    }
+    const { type, scheme } = components.securitySchemes.bearer
+    expect({ type, scheme: scheme.toLowerCase() }).toEqual({ type: 'http', scheme: 'bearer' })
+  })
+
+  test('/api/docs shows the API', async () => {
+    const page = await fetch(`${base}/api/docs`)
+    expect(page.status).toBe(200)
+    expect(page.headers.get('content-type')).toContain('text/html')
+    const html = await page.text()
+    for (const path of ['/api/types', '/api/entries/{entry}', '/api/search'])
+      expect(html).toContain(path)
+  })
+})
+
+describe('the server is Effect alone', () => {
+  test('no TanStack Start, TanStack Router, React or srvx remains in its dependencies', () => {
+    const { dependencies, devDependencies } = Schema.decodeUnknownSync(
+      Schema.fromJsonString(
+        Schema.Struct({
+          dependencies: Schema.Record(Schema.String, Schema.String),
+          devDependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+        }),
+      ),
+    )(readFileSync(`${APP}/package.json`, 'utf8'))
+    expect(
+      Object.keys({ ...dependencies, ...devDependencies }).filter((name) =>
+        /^(@tanstack\/|react|@types\/react|srvx$|vite$)/.test(name),
+      ),
+    ).toEqual([])
   })
 })
 
