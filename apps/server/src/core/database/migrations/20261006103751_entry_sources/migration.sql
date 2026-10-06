@@ -1,0 +1,1 @@
+ALTER TABLE "entries" ADD COLUMN "sources" jsonb DEFAULT '[]' NOT NULL;

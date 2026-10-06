@@ -5,7 +5,8 @@ import { defineTool } from '../tool.ts'
 
 export const writeTool = defineTool({
   name: 'write',
-  description: 'Creates an entry, or updates the one `entry` names. Search before creating one.',
+  description:
+    'Creates an entry, or updates the one `entry` names. Search before creating one. Say where it comes from in `sources` (an entry, a URL, an external identifier), not in the body.',
   input: WriteEntryInput,
   right: 'write',
   // The body is left out of the answer: the agent just sent it, and it may be long.

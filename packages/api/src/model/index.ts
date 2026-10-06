@@ -8,6 +8,9 @@ export {
   Link,
   Medium,
   PROVENANCES,
+  Source,
+  SourceGiven,
+  SourceKept,
   WriteEntryInput,
 } from './entries.ts'
 export { SearchOptions, SearchResult } from './search.ts'

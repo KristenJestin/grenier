@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, like, ne, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
 import { Effect, Predicate, Result, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
@@ -16,12 +16,14 @@ import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
-import { Child, Entry, HIDDEN } from '@grenier/api/model'
-import type { WriteEntryInput } from '@grenier/api/model'
+import { Child, Entry, HIDDEN, SourceGiven, SourceKept } from '@grenier/api/model'
+import type { Source, WriteEntryInput } from '@grenier/api/model'
+import { findSourceItem } from '../sources/operations.ts'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
 
 const Row = Schema.Struct({
   ...Entry.fields,
+  sources: Schema.Array(SourceKept),
   created: Schema.Date,
   updated: Schema.Date,
   archived_at: Schema.NullOr(Schema.Date),
@@ -48,6 +50,7 @@ const COLUMNS = {
   parent_id: table.parent_id,
   fields: table.fields,
   provenance: table.provenance,
+  sources: table.sources,
   body: table.body,
   summary: table.summary,
   verified: table.verified,
@@ -63,7 +66,19 @@ const COLUMNS = {
 const named = (reference: string) =>
   or(eq(table.slug, reference), sql`${table.id}::text = ${reference}`)
 
-const toEntry = (row: typeof Row.Type): Entry => ({
+/** An entry as it is kept: its sources name entries by id only. */
+type Kept = Omit<Entry, 'sources'> & { readonly sources: ReadonlyArray<SourceKept> }
+
+const cited = rowsOf(
+  Schema.Struct({
+    id: Schema.String,
+    slug: Schema.String,
+    title: Schema.String,
+    type: Schema.String,
+  }),
+)
+
+const toEntry = (row: typeof Row.Type): Kept => ({
   ...row,
   created: row.created.toISOString(),
   updated: row.updated.toISOString(),
@@ -93,10 +108,34 @@ export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
   return yield* masked(yield* entryNamed(reference, false))
 })
 
-/** An entry as the caller may see it: its sensitive values replaced by the marker. */
-const masked = Effect.fn('masked')(function* (entry: Entry) {
-  const { maskFields } = yield* sensitivity
-  return { ...entry, fields: maskFields(entry.type, entry.fields) }
+/**
+ * An entry as the caller may see it: its sensitive values replaced by the marker, and each entry
+ * it comes from with its slug and title (hidden, when the caller may not see that entry).
+ */
+const masked = Effect.fn('masked')(function* (entry: Kept) {
+  const { maskFields, hidesType } = yield* sensitivity
+  const db = yield* drizzle
+  const sourceIds = entry.sources.flatMap((source) => ('entry' in source ? [source.entry] : []))
+  const found =
+    sourceIds.length === 0
+      ? []
+      : yield* cited(
+          db
+            .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
+            .from(table)
+            .where(inArray(table.id, sourceIds)),
+        )
+  const sources = entry.sources.map((source): Source => {
+    if (!('entry' in source)) return source
+    const other = found.find(({ id }) => id === source.entry)
+    const hidden = other === undefined || hidesType(other.type)
+    return {
+      ...source,
+      slug: hidden ? HIDDEN : other.slug,
+      title: hidden ? HIDDEN : other.title,
+    }
+  })
+  return { ...entry, fields: maskFields(entry.type, entry.fields), sources }
 })
 
 /** The titles of the ancestors of an entry, from the root; a hidden one shows as hidden. */
@@ -150,6 +189,13 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
       .orderBy(asc(table.title)),
   )
   const shown = all.filter(({ type }) => !hiddenTypes.includes(type))
+  const citing = yield* cited(
+    db
+      .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
+      .from(table)
+      .where(sql`${table.sources} @> ${JSON.stringify([{ entry: entry.id }])}::jsonb`)
+      .orderBy(asc(table.title)),
+  )
   return {
     entry,
     path: yield* pathOf(entry.id),
@@ -158,6 +204,9 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     backlinks: yield* incoming(entry.id, hiddenTypes),
     children: shown,
     hidden_children: all.length - shown.length,
+    cited_by: citing
+      .filter(({ type }) => !hiddenTypes.includes(type))
+      .map(({ id, slug, title }) => ({ id, slug, title })),
   }
 })
 
@@ -205,6 +254,7 @@ const CREATED = {
   parent: null,
   fields: {},
   provenance: {},
+  sources: [],
   body: '',
   summary: '',
   verified: false,
@@ -214,7 +264,7 @@ const CREATED = {
 }
 
 /** What a write may change of an existing entry, in the shape of a write. */
-const stateOf = ({ type, title, slug, parent_id, ...entry }: Entry) => ({
+const stateOf = ({ type, title, slug, parent_id, ...entry }: Kept) => ({
   type,
   title,
   slug,
@@ -223,6 +273,7 @@ const stateOf = ({ type, title, slug, parent_id, ...entry }: Entry) => ({
   parent: parent_id,
   fields: entry.fields,
   provenance: entry.provenance,
+  sources: entry.sources,
   body: entry.body,
   summary: entry.summary,
   verified: entry.verified,
@@ -231,8 +282,9 @@ const stateOf = ({ type, title, slug, parent_id, ...entry }: Entry) => ({
   superseded_by: entry.superseded_by,
 })
 
-type Recorded = Omit<Entry, 'id' | 'created' | 'updated' | 'provenance'> & {
+type Recorded = Omit<Entry, 'id' | 'created' | 'updated' | 'provenance' | 'sources'> & {
   readonly provenance: Snapshot
+  readonly sources: ReadonlyArray<SourceKept | Source>
 }
 
 /** What the event log keeps of an entry: every field a write can change. */
@@ -250,6 +302,12 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   valid_until: base.valid_until,
   superseded_by: base.superseded_by,
   archived_at: base.archived_at,
+  // Kept as the database keeps them: an entry by its id.
+  sources: base.sources.map((source): SourceKept => {
+    if (!('entry' in source)) return source
+    const { entry, note } = source
+    return note === undefined ? { entry } : { entry, note }
+  }),
   ...prefixed('fields', fields),
   ...prefixed('provenance', provenance),
 })
@@ -319,6 +377,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
           valid_from: Schema.NullOr(DateText),
           valid_until: Schema.NullOr(DateText),
           superseded_by: Schema.NullOr(Schema.String),
+          sources: Schema.Array(SourceGiven),
         }),
       )({ ...state, slug }, { errors: 'all', onExcessProperty: 'error' })
       const problems = Result.isFailure(decoded) ? [formatSchemaError(decoded.failure)] : []
@@ -398,6 +457,30 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         }
       }
 
+      // The entries a source names, by id; a URL that is a web address; a registry item it holds.
+      const sources: Array<SourceKept> = []
+      for (const [index, source] of state.sources.entries()) {
+        const at = `\`sources.${index}\``
+        if ('entry' in source) {
+          const id = yield* idOf(source.entry)
+          if (id === undefined)
+            problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
+          else sources.push({ ...source, entry: id })
+        } else if (
+          'url' in source &&
+          !(/^https?:\/\//.test(source.url) && URL.canParse(source.url))
+        ) {
+          problems.push(`The source ${at} must be an http or https URL: \`${source.url}\` is not.`)
+        } else if (
+          'item' in source &&
+          (yield* findSourceItem(source.source, source.item)) === undefined
+        ) {
+          problems.push(
+            `The source ${at} names the item \`${source.item}\` of \`${source.source}\`, which the registry does not hold.`,
+          )
+        } else sources.push(source)
+      }
+
       for (const reference of referencesIn(state.body)) {
         if (reference !== slug && (yield* idOf(reference)) === undefined) {
           problems.push(
@@ -424,6 +507,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
             verified,
             parent_id: parentId,
             fields: references,
+            sources,
             superseded_by: supersededBy,
             archived_at: existing?.archived_at ?? null,
           }),
@@ -441,6 +525,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (input: WriteEntryIn
         parent_id: parentId,
         fields: references,
         provenance: entry.provenance,
+        sources,
         body: entry.body,
         summary: entry.summary,
         verified,

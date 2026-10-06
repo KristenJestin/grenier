@@ -36,7 +36,12 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
       SELECT e.*, e.search || setweight(jsonb_to_tsvector(${configuration}::regconfig,
           e.fields - coalesce(ARRAY(SELECT jsonb_array_elements_text(
             ${JSON.stringify(hiddenFields)}::jsonb -> e.type)), '{}'), '["string", "numeric"]'),
-          'C') AS words
+          'C')
+        -- Where the entry comes from: its URLs, external identifiers and their labels.
+        || setweight(jsonb_to_tsvector(${configuration}::regconfig,
+          jsonb_path_query_array(e.sources, '$[*].url')
+            || jsonb_path_query_array(e.sources, '$[*].identifier')
+            || jsonb_path_query_array(e.sources, '$[*].label'), '["string"]'), 'C') AS words
       FROM entries e WHERE NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
     )
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, NULL AS path,
@@ -45,7 +50,10 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
         ${HEADLINE}) AS excerpt,
       ts_rank(e.words, query.q)::float8 AS rank
     FROM found e, query
-    WHERE e.words @@ query.q
+    WHERE (e.words @@ query.q
+        -- A URL or an identifier given whole is found as it is, whatever the parser makes of it.
+        OR e.sources @> jsonb_build_array(jsonb_build_object('url', ${query}::text))
+        OR e.sources @> jsonb_build_array(jsonb_build_object('identifier', ${query}::text)))
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})
       AND (${options.archived ?? false} OR e.archived_at IS NULL)
       AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
