@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest'
 import {
   analyze,
   contractRefusalsOf,
+  databaseLayerRefusalsOf,
   importsOf,
   reactRefusalsOf,
   storageRefusalsOf,
@@ -56,6 +57,73 @@ describe('Every access to the data goes through the core', () => {
   test("drizzle-kit's configuration may import drizzle-kit", () => {
     const source = "import { defineConfig } from 'drizzle-kit'\n"
     expect(storageRefusalsOf('apps/server/drizzle.config.ts', source)).toEqual([])
+  })
+
+  test.each([
+    [
+      'its tables',
+      'apps/server/src/mcp/tools.ts',
+      "import { entries } from '../core/database/schema.ts'\n",
+    ],
+    [
+      'its Drizzle handle',
+      'apps/server/src/mcp/tools.ts',
+      "import { drizzle } from '../core/database/client.ts'\n",
+    ],
+    ['its folder', 'apps/server/src/mcp/tools.ts', "import { layer } from '../core/database'\n"],
+    [
+      'its tables, from the entry point',
+      'apps/server/src/cli.ts',
+      "import { entries } from './core/database/schema.ts'\n",
+    ],
+    [
+      'its tables, from a test of the MCP server',
+      'apps/server/tests/mcp/tools.test.ts',
+      "import { entries } from '../../src/core/database/schema.ts'\n",
+    ],
+  ])(
+    'code outside the core reaching the database layer through %s is refused',
+    (_, file, source) => {
+      expect(storageRefusalsOf(file, source)).toEqual([])
+      expect(databaseLayerRefusalsOf(file, source)).toHaveLength(1)
+    },
+  )
+
+  test('the entry points may wire the database the core exposes, and nothing else of it', () => {
+    const source = "import { layer as database, migrate } from './core/database/index.ts'\n"
+    expect(databaseLayerRefusalsOf('apps/server/src/cli.ts', source)).toEqual([])
+    expect(
+      databaseLayerRefusalsOf(
+        'apps/server/src/mcp/main.ts',
+        "import type { layer } from '../core/database/index.ts'\n",
+      ),
+    ).toEqual([])
+  })
+
+  test('the module the core exposes for wiring hands out no Drizzle handle and no table', async () => {
+    const wiring = await import('../apps/server/src/core/database/index.ts')
+    expect(Object.keys(wiring).toSorted()).toEqual([
+      'DatabaseUrlMissing',
+      'MigrationsBehind',
+      'databaseReachable',
+      'databaseServices',
+      'databaseUrl',
+      'latestVersion',
+      'layer',
+      'migrate',
+      'schemaVersion',
+    ])
+  })
+
+  test('the core and its tests may reach the whole database layer', () => {
+    const source = "import { entries } from '../database/schema.ts'\n"
+    expect(databaseLayerRefusalsOf('apps/server/src/core/search/operations.ts', source)).toEqual([])
+    expect(
+      databaseLayerRefusalsOf(
+        'apps/server/tests/core/migrations.test.ts',
+        "import { rowsOf } from '../../src/core/database/rows.ts'\n",
+      ),
+    ).toEqual([])
   })
 
   test('a shared package importing React is refused, an application is not', () => {

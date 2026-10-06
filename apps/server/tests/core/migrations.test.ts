@@ -36,7 +36,8 @@ const Definition = Schema.Struct({
 
 /**
  * Every column, constraint, index, sequence and extension of the database, written out: two
- * databases with the same schema give the same list.
+ * databases with the same schema give the same list. The journal of the migrations before
+ * Drizzle, which a taken-over database keeps for the previous release, is left aside.
  */
 const schemaOf = Effect.flatMap(SqlClient.SqlClient, (sql) =>
   rowsOf(Definition)(sql`
@@ -47,11 +48,14 @@ const schemaOf = Effect.flatMap(SqlClient.SqlClient, (sql) =>
         data_type, is_nullable, column_default, generation_expression, is_identity,
         identity_generation) AS definition
     FROM information_schema.columns WHERE table_schema = 'public'
+      AND table_name <> 'effect_sql_migrations'
     UNION ALL
     SELECT 'constraint', conrelid::regclass::text || '.' || conname, pg_get_constraintdef(oid)
     FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+      AND conrelid::regclass::text <> 'effect_sql_migrations'
     UNION ALL
     SELECT 'index', indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'
+      AND tablename <> 'effect_sql_migrations'
     UNION ALL
     SELECT 'sequence', sequencename, concat_ws(' | ', data_type, start_value, min_value,
       max_value, increment_by, cycle, cache_size)
@@ -103,14 +107,32 @@ describe('a database made by the migrations before Drizzle is taken over', () =>
           { before, after: yield* rows },
           yield* search('lantern'),
           yield* schemaVersion,
-          yield* sql`SELECT to_regclass('effect_sql_migrations') AS journal`,
+          yield* sql`SELECT to_regclass('effect_sql_migrations')::text AS journal`,
         ] as const
       }),
     )
     expect(read.after).toEqual(read.before)
     expect(found.map(({ slug }) => slug)).toEqual(['kept-across'])
     expect(version).toBe(latestVersion)
-    expect(journal).toEqual([{ journal: null }])
+    expect(journal).toEqual([{ journal: 'effect_sql_migrations' }])
+  })
+
+  test('the former journal stays, so the previous release still starts on the database', async () => {
+    const [former, applied] = await onScratch(
+      Effect.gen(function* () {
+        yield* byEffectMigrations()
+        const sql = yield* SqlClient.SqlClient
+        const journal = sql`SELECT migration_id FROM effect_sql_migrations ORDER BY migration_id`
+        const before = yield* journal
+        yield* migrate
+        // A second start finds the takeover done, from Drizzle's journal, and does nothing.
+        const again = yield* migrate
+        return [{ before, after: yield* journal }, again] as const
+      }),
+    )
+    expect(former.after).toEqual(former.before)
+    expect(former.after).toHaveLength(12)
+    expect(applied).toEqual([])
   })
 
   test('a database behind the last migration before Drizzle is refused with a sentence', async () => {
@@ -119,6 +141,23 @@ describe('a database made by the migrations before Drizzle is taken over', () =>
     expect(error.message).toBe(
       'This database stands at migration 11 of the migrations before Drizzle, not 12: migrate it with the previous version of Grenier first.',
     )
+  })
+})
+
+describe('two processes migrating at once', () => {
+  test('two migrations started together on a fresh database both succeed', async () => {
+    const [first, second, version] = await onScratch(
+      Effect.gen(function* () {
+        const both = yield* Effect.all([migrate, migrate], { concurrency: 2 })
+        return [...both, yield* schemaVersion] as const
+      }),
+    )
+    // One applies every migration, the other waits for it and then finds nothing to do.
+    expect([first, second].toSorted((a, b) => a.length - b.length)).toEqual([
+      [],
+      readdirSync(new URL('../../src/core/database/migrations', import.meta.url)).toSorted(),
+    ])
+    expect(version).toBe(latestVersion)
   })
 })
 

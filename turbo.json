@@ -15,9 +15,13 @@
       "outputs": []
     },
     "test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest.config.ts"],
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest.config.ts", "$TURBO_ROOT$/.env"],
       "outputs": [],
       "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
+    },
+    "transit": {
+      "dependsOn": ["^transit"]
     },
     "@grenier/tools#lint": {
       "inputs": [
@@ -33,6 +37,7 @@
       "outputs": []
     },
     "@grenier/tools#test": {
+      "dependsOn": ["transit"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/.oxlintrc.json",
@@ -43,10 +48,11 @@
         "$TURBO_ROOT$/packages/**/*.ts",
         "$TURBO_ROOT$/packages/**/package.json",
         "$TURBO_ROOT$/vitest.config.ts",
-        "$TURBO_ROOT$/.githooks/**"
+        "$TURBO_ROOT$/.githooks/**",
+        "$TURBO_ROOT$/.env"
       ],
       "outputs": [],
-      "env": ["DATABASE_URL"]
+      "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
     }
   }
 }

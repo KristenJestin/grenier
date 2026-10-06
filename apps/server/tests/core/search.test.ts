@@ -1,6 +1,9 @@
-import { ConfigProvider, Effect } from 'effect'
+import { ConfigProvider, Effect, Schedule, Schema } from 'effect'
+import { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
+import { Rights } from '../../src/core/auth/index.ts'
 import { migrate } from '../../src/core/database/index.ts'
+import { rowsOf } from '../../src/core/database/rows.ts'
 import { archiveEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
@@ -21,6 +24,14 @@ const types = Effect.all([
   defineType({ name: 'area', label: 'Area', description: 'Groups entries.', fields: [] }),
 ])
 
+const scans = rowsOf(Schema.Struct({ scans: Schema.Number }))
+
+/** How many times the search index has been read, as the server's statistics count. */
+const searchIndexScans = Effect.flatMap(SqlClient.SqlClient, (sql) =>
+  scans(sql`SELECT coalesce(sum(idx_scan), 0)::int AS scans FROM pg_stat_user_indexes
+    WHERE indexrelname = 'entries_search'`),
+).pipe(Effect.map(([row]) => row?.scans ?? 0))
+
 describe('search with the default language', () => {
   const run = useScratchDatabase()
   beforeAll(() => run(types))
@@ -31,6 +42,59 @@ describe('search with the default language', () => {
     const results = await run(search('tomatoes'))
     expect(results.map(({ title }) => title)).toEqual(['Tomatoes', 'Gardening notes'])
     expect(results[0]?.rank).toBeGreaterThan(results[1]?.rank ?? Infinity)
+  })
+
+  test('a search can be answered from the search index', async () => {
+    await run(writeEntry({ type: 'note', title: 'Quiet lighthouse', body: 'Fog at dawn.' }))
+    const before = await run(searchIndexScans)
+    const found = await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            // A table this small is read whole whenever it may be: forbid that, so the only plan
+            // left without reading every entry is the index, when the query can use it.
+            yield* sql`SET LOCAL enable_seqscan = off`
+            const results = yield* search('lighthouse')
+            yield* sql`SELECT pg_stat_force_next_flush()`
+            return results
+          }),
+        ),
+      ),
+    )
+    expect(found.map(({ title }) => title)).toEqual(['Quiet lighthouse'])
+    const after = await run(
+      searchIndexScans.pipe(
+        Effect.repeat({ schedule: Schedule.spaced('20 millis'), until: (n) => n > before }),
+        Effect.timeoutOrElse({ duration: '2 seconds', orElse: () => searchIndexScans }),
+      ),
+    )
+    expect(after).toBeGreaterThan(before)
+  })
+
+  test('a word left out of a search counts only in the fields the caller may see', async () => {
+    await run(
+      defineType({
+        name: 'locker',
+        label: 'Locker',
+        description: 'A locker with a code.',
+        fields: [
+          { name: 'place', kind: 'text' },
+          { name: 'code', kind: 'text', sensitive: true },
+        ],
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'locker',
+        title: 'Harbour locker',
+        fields: { place: 'pier', code: 'kelp' },
+      }),
+    )
+    const plain = (query: string) =>
+      run(Effect.provideService(search(query), Rights, ['read', 'write']))
+    expect((await plain('pier -kelp')).map(({ title }) => title)).toEqual(['Harbour locker'])
+    expect(await run(search('pier -kelp'))).toEqual([])
+    expect(await plain('kelp')).toEqual([])
   })
 
   test('a search filtered by type returns only that type', async () => {

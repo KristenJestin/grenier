@@ -1,6 +1,7 @@
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
+import { SEARCHABLE } from '../database/schema.ts'
 import { findEntry, pathOf, TREE_DEPTH } from '../entries/operations.ts'
 import { sensitivity } from '../sensitive.ts'
 import { searchConfiguration } from './language.ts'
@@ -22,6 +23,13 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
   const configuration = yield* searchConfiguration
   const { hiddenTypes, hiddenFields } = yield* sensitivity
   const under = options.under === undefined ? null : (yield* findEntry(options.under)).id
+  // The types with fields the caller may not see: the index holds those fields, so their entries
+  // are matched without it.
+  const withHiddenFields = Object.entries(hiddenFields).flatMap(([type, fields]) =>
+    fields.length > 0 ? [type] : [],
+  )
+  const ofTypesWithHiddenFields =
+    withHiddenFields.length === 0 ? sql`false` : sql`e.type IN ${sql.in(withHiddenFields)}`
   const rows = yield* found(sql`
     WITH RECURSIVE query AS (
       SELECT websearch_to_tsquery(${configuration}::regconfig, ${query}) AS q
@@ -32,8 +40,9 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
       WHERE s.depth < ${TREE_DEPTH}
     ) CYCLE id SET looped USING trail
     , found AS (
-      -- The values of the fields, but those the caller may not see, weigh as much as a body.
-      SELECT e.*, e.search || setweight(jsonb_to_tsvector(${configuration}::regconfig,
+      SELECT e.*, ${sql.literal(SEARCHABLE)} AS everything,
+        -- The values of the fields, but those the caller may not see, weigh as much as a body.
+        e.search || setweight(jsonb_to_tsvector(${configuration}::regconfig,
           e.fields - coalesce(ARRAY(SELECT jsonb_array_elements_text(
             ${JSON.stringify(hiddenFields)}::jsonb -> e.type)), '{}'), '["string", "numeric"]'),
           'C')
@@ -52,6 +61,12 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
     FROM found e, query
     WHERE (e.words @@ query.q
         -- A URL or an identifier given whole is found as it is, whatever the parser makes of it.
+        OR e.sources @> jsonb_build_array(jsonb_build_object('url', ${query}::text))
+        OR e.sources @> jsonb_build_array(jsonb_build_object('identifier', ${query}::text)))
+      -- What the indexes find: the same matches, every field counted, so PostgreSQL reads them
+      -- instead of every entry; the condition above then sets the hidden fields aside.
+      AND (e.everything @@ query.q
+        OR ${ofTypesWithHiddenFields}
         OR e.sources @> jsonb_build_array(jsonb_build_object('url', ${query}::text))
         OR e.sources @> jsonb_build_array(jsonb_build_object('identifier', ${query}::text)))
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})

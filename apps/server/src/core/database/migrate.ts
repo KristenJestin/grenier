@@ -36,14 +36,23 @@ const exists = (table: string) =>
     presence(sql`SELECT to_regclass(${table}) IS NOT NULL AS present`),
   ).pipe(Effect.map(([row]) => row?.present === true))
 
+/** The names of the migrations applied to the database, in order. */
+const applied = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  if (!(yield* exists(JOURNAL))) return []
+  const rows = yield* names(sql`SELECT name FROM ${sql.literal(JOURNAL)} ORDER BY id`)
+  return rows.flatMap(({ name }) => (name === null ? [] : [name]))
+})
+
 /**
  * Takes over a database made by the migrations Grenier had before Drizzle: when it stands at the
- * last of them, its schema is the baseline's, so the baseline is recorded as applied, and the
- * former journal goes. Nothing else changes; the next migrations apply on top.
+ * last of them, its schema is the baseline's, so the baseline is recorded as applied. Nothing
+ * else changes; the next migrations apply on top. The former journal stays as it is, so the
+ * previous release still starts on the database; Drizzle's journal tells the takeover is done.
  */
 const takeOver = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
-  if (!(yield* exists(EFFECT_JOURNAL))) return
+  if (!(yield* exists(EFFECT_JOURNAL)) || (yield* applied).length > 0) return
   const [row] = yield* versions(
     sql`SELECT coalesce(max(migration_id), 0)::int AS version FROM ${sql(EFFECT_JOURNAL)}`,
   )
@@ -63,30 +72,35 @@ const takeOver = Effect.gen(function* () {
       )`
       yield* sql`INSERT INTO ${sql.literal(JOURNAL)} (hash, created_at, name)
         VALUES (${baseline.hash}, ${baseline.folderMillis}, ${baseline.name})`
-      yield* sql`DROP TABLE ${sql(EFFECT_JOURNAL)}`
     }),
   )
 })
 
-/** The names of the migrations applied to the database, in order. */
-const applied = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient
-  if (!(yield* exists(JOURNAL))) return []
-  const rows = yield* names(sql`SELECT name FROM ${sql.literal(JOURNAL)} ORDER BY id`)
-  return rows.flatMap(({ name }) => (name === null ? [] : [name]))
-})
+/**
+ * Serialises the migration runs on a database: Drizzle's migrator takes no lock, and the server,
+ * the MCP server, the importer and every command line migrate when they start.
+ */
+const MIGRATION_LOCK = 7_418_311
 
 /**
  * Brings the database to the latest version, then indexes again for search the entries indexed
  * in another language than `SEARCH_LANGUAGE`. Returns the names of the migrations it applied.
+ * Two processes that start together migrate one after the other: the second waits for the first,
+ * then finds nothing to do.
  */
 export const migrate = Effect.gen(function* () {
-  yield* takeOver
-  const before = yield* applied
-  const db = yield* PgDrizzle.makeWithDefaults()
-  yield* applyMigrations(db, { migrationsFolder })
-  yield* reindexSearch
-  return local.map(({ name }) => name).filter((name) => !before.includes(name))
+  const sql = yield* SqlClient.SqlClient
+  return yield* sql.withTransaction(
+    Effect.gen(function* () {
+      yield* sql`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK}::bigint)`
+      yield* takeOver
+      const before = yield* applied
+      const db = yield* PgDrizzle.makeWithDefaults()
+      yield* applyMigrations(db, { migrationsFolder })
+      yield* reindexSearch
+      return local.map(({ name }) => name).filter((name) => !before.includes(name))
+    }),
+  )
 })
 
 /** The name of the last migration the code knows. */

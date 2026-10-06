@@ -32,6 +32,20 @@ const regconfig = customType<{ data: string }>({ dataType: () => 'regconfig' })
 /** A full-text index, computed by PostgreSQL. */
 const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' })
 
+/**
+ * Everything an entry can be found by, as one weighted full-text vector: the generated `search`,
+ * then the values of every field and the URLs, identifiers and labels of its sources, which weigh
+ * as much as a body. The search index is built on this expression, and a search matches it as it
+ * is written here, so PostgreSQL reads the index; the fields a caller may not see are left out
+ * afterwards, on the entries the index found.
+ */
+export const SEARCHABLE = `search
+  || setweight(jsonb_to_tsvector(search_language, fields, '["string", "numeric"]'), 'C')
+  || setweight(jsonb_to_tsvector(search_language,
+    jsonb_path_query_array(sources, '$[*].url')
+      || jsonb_path_query_array(sources, '$[*].identifier')
+      || jsonb_path_query_array(sources, '$[*].label'), '["string"]'), 'C')`
+
 /** The types of entries, defined at run time; their field definitions are kept as JSON. */
 export const types = pgTable('types', {
   name: text().primaryKey(),
@@ -108,7 +122,10 @@ export const entries = pgTable(
       foreignColumns: [table.id],
     }),
     index('entries_parent_id').on(table.parent_id),
-    index('entries_search').using('gin', table.search),
+    index('entries_search').using('gin', sql.raw(`(${SEARCHABLE})`)),
+    // A source given whole, and the entries of the types whose fields a caller may not see.
+    index('entries_sources').using('gin', table.sources.op('jsonb_path_ops')),
+    index('entries_type').on(table.type),
   ],
 )
 
