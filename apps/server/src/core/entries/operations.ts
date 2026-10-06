@@ -235,8 +235,14 @@ export const slugOf = (title: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'entry'
 
-/** The slug of a title that no entry uses yet, with a numeric suffix when needed. */
-const freeSlugOf = Effect.fn('freeSlugOf')(function* (title: string) {
+/**
+ * The slug of a title that no entry uses yet, nor one of `reserved`, with a numeric suffix when
+ * needed.
+ */
+const freeSlugOf = Effect.fn('freeSlugOf')(function* (
+  title: string,
+  reserved: ReadonlySet<string> = new Set(),
+) {
   const db = yield* drizzle
   const base = slugOf(title)
   const taken = new Set(
@@ -247,6 +253,7 @@ const freeSlugOf = Effect.fn('freeSlugOf')(function* (title: string) {
         .where(or(eq(table.slug, base), like(table.slug, `${base}-%`))),
     )).map(({ slug }) => slug),
   )
+  for (const slug of reserved) taken.add(slug)
   let suffix = 1
   while (taken.has(suffix === 1 ? base : `${base}-${suffix}`)) suffix += 1
   return suffix === 1 ? base : `${base}-${suffix}`
@@ -365,15 +372,28 @@ const retypeRefusal = Effect.fn('retypeRefusal')(function* (
 })
 
 /**
+ * What a batch knows of its entries as they stand once all are written: the slugs they end with,
+ * which a body may refer to already; the slugs it renames away, each to its new one; and the slugs
+ * a new title would take but cannot, each with the title and the slug it takes instead.
+ */
+type Batch = {
+  readonly coming: ReadonlySet<string>
+  readonly renamed: ReadonlyMap<string, string>
+  readonly displaced: ReadonlyMap<string, { readonly title: string; readonly slug: string }>
+}
+
+const ALONE: Batch = { coming: new Set(), renamed: new Map(), displaced: new Map() }
+
+/**
  * Creates an entry, or updates the one `entry` names. The result is validated against the
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
  * per problem, all problems at once. A write that changes nothing writes nothing.
  */
 export const writeEntry = Effect.fn('writeEntry')(function* (
   input: WriteEntryInput,
-  // The slugs a batch writes along with this entry: its body may refer to them already.
-  coming: ReadonlySet<string> = new Set(),
+  batch: Batch = ALONE,
 ) {
+  const { coming, renamed: renamedAway, displaced } = batch
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
@@ -561,7 +581,17 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         }
 
         for (const reference of referencesIn(state.body)) {
-          if (
+          const away = renamedAway.get(reference)
+          const other = displaced.get(reference)
+          if (away !== undefined && reference !== existing?.slug) {
+            problems.push(
+              `The field \`body\` refers to \`${reference}\`, which this batch renames to \`${away}\`: refer to \`${away}\`.`,
+            )
+          } else if (other !== undefined) {
+            problems.push(
+              `The field \`body\` refers to \`${reference}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+            )
+          } else if (
             reference !== slug &&
             !coming.has(reference) &&
             (yield* visibleIdOf(reference)) === undefined
@@ -720,6 +750,44 @@ const labelOf = (input: WriteEntryInput, index: number) => {
 }
 
 /**
+ * The slug each entry of a batch ends with, found before any is written: a new entry named by its
+ * title alone gets its free slug now, so its body and the others refer to the slug it will have.
+ */
+const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEntryInput>) {
+  const db = yield* drizzle
+  const coming = new Set<string>()
+  const renamed = new Map<string, string>()
+  const displaced = new Map<string, { title: string; slug: string }>()
+  const planned: Array<WriteEntryInput> = []
+  for (const input of batch) {
+    if (input.entry !== undefined) {
+      const [found] = yield* slugs(
+        db.select({ slug: table.slug }).from(table).where(named(input.entry)),
+      )
+      const to = input.slug ?? found?.slug
+      if (to !== undefined) coming.add(to)
+      if (found !== undefined && to !== undefined && to !== found.slug) renamed.set(found.slug, to)
+      planned.push(input)
+    } else if (input.slug === undefined && input.title !== undefined) {
+      const slug = yield* freeSlugOf(input.title, coming)
+      coming.add(slug)
+      if (slug !== slugOf(input.title))
+        displaced.set(slugOf(input.title), { title: input.title, slug })
+      planned.push({ ...input, slug })
+    } else {
+      if (input.slug !== undefined) coming.add(input.slug)
+      planned.push(input)
+    }
+  }
+  // A slug one entry leaves and another takes, in the same batch, names the one that takes it.
+  for (const slug of coming) {
+    renamed.delete(slug)
+    displaced.delete(slug)
+  }
+  return { planned, known: { coming, renamed, displaced } }
+})
+
+/**
  * Writes several entries in one transaction, each by the rules of `writeEntry`, and their bodies
  * may refer to one another as if all existed already. One refused entry refuses the batch: the
  * refusal names each refused entry with its sentences, and nothing is written.
@@ -733,19 +801,13 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
       message: `A batch holds ${BATCH_LIMIT} entries at most: this one holds ${batch.length}. Split it.`,
     })
   }
-  const coming = new Set(
-    batch.flatMap(({ entry, slug, title }) => [
-      ...(slug === undefined ? [] : [slug]),
-      ...(entry === undefined ? [] : [entry]),
-      ...(entry === undefined && slug === undefined && title !== undefined ? [slugOf(title)] : []),
-    ]),
-  )
   return yield* refusingContention(
     client.withTransaction(
       Effect.gen(function* () {
+        const { planned, known } = yield* planBatch(batch)
         // A refusal is kept as a value, so that every entry of the batch is checked.
-        const results = yield* Effect.forEach(batch, (input) =>
-          writeEntry(input, coming).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
+        const results = yield* Effect.forEach(planned, (input) =>
+          writeEntry(input, known).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
         )
         const isRefused = Schema.is(Refused)
         const refusals = results.flatMap((result, index) =>

@@ -88,4 +88,47 @@ describe('several entries written at once', () => {
         .message,
     ).toBe('The field `body` refers to `nowhere`, which is not the slug of any entry.')
   })
+
+  test('a reference to a slug the batch renames away is refused, whatever the order', async () => {
+    await run(writeEntry({ type: 'note', title: 'Old shelf' }))
+    const rename = { entry: 'old-shelf', slug: 'new-shelf' }
+    const citing = { type: 'note', title: 'Shelf notes', body: 'See [[old-shelf]].' }
+    const sentence =
+      'The field `body` refers to `old-shelf`, which this batch renames to `new-shelf`: refer to `new-shelf`.'
+    expect((await run(Effect.flip(writeEntries([rename, citing])))).message).toBe(
+      `Entry 2 (\`Shelf notes\`): ${sentence}`,
+    )
+    expect((await run(Effect.flip(writeEntries([citing, rename])))).message).toBe(
+      `Entry 1 (\`Shelf notes\`): ${sentence}`,
+    )
+    expect((await run(readEntry('old-shelf'))).entry.slug).toBe('old-shelf')
+    await run(writeEntries([rename, { ...citing, body: 'See [[new-shelf]].' }]))
+    expect((await run(readEntry('new-shelf'))).backlinks).toMatchObject([
+      { relation: 'mentions', slug: 'shelf-notes' },
+    ])
+  })
+
+  test('a reference to the slug a new title would take, already used, is refused', async () => {
+    await run(writeEntry({ type: 'note', title: 'Rain barrel' }))
+    const refusal = await run(
+      Effect.flip(
+        writeEntries([
+          { type: 'note', title: 'Rain barrel' },
+          { type: 'note', title: 'Watering', body: 'Fill from the [[rain-barrel]].' },
+        ]),
+      ),
+    )
+    expect(refusal.message).toBe(
+      'Entry 2 (`Watering`): The field `body` refers to `rain-barrel`, which this batch does not give to `Rain barrel`: that entry takes the slug `rain-barrel-2`.',
+    )
+    const [, second] = await run(
+      writeEntries([
+        { type: 'note', title: 'Rain barrel' },
+        { type: 'note', title: 'Watering', body: 'Fill from the [[rain-barrel-2]].' },
+      ]),
+    )
+    expect((await run(readEntry('rain-barrel-2'))).backlinks).toMatchObject([
+      { relation: 'mentions', slug: second?.slug },
+    ])
+  })
 })
