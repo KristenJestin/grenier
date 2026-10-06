@@ -9,7 +9,6 @@
     "reports/**",
     "dist/**",
     "**/dist/**",
-    "**/routeTree.gen.ts",
     "**/node_modules/**",
     ".turbo/**",
     "**/.turbo/**",

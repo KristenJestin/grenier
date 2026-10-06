@@ -1,6 +1,6 @@
 import { Schema } from 'effect'
-import { ISO_DURATION } from '../types/definition.ts'
-import type { FieldDefinition, TypeDefinition } from '../types/definition.ts'
+import { ISO_DURATION, PROVENANCES } from '@grenier/api/model'
+import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
 
 /** Text with what it must be, said both when it is not text and when its content is wrong. */
 const textThat = (expected: string, isValid: (value: string) => boolean) =>
@@ -24,8 +24,6 @@ export const Text = Schema.String.check(Schema.isNonEmpty({ expected: 'text that
 export const Slug = textThat('lowercase kebab-case text such as `internet-at-home`', (value) =>
   /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value),
 )
-
-export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
 export const Provenance = textThat('one of `extracted`, `inferred`, `ambiguous`', (value) =>
   PROVENANCES.some((provenance) => provenance === value),

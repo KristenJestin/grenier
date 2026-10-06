@@ -1,4 +1,5 @@
-import { search, SearchOptions } from '../../core/search/index.ts'
+import { SearchOptions } from '@grenier/api/model'
+import { search } from '../../core/search/index.ts'
 import { Effect, Schema } from 'effect'
 import { defineTool } from '../tool.ts'
 

@@ -19,10 +19,6 @@
       "outputs": [],
       "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
     },
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
-    },
     "@grenier/tools#lint": {
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -30,7 +26,6 @@
         "$TURBO_ROOT$/tsconfig.base.json",
         "$TURBO_ROOT$/package.json",
         "$TURBO_ROOT$/apps/**/*.ts",
-        "$TURBO_ROOT$/apps/**/*.tsx",
         "$TURBO_ROOT$/apps/**/package.json",
         "$TURBO_ROOT$/packages/**/*.ts",
         "$TURBO_ROOT$/packages/**/package.json"
@@ -44,7 +39,6 @@
         "$TURBO_ROOT$/tsconfig.base.json",
         "$TURBO_ROOT$/package.json",
         "$TURBO_ROOT$/apps/**/*.ts",
-        "$TURBO_ROOT$/apps/**/*.tsx",
         "$TURBO_ROOT$/apps/**/package.json",
         "$TURBO_ROOT$/packages/**/*.ts",
         "$TURBO_ROOT$/packages/**/package.json",

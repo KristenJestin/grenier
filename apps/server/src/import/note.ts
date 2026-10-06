@@ -1,5 +1,5 @@
 import { slugOf } from '../core/entries/index.ts'
-import type { WriteEntryInput } from '../core/entries/index.ts'
+import type { WriteEntryInput } from '@grenier/api/model'
 import { Refused } from '../core/refused.ts'
 import { Effect, Schema } from 'effect'
 import { parse } from 'yaml'

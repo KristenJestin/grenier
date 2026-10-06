@@ -1,4 +1,5 @@
-import { defineType, TypeDefinition } from '../../core/types/index.ts'
+import { TypeDefinition } from '@grenier/api/model'
+import { defineType } from '../../core/types/index.ts'
 import { defineTool } from '../tool.ts'
 
 export const defineTypeTool = defineTool({

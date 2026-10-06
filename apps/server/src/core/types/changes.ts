@@ -8,7 +8,7 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { formatSchemaError } from '@grenier/api/schema'
-import { FIELD_KINDS, TypeDefinition } from './definition.ts'
+import { FIELD_KINDS, TypeDefinition } from '@grenier/api/model'
 import { getType, snapshotOf } from './operations.ts'
 
 /**

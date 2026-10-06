@@ -1,5 +1,5 @@
 import { PgClient } from '@effect/sql-pg'
-import { Config, Effect, Layer, Schema } from 'effect'
+import { Config, Context, Effect, Layer, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 
 export class DatabaseUrlMissing extends Schema.TaggedError<DatabaseUrlMissing>()(
@@ -17,6 +17,15 @@ export const databaseUrl = Config.Redacted('DATABASE_URL').pipe(
 
 /** The database of `DATABASE_URL`, as the SQL client every operation of the core runs on. */
 export const layer = Layer.unwrap(Effect.map(databaseUrl, (url) => PgClient.layer({ url })))
+
+/**
+ * The services of the database alone, out of a larger context: what a program built apart, such
+ * as one MCP server per key, needs to run on the same pool.
+ */
+export const databaseServices = Effect.map(
+  Effect.context<PgClient.PgClient | SqlClient.SqlClient>(),
+  Context.pick(PgClient.PgClient, SqlClient.SqlClient),
+)
 
 /**
  * Whether the database of `DATABASE_URL` answers within two seconds, through a connection of its

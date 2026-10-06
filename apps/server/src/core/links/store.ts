@@ -1,20 +1,7 @@
-import { Effect, Schema } from 'effect'
+import { Effect } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { Link } from '@grenier/api/model'
 import { rowsOf } from '../database/rows.ts'
-
-/**
- * A link seen from one of its ends: the relation, the period and date field a link `fulfills`
- * closes, and the entry at the other end.
- */
-export const Link = Schema.Struct({
-  relation: Schema.String,
-  period: Schema.NullOr(Schema.String),
-  field: Schema.NullOr(Schema.String),
-  id: Schema.String,
-  slug: Schema.String,
-  title: Schema.String,
-})
-export type Link = typeof Link.Type
 
 const links = rowsOf(Link)
 

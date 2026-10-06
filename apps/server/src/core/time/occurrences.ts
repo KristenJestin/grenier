@@ -1,5 +1,5 @@
 import { Match } from 'effect'
-import type { FieldDefinition } from '../types/definition.ts'
+import type { FieldDefinition } from '@grenier/api/model'
 import { addDays, addMonths, dateIn, dayNumber, isoWeekOf } from './calendar.ts'
 
 /** How a date field comes back: never (a single deadline), every year, month or week. */

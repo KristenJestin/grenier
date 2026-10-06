@@ -33,10 +33,11 @@ Everything in this repository is in English: documents, code, comments, commits,
 pull requests. The interface may be in French.
 
 ```
-packages/api      @grenier/api     The contract between the server and its clients: the Effect
-                                   schemas of what they exchange, and their conventions
-                                   (`@grenier/api/schema`). No database, no Node or Bun API:
-                                   a browser application may import it.
+packages/api      @grenier/api     The contract between the server and its clients: the HTTP
+                                   API (`@grenier/api/http`, an Effect `HttpApi`), the schemas
+                                   of what they exchange (`@grenier/api/model`), and their
+                                   conventions (`@grenier/api/schema`). No database, no Node
+                                   or Bun API: a browser application may import it.
 apps/server       @grenier/server  Everything else, one program and its folders:
                                    `src/core`     the model, the database (Effect SQL,
                                                   migrations), validation, search, the event
@@ -44,7 +45,8 @@ apps/server       @grenier/server  Everything else, one program and its folders:
                                                   reaches the database;
                                    `src/mcp`      the MCP tools, over stdio and over HTTP;
                                    `src/import`   the importer of Markdown notes;
-                                   the HTTP server (`/mcp`, `/health`) and the command lines.
+                                   the HTTP server, Effect's on Bun (no web framework), and
+                                   the command lines.
 tools/            @grenier/tools   commit-message, branch-guard, install-hooks, boundaries, and
                                    the vendored lint rules. TypeScript run by Bun, tested by
                                    Vitest.
@@ -80,14 +82,17 @@ bun run check                    # typecheck, lint, fmt:check and test, in that 
 Turborepo caches every task: a second `bun run check` with nothing changed answers from the
 cache. Inside one package, the task is run by its own script (`bun run test` in `apps/server`).
 
-The server, in development (`/mcp` and `/health` on `PORT`, 3000 by default). It needs
-`BETTER_AUTH_SECRET` in `.env`; every request to `/mcp` carries a key, whose name is the actor of
-its writes. From `apps/server`:
+The server, in development, on `PORT` (3000 by default): `/mcp` (MCP, protocol 2026-07-28 and
+the older revisions), `/health`, `/media/<hash>`, and the read API (`GET /api/types`,
+`/api/entries/{slug or id}`, `/api/search?q=…`), its OpenAPI document at `/api/openapi.json` and
+its documentation page at `/api/docs`. It needs `BETTER_AUTH_SECRET` in `.env`; every request to
+`/mcp` and to the API carries a key, whose name is the actor of its writes (the API needs the
+right `read`). From `apps/server`:
 
 ```
 bun run grenier owner:create --email owner@example.org
 bun run grenier key:create --name agent-laptop --rights read,write
-bun run dev                                       # or: bun run build, then bun run start
+bun run dev                                       # restarts on change; or: bun run start
 claude mcp add --transport http grenier http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```

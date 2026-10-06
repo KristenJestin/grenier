@@ -1,0 +1,83 @@
+import {
+  Authorization,
+  Forbidden,
+  GrenierApi,
+  Invalid,
+  NotFound,
+  Unauthorized,
+} from '@grenier/api/http'
+import { Auth } from './core/auth/index.ts'
+import { readEntry } from './core/entries/index.ts'
+import { search } from './core/search/index.ts'
+import { listTypes } from './core/types/index.ts'
+import { Effect, Layer, Redacted } from 'effect'
+import { HttpApiBuilder } from 'effect/http-api'
+
+/** The sentence a key without the right `read` is refused with, over HTTP as over MCP. */
+export const MAY_NOT_READ =
+  'This key may not read: ask the owner of Grenier for a key with the right `read`.'
+
+/** The key of a request, verified by Better Auth: it must hold the right `read`. */
+const AuthorizationLayer = Layer.effect(
+  Authorization,
+  Effect.gen(function* () {
+    const auth = yield* Auth
+    return Authorization.of({
+      bearer: (route, { credential }) =>
+        Effect.gen(function* () {
+          const secret = Redacted.value(credential)
+          const { rights } = yield* auth
+            .verifyKey(secret === '' ? undefined : secret)
+            .pipe(Effect.mapError(({ message }) => new Unauthorized({ message })))
+          if (!rights.includes('read')) return yield* new Forbidden({ message: MAY_NOT_READ })
+          return yield* route
+        }),
+    })
+  }),
+)
+
+const types = HttpApiBuilder.group(GrenierApi, 'types', (handlers) =>
+  Effect.succeed(
+    handlers.handle('list', () =>
+      listTypes.pipe(
+        Effect.map((defined) => ({ types: defined })),
+        Effect.orDie,
+      ),
+    ),
+  ),
+)
+
+const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
+  Effect.succeed(
+    handlers.handle('read', ({ params }) =>
+      readEntry(params.entry).pipe(
+        Effect.catchTag('Refused', ({ message }) => Effect.fail(new NotFound({ message }))),
+        Effect.catchTag('SqlError', Effect.die),
+      ),
+    ),
+  ),
+)
+
+const searching = HttpApiBuilder.group(GrenierApi, 'search', (handlers) =>
+  Effect.succeed(
+    handlers.handle('search', ({ query: { q, ...options } }) =>
+      search(q, options).pipe(
+        Effect.map((results) => ({ results })),
+        Effect.catchTag('Refused', ({ message }) => Effect.fail(new Invalid({ message }))),
+        Effect.catchTags({
+          ConfigError: Effect.die,
+          SearchLanguageUnknown: Effect.die,
+          SqlError: Effect.die,
+        }),
+      ),
+    ),
+  ),
+)
+
+/**
+ * The read API, its OpenAPI document at `/api/openapi.json`, behind the keys of Better Auth. It
+ * runs on the database and the authentication the server provides once.
+ */
+export const ApiRoutes = HttpApiBuilder.layer(GrenierApi, {
+  openapiPath: '/api/openapi.json',
+}).pipe(Layer.provide([types, entries, searching]), Layer.provide(AuthorizationLayer))
