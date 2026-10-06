@@ -24,6 +24,9 @@ services:
     build:
       context: .
       dockerfile: apps/server/Dockerfile
+      args:
+        GRENIER_VERSION: ${GRENIER_VERSION:-unknown}
+        GRENIER_COMMIT: ${GRENIER_COMMIT:-unknown}
     env_file:
       - path: .env.production
         required: true
