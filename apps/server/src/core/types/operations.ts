@@ -170,8 +170,8 @@ export const ChangeTypeInput = Schema.Struct({ type: Schema.String, sensitive: S
 export type ChangeTypeInput = typeof ChangeTypeInput.Type
 
 /**
- * Makes every entry of a type sensitive, or no longer. Lifting it shows what was hidden, so only
- * a key with the right `sensitive` may.
+ * Makes every entry of a type sensitive, or no longer. Lifting it shows what was hidden at once,
+ * so only the owner may.
  */
 export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeInput) {
   const client = yield* SqlClient.SqlClient
@@ -181,9 +181,9 @@ export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeIn
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const type = yield* getType(input.type, 'update')
-      if (type.sensitive === true && !input.sensitive && !rights.includes('sensitive')) {
+      if (type.sensitive === true && !input.sensitive && !rights.includes('owner')) {
         return yield* new Refused({
-          message: `Only a key with the right \`sensitive\` may make the type \`${type.name}\` no longer sensitive.`,
+          message: `Only the owner of Grenier may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
         })
       }
       const { sensitive: _, ...rest } = type

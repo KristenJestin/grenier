@@ -63,7 +63,11 @@ A **type** has a name, a label, a description and a list of field definitions:
 Field kinds: `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `duration`, `enum`,
 `money`, `url`, `entry` (a reference to another entry). A field may be `required`, may list
 allowed `values`, and may be `sensitive`. A whole type may be `sensitive` too (a diary, health
-records), at its definition or later with `change_type`.
+records), at its definition or later with `change_type`; a field becomes sensitive at its
+definition, with `add_field`, or later with `change_field`. Any writer may make a field or a type
+sensitive; only the owner makes it no longer sensitive, from the command line (`field:sensitive`,
+`type:sensitive … --off`), since that shows its values at once. A value copied out before (a
+backup, an export) stays where it went.
 
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker
@@ -73,7 +77,7 @@ on that entry: no date, no days left, no age, since each would give the date bac
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
 its occurrences show neither its name nor its date. Such a key may not write a sensitive field
-nor an entry of a sensitive type, and may not lift the flag of a sensitive type. Sensitive data
+nor an entry of a sensitive type. Sensitive data
 is never sent to an external service, and an export leaves it out unless asked to include it.
 
 A type's name is unique and in lowercase kebab-case (`bank-account`); its description is

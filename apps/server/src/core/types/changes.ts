@@ -13,7 +13,7 @@ import { getType, snapshotOf } from './operations.ts'
 
 /**
  * A change of one field of a type: make it required (or optional), change its kind, rename it,
- * change its allowed values. `default` fills the entries that lack a field made required;
+ * change its allowed values, make it sensitive (or, for the owner alone, no longer). `default` fills the entries that lack a field made required;
  * `mapping` turns an old value into a new one. `dry_run` says what the change would do.
  */
 export const ChangeFieldInput = Schema.Struct({
@@ -23,6 +23,7 @@ export const ChangeFieldInput = Schema.Struct({
   kind: Schema.optionalKey(Schema.Literals(FIELD_KINDS)),
   rename: Schema.optionalKey(Schema.String),
   values: Schema.optionalKey(Schema.Array(Schema.String)),
+  sensitive: Schema.optionalKey(Schema.Boolean),
   default: Schema.optionalKey(Schema.Json),
   mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
   dry_run: Schema.optionalKey(Schema.Boolean),
@@ -195,18 +196,30 @@ export const changeField = Effect.fn('changeField')(
         message: `The type \`${type.name}\` has no field \`${input.field}\`.`,
       })
     }
+    // Lifting a field's sensitivity shows its values at once: the owner's call alone.
+    if (old.sensitive === true && input.sensitive === false && !(yield* Rights).includes('owner')) {
+      return yield* new Refused({
+        message: `Only the owner of Grenier may make the field \`${old.name}\` of \`${type.name}\` no longer sensitive: they do it from the command line, with \`field:sensitive ${type.name} ${old.name} --off\`.`,
+      })
+    }
+    const sensitive = input.sensitive ?? old.sensitive === true
     const name = input.rename ?? old.name
     const kind = input.kind ?? old.kind
     const required = input.required ?? old.required === true
     // Values given for another kind than enum stay, so the definition refuses them.
     const values = kind === 'enum' ? (input.values ?? old.values) : input.values
-    const { values: _, required: __, ...kept } = old
+    const { values: _, required: __, sensitive: ___, ...kept } = old
     // A deadline and a recurrence belong to a date: a field that stops being one drops them.
     const carried = kind === 'date' ? kept : { ...kept, due: undefined, recurs: undefined }
     const field = Object.fromEntries(
-      Object.entries({ ...carried, name, kind, required: required || undefined, values }).filter(
-        ([, value]) => value !== undefined,
-      ),
+      Object.entries({
+        ...carried,
+        name,
+        kind,
+        required: required || undefined,
+        values,
+        sensitive: sensitive || undefined,
+      }).filter(([, value]) => value !== undefined),
     )
     const next = yield* decodeType(
       { ...type, fields: type.fields.map((each) => (each.name === old.name ? field : each)) },
