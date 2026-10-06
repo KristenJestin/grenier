@@ -55,7 +55,9 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization>()(
 const types = HttpApiGroup.make('types')
   .add(
     HttpApiEndpoint.get('list', '/api/types', {
-      success: Schema.Struct({ types: Schema.Array(TypeDefinition) }),
+      success: Schema.Struct({ types: Schema.Array(TypeDefinition) }).annotate({
+        identifier: 'TypeList',
+      }),
     }),
   )
   .annotateMerge(OpenApi.annotations({ title: 'Types', description: 'The types of entry.' }))
@@ -79,7 +81,9 @@ const search = HttpApiGroup.make('search')
   .add(
     HttpApiEndpoint.get('search', '/api/search', {
       query: { q: Schema.String, ...SearchOptions.fields },
-      success: Schema.Struct({ results: Schema.Array(SearchResult) }),
+      success: Schema.Struct({ results: Schema.Array(SearchResult) }).annotate({
+        identifier: 'SearchResults',
+      }),
       error: Invalid,
     }),
   )

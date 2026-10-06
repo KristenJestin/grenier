@@ -13,6 +13,8 @@
     ".turbo/**",
     "**/.turbo/**",
     "tools/oxlint/**",
+    "openapi.json",
+    "**/openapi.json",
     "**/*.md"
   ]
 }

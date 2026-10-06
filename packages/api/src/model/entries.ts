@@ -37,7 +37,7 @@ export type SourceKept = typeof SourceKept.Type
 export const Source = Schema.Union([
   Schema.Struct({ entry: Schema.String, slug: Schema.String, title: Schema.String, ...About }),
   ...Elsewhere,
-])
+]).annotate({ identifier: 'Source' })
 export type Source = typeof Source.Type
 
 /** An entry as it is read: the base fields of `docs/model.md` and the values of its type. */
@@ -61,7 +61,7 @@ export const Entry = Schema.Struct({
   valid_until: Schema.NullOr(Schema.String),
   superseded_by: Schema.NullOr(Schema.String),
   archived_at: Schema.NullOr(Schema.String),
-})
+}).annotate({ identifier: 'Entry' })
 export type Entry = typeof Entry.Type
 
 /** A child of an entry, as listed under it. */
@@ -71,7 +71,7 @@ export const Child = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   summary: Schema.String,
-})
+}).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
 /**
@@ -115,7 +115,7 @@ export const Link = Schema.Struct({
   id: Schema.String,
   slug: Schema.String,
   title: Schema.String,
-})
+}).annotate({ identifier: 'Link' })
 export type Link = typeof Link.Type
 
 /** A file attached to an entry, as the entry is read: its record, and where to fetch it. */
@@ -132,7 +132,7 @@ export const Medium = Schema.Struct({
   alt: Schema.String,
   position: Schema.Number,
   url: Schema.String,
-})
+}).annotate({ identifier: 'Medium' })
 export type Medium = typeof Medium.Type
 
 /**
@@ -150,5 +150,5 @@ export const EntryRead = Schema.Struct({
   cited_by: Schema.Array(
     Schema.Struct({ id: Schema.String, slug: Schema.String, title: Schema.String }),
   ),
-})
+}).annotate({ identifier: 'EntryRead' })
 export type EntryRead = typeof EntryRead.Type

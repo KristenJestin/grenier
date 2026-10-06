@@ -10,7 +10,7 @@ export const SearchResult = Schema.Struct({
   path: Schema.Array(Schema.String),
   excerpt: Schema.String,
   rank: Schema.Number,
-})
+}).annotate({ identifier: 'SearchResult' })
 export type SearchResult = typeof SearchResult.Type
 
 export const SearchOptions = Schema.Struct({
