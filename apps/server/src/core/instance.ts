@@ -10,12 +10,13 @@ export type Instance = {
   readonly label: string | null
   readonly version: string
   readonly commit: string
+  readonly diagnostics: boolean
 }
 
 /**
- * The instance this server is, its version and commit. The entry points read it from the
- * environment at start-up; a program that sets none is a development instance of an unknown
- * version.
+ * The instance this server is, its version and commit, and whether diagnostics are on. The entry
+ * points read it from the environment at start-up; a program that sets none is a development
+ * instance of an unknown version, without diagnostics.
  */
 export const Instance = Context.Reference<Instance>('@grenier/core/instance/Instance', {
   defaultValue: () => ({
@@ -23,6 +24,7 @@ export const Instance = Context.Reference<Instance>('@grenier/core/instance/Inst
     label: null,
     version: 'unknown',
     commit: 'unknown',
+    diagnostics: false,
   }),
 })
 
@@ -43,9 +45,19 @@ export class InstanceUnknown extends Schema.TaggedError<InstanceUnknown>()('Inst
   }
 }
 
+export class DiagnosticsUnknown extends Schema.TaggedError<DiagnosticsUnknown>()(
+  'DiagnosticsUnknown',
+  { value: Schema.String },
+) {
+  override get message() {
+    return `GRENIER_DIAGNOSTICS must be \`on\` or \`off\`: \`${this.value}\` is not one.`
+  }
+}
+
 /**
  * The instance of the environment: `GRENIER_INSTANCE` (required), `GRENIER_INSTANCE_LABEL`,
- * `GRENIER_VERSION` and `GRENIER_COMMIT` (`unknown` when not set).
+ * `GRENIER_VERSION` and `GRENIER_COMMIT` (`unknown` when not set), and `GRENIER_DIAGNOSTICS`
+ * (`on` or `off`, off when not set).
  */
 export const instanceFromEnvironment = Effect.gen(function* () {
   const value = yield* Config.String('GRENIER_INSTANCE').pipe(Config.withDefault(''), Effect.orDie)
@@ -58,10 +70,14 @@ export const instanceFromEnvironment = Effect.gen(function* () {
   const label = yield* optional('GRENIER_INSTANCE_LABEL')
   const version = yield* optional('GRENIER_VERSION')
   const commit = yield* optional('GRENIER_COMMIT')
+  const diagnostics = (yield* optional('GRENIER_DIAGNOSTICS')) || 'off'
+  if (diagnostics !== 'on' && diagnostics !== 'off')
+    return yield* new DiagnosticsUnknown({ value: diagnostics })
   return {
     name,
     label: label === '' ? null : label,
     version: version === '' ? 'unknown' : version,
     commit: commit === '' ? 'unknown' : commit,
+    diagnostics: diagnostics === 'on',
   }
 })
