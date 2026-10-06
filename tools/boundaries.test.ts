@@ -1,4 +1,6 @@
-import { resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 
 import {
@@ -15,6 +17,20 @@ const repository = resolve(import.meta.dirname, '..')
 describe('Every access to the data goes through the core', () => {
   test('the repository holds no refusal', () => {
     expect(analyze(repository)).toEqual([])
+  })
+
+  test('build outputs and dependencies are not read as sources', () => {
+    const root = mkdtempSync(join(tmpdir(), 'grenier-boundaries-'))
+    try {
+      for (const folder of ['target', '.turbo', 'node_modules', 'dist']) {
+        const path = join(root, 'apps', 'desktop', folder)
+        mkdirSync(path, { recursive: true })
+        writeFileSync(join(path, 'built.ts'), "import pg from 'pg'\n")
+      }
+      expect(analyze(root)).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('every way of naming a module is read', () => {

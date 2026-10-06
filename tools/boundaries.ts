@@ -131,10 +131,16 @@ export function databaseLayerRefusalsOf(file: string, source: string): Refusal[]
     }))
 }
 
+/**
+ * Folders that hold no source of ours: dependencies and build outputs. A build may create and
+ * delete files there while this check reads the tree (Cargo's `target` beside the Rust crates).
+ */
+const NOT_SOURCES = new Set(['node_modules', 'dist', 'target', '.turbo'])
+
 function sourceFilesOf(directory: string): string[] {
   if (!existsSync(directory)) return []
   return readdirSync(directory).flatMap((entry) => {
-    if (entry === 'node_modules' || entry === 'dist') return []
+    if (NOT_SOURCES.has(entry)) return []
     const path = join(directory, entry)
     if (statSync(path).isDirectory()) return sourceFilesOf(path)
     return /\.[cm]?tsx?$/.test(entry) ? [path] : []
