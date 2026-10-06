@@ -112,10 +112,17 @@ export const importNotes = Effect.fn('importNotes')(
       })),
     ].toSorted((left, right) => left.depth - right.depth || left.path.localeCompare(right.path))
 
-    // The entry of each folder, by id once it is known, by slug until then.
+    // The entry of each folder, by id. Folders come before what they hold, so a folder missing
+    // here could not be imported: what it holds is refused, not filed under some other entry.
     const folderEntries = new Map<string, string>()
-    const parentOf = (folderPath: string) =>
-      folderPath === '.' ? null : (folderEntries.get(folderPath) ?? slugOf(basename(folderPath)))
+    const parentOf = Effect.fn('parentOf')(function* (folderPath: string) {
+      if (folderPath === '.') return null
+      const parent = folderEntries.get(folderPath)
+      if (parent !== undefined) return parent
+      return yield* new Refused({
+        message: `Its folder \`${folderPath}\` could not be imported: fix the note of the folder first.`,
+      })
+    })
 
     /** Bodies held back until every entry exists. */
     const bodies: Array<{ path: string; id: string; body: string; hash: string }> = []
@@ -132,7 +139,7 @@ export const importNotes = Effect.fn('importNotes')(
         type: AREA.name,
         title: basename(path),
         slug: slugOf(basename(path)),
-        parent: parentOf(dirname(path)),
+        parent: yield* parentOf(dirname(path)),
       })
       yield* recordSourceItem(source, identifier, entry.id, 'area')
       folderEntries.set(path, entry.id)
@@ -151,7 +158,7 @@ export const importNotes = Effect.fn('importNotes')(
       }
       const { entry, body } = yield* readNote(basename(path, '.md'), text)
       const later = referencesIn(body).length > 0
-      const parent = parentOf(dirname(ownFolder ?? `${dirname(path)}/x`))
+      const parent = yield* parentOf(dirname(ownFolder ?? `${dirname(path)}/x`))
       const write: WriteEntryInput = later ? { ...entry, parent } : { ...entry, parent, body }
       const written =
         known === undefined
