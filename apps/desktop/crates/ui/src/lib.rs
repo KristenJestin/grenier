@@ -3,5 +3,11 @@
 //! asks for (open an entry, search, follow a link). The gallery (`story`) shows each of them with
 //! invented data; the application (`app`) feeds them from the server.
 
+pub mod entry;
+pub mod intent;
+pub mod load;
 pub mod placeholder;
+pub mod search;
+pub mod status;
 pub mod theme;
+pub mod viewer;

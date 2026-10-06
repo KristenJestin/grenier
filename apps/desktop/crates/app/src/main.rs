@@ -23,7 +23,14 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
-            gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| cx.new(|_| Viewer))
-                .expect("the window opens");
+            gpui_kit::open_window(
+                WindowOptions {
+                    app_id: Some("grenier".into()),
+                    ..WindowOptions::default()
+                },
+                cx,
+                |_, cx| cx.new(|_| Viewer),
+            )
+            .expect("the window opens");
         });
 }
