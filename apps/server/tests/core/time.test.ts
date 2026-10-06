@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import { link } from '../../src/core/links/index.ts'
-import { briefing, headsUp, Today, upcoming } from '../../src/core/time/index.ts'
+import { briefing, headsUp, TimeZone, Today, upcoming } from '../../src/core/time/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
@@ -249,5 +249,79 @@ describe('29 February', () => {
       )
     expect(await leap('2027-02-01', '2027-03-31')).toEqual([['2027-02-28', 27]])
     expect(await leap('2028-02-01', '2028-03-31')).toEqual([['2028-02-29', 28]])
+  })
+})
+
+describe('the period of upcoming', () => {
+  const refusalOf = (effect: ReturnType<typeof upcoming>) =>
+    run(
+      Effect.flip(effect).pipe(
+        on('2026-05-01'),
+        Effect.map(({ message }) => message),
+      ),
+    )
+
+  test('a period that ends before it starts is refused, not an error', async () => {
+    expect(await refusalOf(upcoming('2026-05-01', '2026-04-01'))).toBe(
+      'The period ends before it starts: `to` (`2026-04-01`) comes before `from` (`2026-05-01`).',
+    )
+  })
+
+  test('a date that does not exist is refused', async () => {
+    expect(await refusalOf(upcoming('2026-13-45', '2026-12-31'))).toBe(
+      'The field `from` must be a date such as `2026-10-05`.',
+    )
+  })
+
+  test('a period of more than a year is refused', async () => {
+    expect(await refusalOf(upcoming('2026-01-01', '2028-01-01'))).toBe(
+      'The period is a year at most: ask for `2026-01-01` to `2026-12-31`, then the next one.',
+    )
+  })
+})
+
+describe('notices', () => {
+  test('a one-month notice before a date at a month end starts on its day', async () => {
+    await run(
+      defineType({
+        name: 'lease',
+        label: 'Lease',
+        description: 'A lease that ends once.',
+        fields: [{ name: 'ends', kind: 'date', due: { notice: 'P1M' } }],
+      }),
+    )
+    await run(writeEntry({ type: 'lease', title: 'Studio lease', fields: { ends: '2026-03-30' } }))
+    const told = await run(headsUp.pipe(on('2026-02-28'), as('agent-lease')))
+    expect(told.map(({ entry }) => entry.slug)).toContain('studio-lease')
+  })
+
+  test('a notice of hours counts as a day', async () => {
+    await run(
+      defineType({
+        name: 'slot',
+        label: 'Slot',
+        description: 'A booked slot.',
+        fields: [{ name: 'on', kind: 'date', due: { notice: 'PT12H' } }],
+      }),
+    )
+    await run(writeEntry({ type: 'slot', title: 'Court booking', fields: { on: '2026-06-10' } }))
+    const seen = async (day: string) =>
+      (await run(headsUp.pipe(on(day), as(`agent-slot-${day}`)))).map(({ entry }) => entry.slug)
+    expect(await seen('2026-06-08')).not.toContain('court-booking')
+    expect(await seen('2026-06-09')).toContain('court-booking')
+  })
+})
+
+describe('a year ago, in the owner time zone', () => {
+  test('an entry created late in the evening counts on the day the owner lived it', async () => {
+    await run(writeEntry({ type: 'note', title: 'Late evening', created: '2025-03-01T23:30:00Z' }))
+    const paris = await run(
+      briefing('today').pipe(on('2026-03-02'), Effect.provideService(TimeZone, 'Europe/Paris')),
+    )
+    expect(paris.a_year_ago.created.map(({ slug }) => slug)).toContain('late-evening')
+    const utc = await run(
+      briefing('today').pipe(on('2026-03-02'), Effect.provideService(TimeZone, 'UTC')),
+    )
+    expect(utc.a_year_ago.created.map(({ slug }) => slug)).not.toContain('late-evening')
   })
 })
