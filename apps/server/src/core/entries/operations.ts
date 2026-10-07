@@ -13,7 +13,7 @@ import { hiddenIn, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
-import { keepReferences, referencesOf, resolvePending } from '../links/pending.ts'
+import { keepReferences, lockReferences, referencesOf, resolvePending } from '../links/pending.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
@@ -46,6 +46,7 @@ const ancestors = rowsOf(
   Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
 )
 const typedSlugs = rowsOf(Schema.Struct({ slug: Schema.String, type: Schema.String }))
+const rowsBodies = rowsOf(Schema.Struct({ slug: Schema.String, body: Schema.String }))
 const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
 const { entries: table } = tables
@@ -564,6 +565,26 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (input.entry !== undefined && Predicate.isString(input.parent)) {
           yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
+        // Before any row lock too: the slugs the body names, before and after, and the entry's
+        // own when it is renamed. A rename takes them first as well, so a write that cites the
+        // renamed slug and the rename never wait for each other in a circle.
+        if (input.body !== undefined || input.edits !== undefined || input.slug !== undefined) {
+          const [stored] =
+            input.entry === undefined
+              ? []
+              : yield* rowsBodies(
+                  db
+                    .select({ slug: table.slug, body: table.body })
+                    .from(table)
+                    .where(named(input.entry)),
+                )
+          yield* lockReferences([
+            ...referencesIn(stored?.body ?? ''),
+            ...referencesIn(input.body ?? ''),
+            ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
+            ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
+          ])
+        }
         // The types first, then the entry, in the order a change of a type takes them: two writes
         // never wait for each other in a circle.
         const current =
@@ -806,7 +827,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const renamed = existing !== undefined && existing.slug !== decoded.success.slug
         // Before the slug changes, which locks this entry against new links to it: an edit that
         // links one of these entries to this one could then never finish.
-        if (renamed) yield* mentioningOf(existing.id)
+        if (renamed) {
+          // The old slug and the new one: a write citing either waits for the rename, or the
+          // rename for it, so its body is rewritten, or it waits for an entry with that slug.
+          yield* lockReferences([existing.slug, decoded.success.slug])
+          yield* mentioningOf(existing.id)
+        }
         const entry = renamed
           ? {
               ...decoded.success,
@@ -889,7 +915,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           existing === undefined ? 'create' : 'update',
           changes,
         )
-        yield* keepReferences(id, entry.body, coming)
+        // A body left as it was keeps its links: its references only change with it.
+        if (existing === undefined || existing.body !== entry.body)
+          yield* keepReferences(id, entry.body, coming)
         if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
         // A new slug or alias is what references written before may wait for.
         if (
