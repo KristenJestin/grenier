@@ -298,9 +298,15 @@ as for a key without the right `sensitive` and cut to 300 characters). A report 
 occurrence of the finding of the same kind and place whose title shares at least half of its
 words (lowercased, without punctuation or common English words); otherwise it is a new finding.
 
-An unexpected failure of the server (a defect, never a refusal), in a tool or a route, becomes an
+An unexpected failure of the server (a defect, never a refusal), in a tool or a route, is first
+written to the server's standard error, in every instance and whether diagnostics are on or not:
+one line of JSON with the time, the class, the message and the stack, the tool or route, and the
+key's name, never the arguments of the call. That output stays on the machine (the container's
+log) and is never sent anywhere; a message of the database may quote a stored value there, which
+is accepted for the machine's own logs. With diagnostics on, it also becomes an
 occurrence of a `bug` at that tool or route by itself: in production, only the tag or class of
-the error (`SqlError`, `TypeError`), the place and a fixed sentence, since a message, a stack or
+the error (`SqlError`, `TypeError`, the class of any object, else `a string` or `a value`), the
+place and a fixed sentence, since a message, a stack or
 a statement could carry the owner's data; elsewhere, its message as the title and its stack. Findings are not
 the owner's data, and are not entries; the owner reads them in full from the command line
 (`findings:list`, `findings:show`, `findings:export`), never through MCP or a client.

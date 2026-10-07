@@ -58,7 +58,11 @@ async function startWith(diagnostics: 'on' | 'off') {
       GRENIER_INSTANCE: 'local',
       GRENIER_DIAGNOSTICS: diagnostics,
     },
-    stdio: ['ignore', 'ignore', 'ignore'],
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+  let errors = ''
+  child.stderr?.on('data', (chunk: Buffer) => {
+    errors += chunk.toString('utf8')
   })
   const base = `http://127.0.0.1:${port}`
   const waitUp = async (tries: number): Promise<void> => {
@@ -72,7 +76,7 @@ async function startWith(diagnostics: 'on' | 'off') {
     return waitUp(tries - 1)
   }
   await waitUp(300)
-  return { database, base, secret, stop: () => child.kill() }
+  return { database, base, secret, stop: () => child.kill(), errors: () => errors }
 }
 
 let on: Awaited<ReturnType<typeof startWith>> | undefined
@@ -141,5 +145,34 @@ describe('diagnostics over HTTP', () => {
       { origin: 'server', instance: 'local', key_name: 'agent-bench', call_tool: null },
     ])
     expect(await server(off).database.runPromise(findingsWithOccurrences({}))).toEqual([])
+  })
+
+  test('a forced defect writes one line to standard error with the stack, diagnostics on or off', async () => {
+    const { database, base, secret, errors } = server(off)
+    await database.runPromise(renameTable('types', 'types_gone'))
+    try {
+      await fetch(`${base}/api/types`, { headers: { authorization: `Bearer ${secret}` } })
+    } finally {
+      await database.runPromise(renameTable('types_gone', 'types'))
+    }
+    const logged = async (tries: number): Promise<ReadonlyArray<string>> => {
+      const lines = errors()
+        .split('\n')
+        .filter((line) => line.includes('types_gone') || line.includes('"place":"GET /api/types"'))
+      if (lines.length > 0 || tries === 0) return lines
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return logged(tries - 1)
+    }
+    const [line, ...more] = await logged(50)
+    expect(more).toEqual([])
+    expect(JSON.parse(line ?? '{}')).toMatchObject({
+      level: 'error',
+      event: 'unexpected error',
+      class: 'EffectDrizzleQueryError',
+      place: 'GET /api/types',
+      key: 'agent-bench',
+      instance: 'local',
+      stack: expect.stringContaining('\n    at '),
+    })
   })
 })
