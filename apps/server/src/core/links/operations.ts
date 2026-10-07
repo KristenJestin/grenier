@@ -6,6 +6,7 @@ import type { FieldValues } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { sensitivity } from '../sensitive.ts'
 import { ruleOf } from '../time/occurrences.ts'
 import { findType } from '../types/operations.ts'
 import { incoming, MENTIONS, outgoing } from './store.ts'
@@ -192,12 +193,17 @@ export const unlink = Effect.fn('unlink')(function* (
   )
 })
 
-/** The links that leave an entry. */
+/** The links that leave an entry, but those to an entry the caller may not see. */
 export const linksOf = Effect.fn('linksOf')(function* (reference: string) {
-  return yield* outgoing((yield* findEntry(reference)).id)
+  const { hiddenTypes } = yield* sensitivity
+  return yield* outgoing((yield* findEntry(reference)).id, hiddenTypes)
 })
 
-/** The links that reach an entry, with the relation and the source's title. */
+/**
+ * The links that reach an entry, with the relation and the source's title, but those from an
+ * entry the caller may not see.
+ */
 export const backlinksOf = Effect.fn('backlinksOf')(function* (reference: string) {
-  return yield* incoming((yield* findEntry(reference)).id)
+  const { hiddenTypes } = yield* sensitivity
+  return yield* incoming((yield* findEntry(reference)).id, hiddenTypes)
 })

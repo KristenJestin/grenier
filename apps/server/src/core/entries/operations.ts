@@ -43,7 +43,6 @@ const ids = rowsOf(Schema.Struct({ id: Schema.String }))
 const ancestors = rowsOf(
   Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
 )
-const slugs = rowsOf(Schema.Struct({ slug: Schema.String }))
 const typedSlugs = rowsOf(Schema.Struct({ slug: Schema.String, type: Schema.String }))
 const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
@@ -313,19 +312,28 @@ const freeSlugOf = Effect.fn('freeSlugOf')(function* (
   reserved: ReadonlySet<string> = new Set(),
 ) {
   const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
   const base = slugOf(title)
-  const taken = new Set(
-    (yield* slugs(
-      db
-        .select({ slug: table.slug })
-        .from(table)
-        .where(or(eq(table.slug, base), like(table.slug, `${base}-%`))),
-    )).map(({ slug }) => slug),
+  const found = yield* typedSlugs(
+    db
+      .select({ slug: table.slug, type: table.type })
+      .from(table)
+      .where(or(eq(table.slug, base), like(table.slug, `${base}-%`))),
   )
+  const taken = new Set(found.map(({ slug }) => slug))
+  const hidden = new Set(found.filter(({ type }) => hidesType(type)).map(({ slug }) => slug))
   for (const slug of reserved) taken.add(slug)
   let suffix = 1
-  while (taken.has(suffix === 1 ? base : `${base}-${suffix}`)) suffix += 1
-  return suffix === 1 ? base : `${base}-${suffix}`
+  const candidate = () => (suffix === 1 ? base : `${base}-${suffix}`)
+  while (taken.has(candidate())) {
+    // Stepping over a slug the caller may not see would tell that it is used: said neutrally.
+    if (hidden.has(candidate()))
+      return yield* new Refused({
+        message: `The field \`slug\` cannot be \`${candidate()}\`: choose another slug.`,
+      })
+    suffix += 1
+  }
+  return candidate()
 })
 
 const events = rowsOf(Schema.Struct({ id: Schema.Number }))

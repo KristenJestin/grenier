@@ -63,9 +63,10 @@ calls its own toolchain for Turborepo, as `apps/desktop` calls Cargo.
 `packages/*`, `apps/*` and `tools` form the Bun workspace; Turborepo runs their tasks. Import
 another package only through its `exports`; never reach into another package's `src`. **Every
 access to the data goes through `apps/server/src/core`**: `bun tools/boundaries.ts` (part of
-`bun run lint`) refuses a SQL client imported anywhere else, so validation and the event log can
-never be bypassed, and refuses a contract (`packages/api`) that imports an application or a
-runtime.
+`bun run lint`) refuses a SQL client or Drizzle imported anywhere else, and the core's database
+layer (its tables, its Drizzle handle) imported outside the core, but the one module it exposes for
+wiring the pool and running the migrations; so validation and the event log can never be
+bypassed. It also refuses a contract (`packages/api`) that imports an application or a runtime.
 
 Every version is pinned exactly: Bun, Turborepo, oxlint, oxfmt, Vitest, TypeScript, Effect,
 PostgreSQL, and whatever a change adds.
