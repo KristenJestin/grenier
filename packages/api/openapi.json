@@ -143,6 +143,52 @@
         }
       }
     },
+    "/api/pending-references": {
+      "get": {
+        "tags": [
+          "Entries"
+        ],
+        "operationId": "entries.pending",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PendingReferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingReferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/entries/{entry}": {
       "get": {
         "tags": [
@@ -460,6 +506,43 @@
               "type": "string"
             }
           },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string"
+                },
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "reference",
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
           "ancestors": {
             "type": "array",
             "items": {
@@ -540,6 +623,7 @@
         "required": [
           "entry",
           "path",
+          "references",
           "ancestors",
           "links",
           "media",
@@ -939,6 +1023,57 @@
           "entry",
           "slug",
           "title"
+        ],
+        "additionalProperties": false
+      },
+      "PendingReferences": {
+        "type": "object",
+        "properties": {
+          "pending": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingReference"
+            }
+          }
+        },
+        "required": [
+          "pending"
+        ],
+        "additionalProperties": false
+      },
+      "PendingReference": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "cited_by": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "slug",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "cited_by"
         ],
         "additionalProperties": false
       },

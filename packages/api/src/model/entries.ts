@@ -176,6 +176,17 @@ export type Medium = typeof Medium.Type
 export const EntryRead = Schema.Struct({
   entry: Entry,
   path: Schema.Array(Schema.String),
+  /**
+   * What each `[[reference]]` of the body names, in order: the entry, or `null` while the reference
+   * waits for an entry with that slug or alias (or names one the key may not see).
+   */
+  references: Schema.Array(
+    Schema.Struct({
+      reference: Schema.String,
+      id: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+    }),
+  ),
   /** The same ancestors with their ids, from the root: `null` for one the key may not see. */
   ancestors: Schema.Array(
     Schema.Struct({ id: Schema.NullOr(Schema.String), title: Schema.String }),

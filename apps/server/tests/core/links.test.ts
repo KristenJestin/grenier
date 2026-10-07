@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
-import { backlinksOf, link, linksOf, unlink } from '../../src/core/links/index.ts'
+import { backlinksOf, link, linksOf, pendingOf, unlink } from '../../src/core/links/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -57,10 +57,9 @@ describe('body references are kept as links', () => {
     expect((await run(readEntry('script'))).entry.body).toBe(body.replace('[[target]]', '[[aim]]'))
   })
 
-  test('a body referencing a missing slug is refused with a sentence naming that slug', async () => {
-    expect(await run(refusalOf(note('Dangling', 'See [[ghost]].')))).toBe(
-      'The field `body` refers to `ghost`, which is not the slug of any entry.',
-    )
+  test('a body referencing a missing slug is kept, the reference waiting for its entry', async () => {
+    await run(note('Dangling', 'See [[ghost]].'))
+    expect(await run(pendingOf((await run(readEntry('dangling'))).entry.id))).toEqual(['ghost'])
   })
 })
 

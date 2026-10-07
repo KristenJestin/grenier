@@ -532,3 +532,24 @@ export const instanceRules = pgTable(
   },
   () => [check('instance_rules_one', sql`id = 1`)],
 )
+
+/**
+ * The references of a body to a slug no entry has yet (`[[slug]]` before the entry is written):
+ * kept until an entry takes that slug or alias, then turned into a link `mentions`.
+ */
+export const pendingReferences = pgTable(
+  'pending_references',
+  {
+    source_id: uuid().notNull(),
+    slug: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ name: 'pending_references_pkey', columns: [table.source_id, table.slug] }),
+    foreignKey({
+      name: 'pending_references_source_id_fkey',
+      columns: [table.source_id],
+      foreignColumns: [entries.id],
+    }),
+    index('pending_references_slug').on(table.slug),
+  ],
+)

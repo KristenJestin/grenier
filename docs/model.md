@@ -173,7 +173,13 @@ name (`about`, `supersedes`, `done_by`, `related`…). `[[slug]]` references in 
 at every write and kept as links:
 
 - backlinks come for free;
-- a link to a slug that does not exist is refused;
+- a reference to a slug no entry has yet is accepted and kept as a **pending reference**, until an
+  entry takes that slug (created, renamed to it, or given it as an alias): its pending references
+  then become links, each recorded in the history of the entry that wrote it. The answer of a
+  write lists the pending references it left, so a typo shows at once; `pending_references` (MCP
+  and `GET /api/pending-references`) lists them all, with the entries that cite each. A reference
+  to an alias links to the entry that has it. To a key without the right `sensitive`, a reference
+  to an entry it may not see waits like any other;
 - renaming a slug rewrites the references in every body that points to it.
 
 A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link

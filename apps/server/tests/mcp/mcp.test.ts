@@ -60,6 +60,7 @@ describe('the server answers over stdio', () => {
       'link',
       'list_proposals',
       'list_types',
+      'pending_references',
       'propose_type_change',
       'read',
       'search',

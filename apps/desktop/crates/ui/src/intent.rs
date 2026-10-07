@@ -62,11 +62,12 @@ pub fn intent_of_link(url: &str) -> Intent {
     }
 }
 
-/// A Markdown body with each reference turned into a link to the entry, in the three forms the
-/// server reads: `[[slug]]`, `[[slug|text]]` and `[[slug#heading]]` (the last two together too).
-/// A link is named by its text when it gives one, else by the entry's title when `title_of`
-/// knows it, else by its slug. References inside code are left alone.
-pub fn with_entry_links(body: &str, title_of: impl Fn(&str) -> Option<String>) -> String {
+/// A Markdown body with each reference turned into a link to the entry `entry_of` says it names,
+/// by its id and title, in the three forms the server reads: `[[slug]]`, `[[slug|text]]` and
+/// `[[slug#heading]]` (the last two together too). A link is named by its text when it gives one,
+/// else by the entry's title. A reference that names no entry yet (it waits for one) is plain text,
+/// never a link that fails. References inside code are left alone.
+pub fn with_entry_links(body: &str, entry_of: impl Fn(&str) -> Option<(String, String)>) -> String {
     let mut out = String::with_capacity(body.len());
     let mut fenced = false;
     for line in body.split_inclusive('\n') {
@@ -95,12 +96,19 @@ pub fn with_entry_links(body: &str, title_of: impl Fn(&str) -> Option<String>) -
                 let (target, text) = inner[..end]
                     .split_once('|')
                     .map_or((&inner[..end], None), |(target, text)| (target, Some(text)));
-                let slug = target.split_once('#').map_or(target, |(slug, _)| slug);
-                let title = text
-                    .map(str::to_string)
-                    .or_else(|| title_of(slug))
-                    .unwrap_or_else(|| slug.to_string());
-                out.push_str(&format!("[{title}]({ENTRY_LINK}{target})"));
+                let (slug, heading) = target
+                    .split_once('#')
+                    .map_or((target, None), |(slug, heading)| (slug, Some(heading)));
+                match entry_of(slug) {
+                    Some((id, title)) => {
+                        let title = text.map_or(title, str::to_string);
+                        let anchor = heading
+                            .map(|heading| format!("#{heading}"))
+                            .unwrap_or_default();
+                        out.push_str(&format!("[{title}]({ENTRY_LINK}{id}{anchor})"));
+                    }
+                    None => out.push_str(text.unwrap_or(slug)),
+                }
                 rest = &inner[end + 2..];
             } else {
                 out.push('[');
@@ -116,37 +124,39 @@ pub fn with_entry_links(body: &str, title_of: impl Fn(&str) -> Option<String>) -
 mod tests {
     use super::*;
 
+    /// The one entry these tests know: `plum-tart`, whose id is `01a1-plum`.
+    fn known(slug: &str) -> Option<(String, String)> {
+        (slug == "plum-tart").then(|| ("01a1-plum".to_string(), "Plum tart".to_string()))
+    }
+
     #[test]
     fn a_reference_becomes_a_link_to_the_entry_but_not_in_code() {
         assert_eq!(
             with_entry_links(
                 "See [[plum-tart]] and `[[not-this]]`.\n```\n[[nor-this]]\n```\n",
-                |_| None
+                known
             ),
-            "See [plum-tart](grenier://plum-tart) and `[[not-this]]`.\n```\n[[nor-this]]\n```\n"
+            "See [Plum tart](grenier://01a1-plum) and `[[not-this]]`.\n```\n[[nor-this]]\n```\n"
         );
     }
 
     #[test]
-    fn a_reference_is_named_by_the_title_of_its_entry_when_known() {
+    fn a_reference_waiting_for_its_entry_is_plain_text() {
         assert_eq!(
-            with_entry_links("See [[plum-tart]].", |slug| {
-                (slug == "plum-tart").then(|| "Plum tart".to_string())
-            }),
-            "See [Plum tart](grenier://plum-tart)."
+            with_entry_links("See [[pear-tart]] and [[pear-tart|the pear one]].", known),
+            "See pear-tart and the pear one."
         );
     }
 
     #[test]
     fn a_reference_may_name_its_text_and_a_heading() {
-        let title_of = |slug: &str| (slug == "plum-tart").then(|| "Plum tart".to_string());
         assert_eq!(
             with_entry_links(
                 "[[plum-tart|the tart]], [[plum-tart#method]], [[plum-tart#method|how]].",
-                title_of
+                known
             ),
-            "[the tart](grenier://plum-tart), [Plum tart](grenier://plum-tart#method), \
-             [how](grenier://plum-tart#method)."
+            "[the tart](grenier://01a1-plum), [Plum tart](grenier://01a1-plum#method), \
+             [how](grenier://01a1-plum#method)."
         );
     }
 

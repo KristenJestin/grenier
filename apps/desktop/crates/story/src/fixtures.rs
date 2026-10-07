@@ -25,7 +25,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
 
 fn around(entry: Value, extra: Value) -> Value {
     let mut base = json!({
-        "entry": entry, "path": [], "ancestors": [], "links": [], "media": [], "backlinks": [],
+        "entry": entry, "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
         "children": [], "hidden_children": 0, "cited_by": []
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
@@ -87,6 +87,10 @@ pub fn contract() -> EntryData {
             json!({
                 "path": ["Maison", "Abonnements"],
                 "ancestors": [{ "id": "maison", "title": "Maison" }, { "id": "abonnements", "title": "Abonnements" }],
+                "references": [
+                    { "reference": "box-du-salon", "id": "box-du-salon", "title": "Box du salon" },
+                    { "reference": "facture-de-septembre", "id": "facture-de-septembre", "title": "Facture de septembre" }
+                ],
                 "links": [
                     { "relation": "mentions", "period": null, "field": null, "id": "box-du-salon", "slug": "box-du-salon", "title": "Box du salon" },
                     { "relation": "signed_by", "period": null, "field": null, "id": "camille-exemple", "slug": "camille-exemple", "title": "Camille Exemple" }

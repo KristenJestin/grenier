@@ -9,6 +9,7 @@ import {
 import { Auth, Rights } from './core/auth/index.ts'
 import { listEntries, readEntry } from './core/entries/index.ts'
 import { Instance } from './core/instance.ts'
+import { pendingReferences } from './core/links/index.ts'
 import { Refused } from './core/refused.ts'
 import { search } from './core/search/index.ts'
 import { listTypes } from './core/types/index.ts'
@@ -64,6 +65,12 @@ const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
       .handle('list', () =>
         listEntries().pipe(
           Effect.map((listed) => ({ entries: listed })),
+          Effect.orDie,
+        ),
+      )
+      .handle('pending', () =>
+        pendingReferences.pipe(
+          Effect.map((pending) => ({ pending })),
           Effect.orDie,
         ),
       )

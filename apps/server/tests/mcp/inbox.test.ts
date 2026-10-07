@@ -72,6 +72,7 @@ describe('answers carry the entry, not its content', () => {
     })
     expect(written).toEqual({
       heads_up: [],
+      pending_references: [],
       entry: {
         id: expect.any(String),
         slug: 'long-journal',
