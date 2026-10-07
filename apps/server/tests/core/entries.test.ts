@@ -547,3 +547,27 @@ describe('a few words of a long body changed in place', () => {
     expect((await run(readEntry('hedge-diary'))).entry.body).toBe('Trim. Trim again. Rest.\n')
   })
 })
+
+describe('edits on their own, counted as they overlap', () => {
+  test('edits with append are refused, and change nothing', async () => {
+    await run(writeEntry({ type: 'note', title: 'Shed diary', body: 'Oiled the hinge.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'shed-diary',
+            append: true,
+            edits: [{ find: 'Oiled', replace: 'Greased' }],
+          }),
+        ),
+      ),
+    ).toBe('Give `edits` or `append`, not both: write the edits, then append.')
+  })
+
+  test('a find that overlaps itself counts each match', async () => {
+    await run(writeEntry({ type: 'note', title: 'Buzz', body: 'aaa\n' }))
+    expect(
+      await run(refusalOf(writeEntry({ entry: 'buzz', edits: [{ find: 'aa', replace: 'b' }] }))),
+    ).toBe('The edit 1 (`aa`) matches the body 2 times: give a longer `find` that matches once.')
+  })
+})

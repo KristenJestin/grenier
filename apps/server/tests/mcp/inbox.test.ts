@@ -243,10 +243,11 @@ describe('several images taken at once', () => {
     const PIXEL =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
     const ids = await Promise.all(
-      ['one.png', 'two.png'].map(async (name) =>
-        Schema.decodeUnknownSync(Added)(
-          await answerOf('inbox_add', { kind: 'file', name, data: PIXEL }),
-        ).item.id,
+      ['one.png', 'two.png'].map(
+        async (name) =>
+          Schema.decodeUnknownSync(Added)(
+            await answerOf('inbox_add', { kind: 'file', name, data: PIXEL }),
+          ).item.id,
       ),
     )
     const { result } = await mcp().request('tools/call', {

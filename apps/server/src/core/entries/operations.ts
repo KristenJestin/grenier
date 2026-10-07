@@ -395,6 +395,13 @@ const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: stri
   return found.length > 0
 })
 
+/** How many times `find` is found in `text`, a match starting at every place it may. */
+const matchesOf = (text: string, find: string) => {
+  let count = 0
+  for (let at = text.indexOf(find); at !== -1; at = text.indexOf(find, at + 1)) count += 1
+  return count
+}
+
 /**
  * A body with its edits applied in order, each `find` replaced where it matches the body as the
  * edits before it left it, once and only once; the edits that match twice or never, said.
@@ -407,7 +414,8 @@ const editsOf = (
   let edited = body
   for (const [index, { find, replace }] of edits.entries()) {
     const edit = `The edit ${index + 1} (\`${find}\`)`
-    const count = find === '' ? 0 : edited.split(find).length - 1
+    // Every match, overlapping ones too: `aa` matches `aaa` twice.
+    const count = find === '' ? 0 : matchesOf(edited, find)
     if (count === 1) edited = edited.replace(find, () => replace)
     else if (count === 0) problems.push(`${edit} matches nothing in the body.`)
     else
@@ -681,7 +689,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
-        if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
+        if (edits !== undefined && append === true) {
+          problems.push('Give `edits` or `append`, not both: write the edits, then append.')
+        } else if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
           problems.push(
             'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',
           )
