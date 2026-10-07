@@ -84,3 +84,14 @@ fn types_and_search_results_read() {
     .expect("search results as the API returns them");
     assert_eq!(found.results[0].rank, 0.6);
 }
+
+#[test]
+fn an_answer_with_keys_a_newer_server_added_still_reads() {
+    let newer = ENTRY.replacen(
+        r#""hidden_children": 1,"#,
+        r#""hidden_children": 1, "added_later": { "any": ["shape"] },"#,
+        1,
+    );
+    let read: EntryRead = serde_json::from_str(&newer).expect("unknown keys are ignored");
+    assert_eq!(read.entry.slug, "plum-tart");
+}

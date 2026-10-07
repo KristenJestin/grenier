@@ -2,7 +2,6 @@
 
 #[doc = "`About`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct About {
     #[doc = "The commit it was built from, or `unknown`."]
     pub commit: ::std::string::String,
@@ -71,7 +70,6 @@ impl ::std::convert::TryFrom<::std::string::String> for AboutInstance {
 }
 #[doc = "`Child`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct Child {
     #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
     pub fields: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
@@ -90,7 +88,6 @@ pub struct Child {
 }
 #[doc = "`Entry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct Entry {
     pub aliases: ::std::vec::Vec<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
@@ -120,7 +117,6 @@ pub struct Entry {
 }
 #[doc = "`EntryList`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct EntryList {
     pub entries: ::std::vec::Vec<TreeEntry>,
 }
@@ -181,7 +177,6 @@ impl ::std::convert::TryFrom<::std::string::String> for EntryProvenanceValue {
 }
 #[doc = "`EntryRead`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct EntryRead {
     pub ancestors: ::std::vec::Vec<EntryReadAncestorsItem>,
     pub backlinks: ::std::vec::Vec<Link>,
@@ -197,7 +192,6 @@ pub struct EntryRead {
 }
 #[doc = "`EntryReadAncestorsItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct EntryReadAncestorsItem {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub id: ::std::option::Option<::std::string::String>,
@@ -205,7 +199,6 @@ pub struct EntryReadAncestorsItem {
 }
 #[doc = "`EntryReadCitedByItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct EntryReadCitedByItem {
     pub id: ::std::string::String,
     pub slug: ::std::string::String,
@@ -213,7 +206,6 @@ pub struct EntryReadCitedByItem {
 }
 #[doc = "`EntryReadReferencesItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct EntryReadReferencesItem {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub id: ::std::option::Option<::std::string::String>,
@@ -223,7 +215,6 @@ pub struct EntryReadReferencesItem {
 }
 #[doc = "`FieldDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct FieldDefinition {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub due: ::std::option::Option<FieldDefinitionDue>,
@@ -246,7 +237,6 @@ pub struct FieldDefinition {
 }
 #[doc = "`FieldDefinitionDue`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct FieldDefinitionDue {
     pub notice: ::std::string::String,
 }
@@ -339,7 +329,6 @@ impl ::std::convert::TryFrom<::std::string::String> for FieldDefinitionKind {
 }
 #[doc = "`FieldDefinitionRecurs`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct FieldDefinitionRecurs {
     pub every: FieldDefinitionRecursEvery,
     pub notice: ::std::string::String,
@@ -451,7 +440,6 @@ impl<'de> ::serde::Deserialize<'de> for FieldDefinitionValuesItem {
 }
 #[doc = "`ForbiddenEncoded`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct ForbiddenEncoded {
     pub message: ::std::string::String,
     #[serde(rename = "_tag")]
@@ -505,7 +493,6 @@ impl ::std::convert::TryFrom<::std::string::String> for ForbiddenEncodedTag {
 }
 #[doc = "`InvalidEncoded`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct InvalidEncoded {
     pub message: ::std::string::String,
     #[serde(rename = "_tag")]
@@ -559,7 +546,6 @@ impl ::std::convert::TryFrom<::std::string::String> for InvalidEncodedTag {
 }
 #[doc = "`Link`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct Link {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub field: ::std::option::Option<::std::string::String>,
@@ -578,7 +564,6 @@ pub struct Link {
 }
 #[doc = "`Medium`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct Medium {
     pub alt: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
@@ -599,7 +584,6 @@ pub struct Medium {
 }
 #[doc = "`NotFoundEncoded`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct NotFoundEncoded {
     pub message: ::std::string::String,
     #[serde(rename = "_tag")]
@@ -653,14 +637,12 @@ impl ::std::convert::TryFrom<::std::string::String> for NotFoundEncodedTag {
 }
 #[doc = "`PendingReference`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct PendingReference {
     pub cited_by: ::std::vec::Vec<PendingReferenceCitedByItem>,
     pub slug: ::std::string::String,
 }
 #[doc = "`PendingReferenceCitedByItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct PendingReferenceCitedByItem {
     pub id: ::std::string::String,
     pub slug: ::std::string::String,
@@ -668,13 +650,11 @@ pub struct PendingReferenceCitedByItem {
 }
 #[doc = "`PendingReferences`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct PendingReferences {
     pub pending: ::std::vec::Vec<PendingReference>,
 }
 #[doc = "`SearchResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct SearchResult {
     pub excerpt: ::std::string::String,
     pub id: ::std::string::String,
@@ -688,7 +668,6 @@ pub struct SearchResult {
 }
 #[doc = "`SearchResults`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct SearchResults {
     pub results: ::std::vec::Vec<SearchResult>,
 }
@@ -723,7 +702,6 @@ impl ::std::convert::From<SourceItem> for Source {
 }
 #[doc = "`SourceEntry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct SourceEntry {
     pub entry: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -733,7 +711,6 @@ pub struct SourceEntry {
 }
 #[doc = "`SourceIdentifier`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct SourceIdentifier {
     pub identifier: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -743,7 +720,6 @@ pub struct SourceIdentifier {
 }
 #[doc = "`SourceItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct SourceItem {
     pub item: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -752,7 +728,6 @@ pub struct SourceItem {
 }
 #[doc = "`SourceUrl`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct SourceUrl {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
@@ -760,7 +735,6 @@ pub struct SourceUrl {
 }
 #[doc = "`TreeEntry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct TreeEntry {
     pub id: ::std::string::String,
     pub in_parent: bool,
@@ -773,7 +747,6 @@ pub struct TreeEntry {
 }
 #[doc = "`TypeDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct TypeDefinition {
     pub description: TypeDefinitionDescription,
     pub fields: ::std::vec::Vec<FieldDefinition>,
@@ -888,13 +861,11 @@ impl<'de> ::serde::Deserialize<'de> for TypeDefinitionLabel {
 }
 #[doc = "`TypeList`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct TypeList {
     pub types: ::std::vec::Vec<TypeDefinition>,
 }
 #[doc = "`UnauthorizedEncoded`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct UnauthorizedEncoded {
     pub message: ::std::string::String,
     #[serde(rename = "_tag")]

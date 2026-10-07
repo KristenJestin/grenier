@@ -22,8 +22,10 @@ pub fn generate() -> String {
         .expect("the document has schemas")
         .iter()
         .map(|(name, schema)| {
+            let mut schema = schema.clone();
+            tolerate_unknown_fields(&mut schema);
             let schema: schemars::schema::Schema =
-                serde_json::from_value(schema.clone()).expect("a schema typify reads");
+                serde_json::from_value(schema).expect("a schema typify reads");
             (name.clone(), schema)
         });
     let mut space =
@@ -36,6 +38,22 @@ pub fn generate() -> String {
         space.to_stream()
     );
     rustfmt(&code)
+}
+
+/// Drops `additionalProperties: false` everywhere in a schema. The server refuses unknown keys in
+/// what it is sent, but a client reading its answers must not: an older viewer has to keep
+/// working when a newer server adds a key to an answer.
+fn tolerate_unknown_fields(schema: &mut serde_json::Value) {
+    match schema {
+        serde_json::Value::Object(map) => {
+            if map.get("additionalProperties") == Some(&serde_json::Value::Bool(false)) {
+                map.remove("additionalProperties");
+            }
+            map.values_mut().for_each(tolerate_unknown_fields);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(tolerate_unknown_fields),
+        _ => {}
+    }
 }
 
 /// The code formatted as `cargo fmt` would.
