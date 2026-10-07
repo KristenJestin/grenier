@@ -158,10 +158,17 @@ problem, naming the field and what is expected (through `formatSchemaError`).
 | Change | Rule |
 |---|---|
 | Create a type, add an optional field | allowed to any writer; the server requires a description and warns about types with a similar name |
+| Change the label or the description of a type | allowed to any writer; neither may be empty |
 | Make a field required, change its kind, remove an allowed value | refused while existing entries would become invalid; the refusal names them; allowed with a default value that repairs them |
 | Delete or merge types | never through an agent alone: proposed, then confirmed by the owner |
 
 Every change of a type is recorded in the event log like any other write.
+
+`change_type` replaces the label or the description of a type, alone or with `sensitive` and
+`read_in_parent`, and nothing else of it; an empty one is refused. The description is what tells
+agents when to use the type, so it is sharpened as its use becomes clearer: `list_types`,
+`get_type` and the instructions of the next session give the new one, and the event holds the
+values before and after.
 
 How the server does it: `change_field` makes a field required (or optional), changes its kind (a
 field that stops being a date loses its `due` and `recurs`, one that stops being an entry its
