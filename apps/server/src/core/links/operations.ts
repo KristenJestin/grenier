@@ -1,6 +1,11 @@
 import { HIDDEN } from '@grenier/api/model'
-import { Effect, Predicate } from 'effect'
+import { asc, eq } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import { Effect, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { drizzle } from '../database/client.ts'
+import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 import { findEntry } from '../entries/operations.ts'
 import type { FieldValues } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
@@ -206,4 +211,68 @@ export const linksOf = Effect.fn('linksOf')(function* (reference: string) {
 export const backlinksOf = Effect.fn('backlinksOf')(function* (reference: string) {
   const { hiddenTypes } = yield* sensitivity
   return yield* incoming((yield* findEntry(reference)).id, hiddenTypes)
+})
+
+const fulfilling = rowsOf(
+  Schema.Struct({
+    source: Schema.String,
+    target: Schema.String,
+    type: Schema.String,
+    fields: Schema.Record(Schema.String, Schema.Json),
+    field: Schema.String,
+    period: Schema.String,
+  }),
+)
+
+/**
+ * The links \`fulfills\` stored before their period was checked, whose period has not the form
+ * their date comes back by: they close nothing, and the date stays announced. For the owner to
+ * correct, as the form expected says.
+ */
+export const misfiledPeriods = Effect.gen(function* () {
+  const db = yield* drizzle
+  const citing = alias(tables.entries, 'citing')
+  const closed = alias(tables.entries, 'closed')
+  const found = yield* fulfilling(
+    db
+      .select({
+        source: citing.slug,
+        target: closed.slug,
+        type: closed.type,
+        fields: closed.fields,
+        field: tables.links.field,
+        period: tables.links.period,
+      })
+      .from(tables.links)
+      .innerJoin(citing, eq(citing.id, tables.links.source_id))
+      .innerJoin(closed, eq(closed.id, tables.links.target_id))
+      .where(eq(tables.links.relation, 'fulfills'))
+      .orderBy(asc(citing.slug), asc(closed.slug)),
+  )
+  const checked = yield* Effect.forEach(found, (stored) =>
+    Effect.gen(function* () {
+      const definition = (yield* findType(stored.type))?.fields.find(
+        ({ name }) => name === stored.field,
+      )
+      const rule = definition === undefined ? undefined : ruleOf(definition)
+      if (rule === undefined) return []
+      const date = stored.fields[stored.field]
+      const expected =
+        rule.every === 'once'
+          ? Predicate.isString(date)
+            ? date
+            : 'its date'
+          : FORMS[rule.every].example
+      const fits =
+        rule.every === 'once' ? stored.period === date : FORMS[rule.every].form.test(stored.period)
+      return fits ? [] : [{ ...stored, expected }]
+    }),
+  )
+  return checked.flat().map((misfiled) => ({
+    source: misfiled.source,
+    target: misfiled.target,
+    field: misfiled.field,
+    period: misfiled.period,
+    expected: misfiled.expected,
+  }))
 })

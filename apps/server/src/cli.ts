@@ -18,6 +18,7 @@
  *   bun src/cli.ts findings:show <number>                 (with its occurrences, as Markdown)
  *   bun src/cli.ts findings:export [--kind …] [--place …] [--severity …]   (Markdown on stdout)
  *   bun src/cli.ts findings:merge <into> <from>          (one problem reported twice)
+ *   bun src/cli.ts links:periods                         (links fulfills whose period closes nothing)
  *   bun src/cli.ts rules:set <file>                       (the rules every agent is given)
  *   bun src/cli.ts rules:show
  *   bun src/cli.ts export:markdown <folder> [--include-sensitive] [--remote <url>]
@@ -39,6 +40,7 @@ import {
   mergedInto,
 } from './core/findings/index.ts'
 import { addFileOnce, addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
+import { misfiledPeriods } from './core/links/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
@@ -61,6 +63,7 @@ const USAGE = `Usage:
   findings:show <number>
   findings:export [--kind <kind>] [--place <place>] [--severity <severity>]
   findings:merge <into> <from>
+  links:periods
   rules:set <file>
   rules:show
   export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]`
@@ -322,6 +325,17 @@ const command = Effect.gen(function* () {
     case 'findings:export': {
       const found = yield* findingsWithOccurrences(yield* findingFilter)
       return ['# Findings of Grenier', ...found.map(markdownOf)].join('\n\n')
+    }
+    case 'links:periods': {
+      const misfiled = yield* asOwner(misfiledPeriods)
+      return misfiled.length === 0
+        ? 'Every link fulfills names a period of the form its date comes back by.'
+        : misfiled
+            .map(
+              ({ source, target, field, period, expected }) =>
+                `${source}\t${target}\t${field}\t${period}\texpected like ${expected}`,
+            )
+            .join('\n')
     }
     case 'rules:set': {
       const file = positionals[1]

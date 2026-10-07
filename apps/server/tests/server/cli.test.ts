@@ -262,3 +262,11 @@ describe('two drops of one folder at the same moment', () => {
     expect(items.map(({ name }) => name).toSorted()).toEqual(['a.md', 'b.md', 'c.md', 'd.md'])
   })
 })
+
+describe('links fulfills stored before their period was checked', () => {
+  test('links:periods says when every period has the form of its date', () => {
+    expect(cli('links:periods')).toBe(
+      'Every link fulfills names a period of the form its date comes back by.\n',
+    )
+  })
+})
