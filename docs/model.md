@@ -278,7 +278,9 @@ every year, month or week from its value (a day the month does not have, such as
 the 31st, falls on the month's last day); both may be set. The period of an occurrence is
 `2026` (yearly), `2026-10` (monthly), `2026-W41` (ISO week) or, for a single deadline, its date;
 a link `fulfills` carries that period and the name of the date field it closes, and only such a
-link has them. The field may be left out when the target's type has a single deadline or
+link has them. A period of another form than the field's recurrence would close nothing and is
+refused, naming the form expected; a single deadline is closed with no period (its date is kept as
+the period) or with its date. The field may be left out when the target's type has a single deadline or
 recurring date: it is then inferred and kept on the link, so the link stays right if the type
 gains another date later. A link `fulfills` without a field to a target with several such dates
 is refused with the list of them, and so is a field that is not a deadline or a recurring date

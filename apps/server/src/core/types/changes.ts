@@ -483,6 +483,8 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
           }
           yield* rewriteEntries(actor, moved)
         } else {
+          // Locked as a merge locks it: an entry created at the same moment is counted.
+          yield* lockedType(proposal.type)
           yield* refuseWhileUsed(proposal.type)
         }
         yield* sql`UPDATE types SET deleted_at = now() WHERE name = ${proposal.type}`

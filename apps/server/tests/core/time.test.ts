@@ -139,6 +139,9 @@ describe('closing an occurrence', () => {
   test('a fulfills link needs a period, and only a fulfills link takes one', async () => {
     await run(writeEntry({ type: 'note', title: 'Receipt' }))
     await expect(run(link('receipt', 'land-tax', 'fulfills'))).rejects.toThrow(
+      'The field `deadline` of `land-tax` comes back every year: a link `fulfills` names its period as `2026`.',
+    )
+    await expect(run(link('receipt', 'land-tax', 'fulfills', 'soon'))).rejects.toThrow(
       'A link `fulfills` needs a period: `2026` for a yearly date, `2026-10` monthly, `2026-W41` weekly, or the date itself.',
     )
     await expect(run(link('receipt', 'land-tax', 'about', '2026'))).rejects.toThrow(

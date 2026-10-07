@@ -132,6 +132,19 @@ export const findEntry = Effect.fn('findEntry')(function* (reference: string) {
 })
 
 /**
+ * The entry named, locked until the transaction ends, after its type, as a write locks them: what
+ * is read from it to write it again cannot change in between.
+ */
+export const lockedEntry = Effect.fn('lockedEntry')(function* (reference: string) {
+  const db = yield* drizzle
+  const [current] = yield* typed(
+    db.select({ id: table.id, type: table.type }).from(table).where(named(reference)),
+  )
+  if (current !== undefined) yield* findType(current.type, 'share')
+  return yield* masked(yield* entryNamed(reference, true))
+})
+
+/**
  * An entry as the caller may see it: its sensitive values replaced by the marker, and each entry
  * it comes from with its slug and title (hidden, when the caller may not see that entry).
  */
@@ -749,6 +762,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           return yield* new Refused({ message: problems.join(' ') })
         }
         const renamed = existing !== undefined && existing.slug !== decoded.success.slug
+        // Before the slug changes, which locks this entry against new links to it: an edit that
+        // links one of these entries to this one could then never finish.
+        if (renamed) yield* mentioningOf(existing.id)
         const entry = renamed
           ? {
               ...decoded.success,
@@ -841,6 +857,25 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
 })
 
 /**
+ * The entries whose bodies mention an entry, with their bodies, locked in the order of their ids:
+ * an edit of one of them at the same moment as a rename is either before the rename, and
+ * rewritten with the rest, or after it.
+ */
+const mentioningOf = Effect.fn('mentioningOf')(function* (id: string) {
+  const db = yield* drizzle
+  const { links } = tables
+  return yield* bodies(
+    db
+      .select({ id: table.id, body: table.body })
+      .from(links)
+      .innerJoin(table, eq(table.id, links.source_id))
+      .where(and(eq(links.target_id, id), eq(links.relation, MENTIONS), ne(links.source_id, id)))
+      .orderBy(asc(table.id))
+      .for('no key update', { of: table }),
+  )
+})
+
+/**
  * After a slug changes from `from` to `to`, points the references of every body that mentions
  * the entry to the new slug, each rewrite recorded as a change of that body.
  */
@@ -851,14 +886,7 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
   to: string,
 ) {
   const db = yield* drizzle
-  const { links } = tables
-  const mentioning = yield* bodies(
-    db
-      .select({ id: table.id, body: table.body })
-      .from(links)
-      .innerJoin(table, eq(table.id, links.source_id))
-      .where(and(eq(links.target_id, id), eq(links.relation, MENTIONS), ne(links.source_id, id))),
-  )
+  const mentioning = yield* mentioningOf(id)
   yield* Effect.forEach(mentioning, (source) =>
     Effect.gen(function* () {
       const body = renameReferences(source.body, from, to)
