@@ -56,6 +56,21 @@ const VALUES = {
   entry: () => Schema.String.annotate({ expected: 'the slug or id of an entry' }),
 } satisfies { readonly [K in FieldDefinition['kind']]: (field: FieldDefinition) => Value }
 
+/**
+ * The schema of a value of a field: one value of its kind, or for a field that is `many`, a list
+ * of them without duplicates, at least one when the field is required.
+ */
+const valueOf = (field: FieldDefinition): Value => {
+  const one = VALUES[field.kind](field)
+  if (field.many !== true) return one
+  const list = Schema.Array(one).check(
+    Schema.isUnique({ expected: 'a list without repeated values' }),
+  )
+  return field.required === true
+    ? list.check(Schema.isMinLength(1, { expected: 'a list of at least one value' }))
+    : list
+}
+
 /** The values of the fields of an entry, by field name. */
 export type FieldValues = { readonly [name: string]: Schema.Json }
 
@@ -72,7 +87,7 @@ export function fieldsOf(type: TypeDefinition): Schema.Codec<FieldValues, FieldV
   return Schema.Struct(
     Object.fromEntries(
       type.fields.map((field): [string, Value | Schema.optionalKey<Value>] => {
-        const value = VALUES[field.kind](field)
+        const value = valueOf(field)
         return [field.name, field.required === true ? value : Schema.optionalKey(value)]
       }),
     ),

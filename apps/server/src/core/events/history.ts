@@ -4,7 +4,7 @@ import { rowsOf } from '../database/rows.ts'
 import { findEntry } from '../entries/operations.ts'
 import { HIDDEN } from '@grenier/api/model'
 import { Refused } from '../refused.ts'
-import { hiddenIn, withoutHidden } from '../hidden-ids.ts'
+import { hiddenIn, holdsHidden, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { Change } from './record.ts'
 
@@ -118,6 +118,17 @@ const maskingOf = Effect.fn('maskingOf')(function* (id: string, type: string) {
   return (field: string) => whole || fields.has(field)
 })
 
+/**
+ * Whether a change is of a link to or from an entry the caller may not see: it then says nothing
+ * of that link, neither the entry's id nor what the link says of itself (its note, its dates).
+ */
+const ofHiddenLink = (
+  change: { readonly field: string; readonly before: Schema.Json; readonly after: Schema.Json },
+  hidden: ReadonlySet<string>,
+) =>
+  change.field.startsWith('links.') &&
+  (holdsHidden(change.before, hidden) || holdsHidden(change.after, hidden))
+
 /** Every write of an entry, oldest first. */
 export const entryHistory = Effect.fn('entryHistory')(function* (reference: string) {
   const sql = yield* SqlClient.SqlClient
@@ -131,7 +142,7 @@ export const entryHistory = Effect.fn('entryHistory')(function* (reference: stri
     actor,
     action,
     changes: changes.map((change) =>
-      hides?.(change.field) === true
+      hides?.(change.field) === true || ofHiddenLink(change, hidden)
         ? { field: change.field, before: HIDDEN, after: HIDDEN }
         : {
             field: change.field,
@@ -158,12 +169,16 @@ export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: stri
   if (hides?.(field) === true)
     return changes.map((change) => ({ ...change, before: HIDDEN, after: HIDDEN }))
   const hidden = yield* hiddenIn(changes.flatMap(valuesOf))
-  return changes.map(({ at, actor, before, after }) => ({
-    at,
-    actor,
-    before: withoutHidden(before, hidden),
-    after: withoutHidden(after, hidden),
-  }))
+  return changes.map(({ at, actor, before, after }) =>
+    ofHiddenLink({ field, before, after }, hidden)
+      ? { at, actor, before: HIDDEN, after: HIDDEN }
+      : {
+          at,
+          actor,
+          before: withoutHidden(before, hidden),
+          after: withoutHidden(after, hidden),
+        },
+  )
 })
 
 /** Every change of a type, oldest first; a deleted or merged type keeps its history. */

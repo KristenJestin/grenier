@@ -163,7 +163,8 @@ export const events = pgTable(
 
 /**
  * Links between entries, apart from the tree: a source, a target and a relation. A link
- * `fulfills` carries the period and the date field of the occurrence it closes.
+ * `fulfills` carries the period and the date field of the occurrence it closes. Any link may carry
+ * a short note and the dates it held between.
  */
 export const links = pgTable(
   'links',
@@ -173,6 +174,10 @@ export const links = pgTable(
     relation: text().notNull(),
     period: text().notNull().default(''),
     field: text().notNull().default(''),
+    // What the link says of itself: a role (`accountant`), and when it held.
+    note: text(),
+    valid_from: date({ mode: 'string' }),
+    valid_until: date({ mode: 'string' }),
   },
   (table) => [
     primaryKey({

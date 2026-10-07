@@ -7,6 +7,7 @@ import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { findEntry } from '../entries/operations.ts'
+import { DateText } from '../entries/values.ts'
 import type { FieldValues } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
@@ -128,10 +129,64 @@ const checkRelation = Effect.fnUntraced(function* (relation: string) {
 })
 
 /**
- * Links two entries with a relation; linking them again with the same relation changes nothing.
- * A link `fulfills` names the date field and the period of the occurrence it closes (`inspection`,
- * `2026`); the field may be left out when the target has a single deadline or recurring date.
- * Returns the field the link closes, `''` for any other relation.
+ * What a link says of itself, as `link` is given it: a short note (a role, such as `accountant`)
+ * and the dates it held between. A key left out stays as it is; `null` removes it.
+ */
+export type LinkAbout = {
+  readonly note?: string | null | undefined
+  readonly valid_from?: string | null | undefined
+  readonly valid_until?: string | null | undefined
+}
+
+/** How many characters the note of a link holds at most. */
+const NOTE_LIMIT = 200
+
+const About = Schema.Struct({
+  note: Schema.NullOr(Schema.String),
+  valid_from: Schema.NullOr(Schema.String),
+  valid_until: Schema.NullOr(Schema.String),
+})
+type About = typeof About.Type
+const abouts = rowsOf(About)
+
+const NOTHING: About = { note: null, valid_from: null, valid_until: null }
+
+const isDate = Schema.is(DateText)
+
+/** Refuses a note too long, or a date that is not one. */
+const checkAbout = Effect.fnUntraced(function* (about: LinkAbout) {
+  const problems = [
+    ...(about.note !== undefined && about.note !== null && about.note.length > NOTE_LIMIT
+      ? [
+          `The note of a link holds ${NOTE_LIMIT} characters at most: this one holds ${about.note.length}.`,
+        ]
+      : []),
+    ...(['valid_from', 'valid_until'] as const).flatMap((key) => {
+      const value = about[key]
+      return value === undefined || value === null || isDate(value)
+        ? []
+        : [`The field \`${key}\` must be a date such as \`2026-10-05\`.`]
+    }),
+  ]
+  if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+})
+
+/**
+ * How the event log names the end of a link: the target's id, or with what the link says of
+ * itself, `{ entry, note, valid_from, valid_until }`, each said only when it is set.
+ */
+const endOf = (target: string, about: About): Schema.Json => {
+  const said = Object.fromEntries(Object.entries(about).filter(([, value]) => value !== null))
+  return Object.keys(said).length === 0 ? target : { entry: target, ...said }
+}
+
+/**
+ * Links two entries with a relation. Linking them again with the same relation (and, for
+ * `fulfills`, the same field and period) changes only what the link says of itself, its note and
+ * its dates, in one event; when that is unchanged, nothing. A link `fulfills` names the date field
+ * and the period of the occurrence it closes (`inspection`, `2026`); the field may be left out
+ * when the target has a single deadline or recurring date. Returns the field the link closes
+ * (`''` for any other relation), its note and its dates.
  */
 export const link = Effect.fn('link')(function* (
   sourceReference: string,
@@ -139,26 +194,67 @@ export const link = Effect.fn('link')(function* (
   relation: string,
   period = '',
   field = '',
+  about: LinkAbout = {},
 ) {
   const sql = yield* SqlClient.SqlClient
   const actor = yield* currentActor
   yield* checkRelation(relation)
   yield* checkPeriod(relation, period)
+  yield* checkAbout(about)
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
       const closed = yield* fieldClosed(relation, target, field)
       const kept = relation === 'fulfills' ? yield* periodClosed(target, closed, period) : period
-      const inserted = yield* sql`INSERT INTO links (source_id, target_id, relation, period, field)
-        VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${kept}, ${closed})
-        ON CONFLICT DO NOTHING RETURNING relation`
-      if (inserted.length > 0) {
-        yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
-          { field: fieldOf(relation, kept, closed), before: null, after: target.id },
-        ])
+      const stored = sql`SELECT note, valid_from::text AS valid_from,
+          valid_until::text AS valid_until
+        FROM links WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+          AND relation = ${relation} AND period = ${kept} AND field = ${closed} FOR UPDATE`
+      const name = fieldOf(relation, kept, closed)
+      /** What the link says once this write is applied to what it said. */
+      const merged = (held: About) => ({
+        note: about.note === undefined ? held.note : about.note,
+        valid_from: about.valid_from === undefined ? held.valid_from : about.valid_from,
+        valid_until: about.valid_until === undefined ? held.valid_until : about.valid_until,
+      })
+      const checked = Effect.fnUntraced(function* (said: About) {
+        if (said.valid_from !== null && said.valid_until !== null)
+          if (said.valid_until < said.valid_from)
+            return yield* new Refused({
+              message: 'The field `valid_until` cannot be before `valid_from`.',
+            })
+        return said
+      })
+      let [held] = yield* abouts(stored)
+      if (held === undefined) {
+        const said = yield* checked(merged(NOTHING))
+        const inserted = yield* sql`INSERT INTO links (source_id, target_id, relation, period,
+            field, note, valid_from, valid_until)
+          VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${kept}, ${closed},
+            ${said.note}, ${said.valid_from}::date, ${said.valid_until}::date)
+          ON CONFLICT DO NOTHING RETURNING relation`
+        if (inserted.length > 0) {
+          yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
+            { field: name, before: null, after: endOf(target.id, said) },
+          ])
+          return { field: closed, ...said }
+        }
+        // Linked by another write at the same moment: this one applies to what that one wrote.
+        ;[held] = yield* abouts(stored)
       }
-      return { field: closed }
+      const before = held ?? NOTHING
+      const after = yield* checked(merged(before))
+      const answer = { field: closed, ...after }
+      if (JSON.stringify(after) === JSON.stringify(before)) return answer
+      yield* sql`UPDATE links SET note = ${after.note}, valid_from = ${after.valid_from}::date,
+          valid_until = ${after.valid_until}::date
+        WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+          AND relation = ${relation} AND period = ${kept} AND field = ${closed}`
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
+        { field: name, before: endOf(target.id, before), after: endOf(target.id, after) },
+      ])
+      return answer
     }),
   )
 })

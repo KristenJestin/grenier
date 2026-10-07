@@ -6,7 +6,8 @@ import { defineTool, Reference } from '../tool.ts'
 
 export const readTool = defineTool({
   name: 'read',
-  description: 'Reads an entry with its place in the tree, its children and its links.',
+  description:
+    'Reads an entry with its place in the tree, its children and its links both ways, each link with its relation, its note and its dates (`valid_from`, `valid_until`). `titles` gives the titles of the entries its `entry` fields name, by id.',
   input: Schema.Struct({
     entry: Reference,
     headings: Schema.optionalKey(Schema.Boolean).annotate({

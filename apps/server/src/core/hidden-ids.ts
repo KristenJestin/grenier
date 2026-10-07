@@ -11,6 +11,9 @@ const typed = rowsOf(Schema.Struct({ id: Schema.String, type: Schema.String }))
 /** An id as the database writes it. */
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** Whether a text is an id as the database writes it. */
+export const isId = (value: string) => ID.test(value)
+
 /** The ids written in values, however deep. */
 const idsIn = (values: ReadonlyArray<Schema.Json>) =>
   values.flatMap((value) => JSON.stringify(value)?.match(IDS) ?? [])
@@ -51,3 +54,7 @@ export const withoutHidden = (value: Schema.Json, hidden: ReadonlySet<string>): 
 
 /** The ids of hidden entries among the texts of these values. */
 export const hiddenIn = (values: ReadonlyArray<Schema.Json>) => hiddenAmong(idsIn(values))
+
+/** Whether a value holds the id of one of these hidden entries, however deep. */
+export const holdsHidden = (value: Schema.Json, hidden: ReadonlySet<string>) =>
+  [...hidden].some((id) => JSON.stringify(value).includes(`"${id}"`))

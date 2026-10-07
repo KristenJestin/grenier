@@ -26,20 +26,25 @@ const typeOf = Effect.fn('typeOf')(function* (reference: string) {
  * One entry's arguments as a key without the right `sensitive` would read them back: an entry of a
  * sensitive type is hidden whole, a sensitive field shows the marker (in `fields`, and in the
  * `default` and `mapping` of a change of that field), and so does every field of an entry whose
- * type is not known.
+ * type is not known. A link to or from an entry of a sensitive type is hidden whole.
  */
 const maskedOne = Effect.fn('maskedOne')(function* (
   hidden: Effect.Success<typeof sensitivity>,
   value: Schema.Json,
 ) {
   if (!isObject(value)) return value
-  const { type, entry, field } = value
+  const { type, entry, field, source, target } = value
   const named = Predicate.isString(type)
     ? type
     : Predicate.isString(entry)
       ? yield* typeOf(entry)
       : undefined
   if (named !== undefined && hidden.hidesType(named)) return HIDDEN
+  // A link to or from such an entry: what the link says of it is hidden with it.
+  for (const end of [source, target]) {
+    const endType = Predicate.isString(end) ? yield* typeOf(end) : undefined
+    if (endType !== undefined && hidden.hidesType(endType)) return HIDDEN
+  }
   const sensitiveField =
     Predicate.isString(field) && (named === undefined || hidden.fieldsOf(named).includes(field))
   const maskedValue = (key: string, each: Schema.Json): Schema.Json => {

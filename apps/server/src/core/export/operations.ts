@@ -36,6 +36,9 @@ const linkRows = rowsOf(
     relation: Schema.String,
     period: Schema.String,
     field: Schema.String,
+    note: Schema.NullOr(Schema.String),
+    valid_from: Schema.NullOr(Schema.String),
+    valid_until: Schema.NullOr(Schema.String),
   }),
 )
 const mediaRows = rowsOf(
@@ -174,11 +177,14 @@ const snapshot = Effect.gen(function* () {
         provenance: sorted(entry.provenance),
         links: allLinks
           .filter(({ source_id, target_id }) => source_id === entry.id && shown.has(target_id))
-          .map(({ target_id, relation, period, field }) => ({
+          .map(({ target_id, relation, period, field, note, valid_from, valid_until }) => ({
             relation,
             target: slugOf(target_id) ?? '',
             period,
             field,
+            note,
+            valid_from,
+            valid_until,
           }))
           .toSorted(
             (left, right) =>
@@ -187,9 +193,11 @@ const snapshot = Effect.gen(function* () {
               compare(left.period, right.period) ||
               compare(left.field, right.field),
           )
-          // The period and the field of a link `fulfills` only.
+          // The period and the field of a link `fulfills` only; a note and dates when set.
           .map((found) =>
-            Object.fromEntries(Object.entries(found).filter(([, value]) => value !== '')),
+            Object.fromEntries(
+              Object.entries(found).filter(([, value]) => value !== '' && value !== null),
+            ),
           ),
         media: allMedia
           .filter(({ entry_id }) => entry_id === entry.id)

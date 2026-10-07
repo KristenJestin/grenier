@@ -26,7 +26,7 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
             "superseded_by": null, "archived_at": null
         },
         "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
-        "hidden_children": 0, "cited_by": []
+        "hidden_children": 0, "cited_by": [], "titles": {}
     })
 }
 
@@ -48,6 +48,9 @@ fn serve(listener: TcpListener) {
                             { "name": "serial", "kind": "text" },
                             { "name": "price", "kind": "money", "sensitive": true }
                         ]
+                    }, {
+                        "name": "person", "label": "Person", "description": "Someone known.",
+                        "fields": [{ "name": "visits", "kind": "entry", "many": true }]
                     }]}),
                 ),
                 "/api/entries" => (
@@ -79,6 +82,18 @@ fn serve(listener: TcpListener) {
                     entry("main-disk", "Main disk", Some("computer"), ""),
                 ),
                 "/api/entries/attic" => ("200 OK", entry("attic", "Attic", None, "")),
+                "/api/entries/neighbour" => {
+                    let mut neighbour = entry("neighbour", "Neighbour", None, "");
+                    neighbour["entry"]["type"] = json!("person");
+                    neighbour["entry"]["fields"] = json!({ "visits": ["kitchen", "attic"] });
+                    neighbour["titles"] = json!({ "kitchen": "Kitchen", "attic": "Attic" });
+                    neighbour["links"] = json!([{
+                        "relation": "works_at", "period": null, "field": null, "note": "gardener",
+                        "valid_from": "2024-01-01", "valid_until": null,
+                        "id": "kitchen", "slug": "kitchen", "title": "Kitchen"
+                    }]);
+                    ("200 OK", neighbour)
+                }
                 "/api/entries/letters" => {
                     // Filed under a trunk that is archived, so absent from the tree.
                     let mut letters = entry("letters", "Letters", Some("old-trunk"), "");
@@ -280,4 +295,35 @@ fn a_reference_to_a_heading_opens_the_entry_at_that_heading(cx: &mut TestAppCont
         offset < px(-200.),
         "the page is scrolled to the heading: {offset:?}"
     );
+}
+
+#[gpui_kit::test]
+fn each_value_of_a_repeated_entry_field_opens_its_entry(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    ask(&viewer, Intent::Open("neighbour".into()), cx);
+    settle(cx);
+    let header = cx
+        .debug_bounds("fields-header")
+        .expect("the fields are drawn, folded");
+    cx.simulate_click(header.center(), Modifiers::none());
+    settle(cx);
+    let second = cx
+        .debug_bounds("field-visits-1-entry")
+        .expect("the second value is drawn, as a link");
+    cx.simulate_click(second.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("attic"));
+}
+
+/// Lets the page play its motion to the end: a spring moves one frame at each drawing.
+fn settle(cx: &mut VisualTestContext) {
+    for _ in 0..120 {
+        cx.update(|window, _| window.refresh());
+        cx.executor().advance_clock(Duration::from_millis(16));
+        cx.run_until_parked();
+    }
 }

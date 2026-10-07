@@ -142,12 +142,19 @@ export type WriteEntryInput = typeof WriteEntryInput.Type
 
 /**
  * A link seen from one of its ends: the relation, the period and date field a link `fulfills`
- * closes, and the entry at the other end.
+ * closes, what the link says of itself (a short note, the dates it held between), and the entry
+ * at the other end.
  */
 export const Link = Schema.Struct({
   relation: Schema.String,
   period: Schema.NullOr(Schema.String),
   field: Schema.NullOr(Schema.String),
+  /** A short text on the link, such as a role: `accountant`. */
+  note: Schema.NullOr(Schema.String),
+  /** The day the link started to hold, as `2024-01-01`. */
+  valid_from: Schema.NullOr(Schema.String),
+  /** The last day the link held. */
+  valid_until: Schema.NullOr(Schema.String),
   id: Schema.String,
   slug: Schema.String,
   title: Schema.String,
@@ -196,6 +203,8 @@ export const EntryRead = Schema.Struct({
   links: Schema.Array(Link),
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),
+  /** The titles of the entries its fields of kind `entry` name, by id, as a reader shows them. */
+  titles: Schema.Record(Schema.String, Schema.String),
   children: Schema.Array(Child),
   hidden_children: Schema.Int,
   cited_by: Schema.Array(

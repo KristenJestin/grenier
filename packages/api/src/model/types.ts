@@ -39,13 +39,30 @@ export const FieldDefinition = Schema.Struct({
     ),
   ),
   sensitive: Schema.optionalKey(Schema.Boolean),
+  types: Schema.optionalKey(
+    Schema.Array(Schema.String)
+      .check(
+        Schema.isMinLength(1, { expected: 'a list of at least one type' }),
+        Schema.isUnique({ expected: 'a list without repeated types' }),
+      )
+      .annotate({
+        description:
+          'On an `entry` field only: the names of the types its entries may be of, such as `["organization"]`; a write naming an entry of another type is refused. Without it, any entry is accepted.',
+      }),
+  ),
+  many: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description:
+        'The field holds a list of values of its kind, in the order given and without duplicates, such as several sellers or languages; `required` then means at least one. Not with `due` or `recurs`.',
+    }),
+  ),
   due: Schema.optionalKey(Schema.Struct({ notice: Notice })),
   recurs: Schema.optionalKey(
     Schema.Struct({ every: Schema.Literals(['yearly', 'monthly', 'weekly']), notice: Notice }),
   ),
 })
   .check(
-    Schema.makeFilter(({ kind, values, due, recurs }) => [
+    Schema.makeFilter(({ kind, values, types, many, due, recurs }) => [
       ...(kind === 'enum' && values === undefined
         ? [{ path: ['values'], issue: 'must list the allowed values of an enum field' }]
         : []),
@@ -57,6 +74,18 @@ export const FieldDefinition = Schema.Struct({
         : []),
       ...(kind !== 'date' && recurs !== undefined
         ? [{ path: ['recurs'], issue: 'is allowed only on a date field' }]
+        : []),
+      ...(kind !== 'entry' && types !== undefined
+        ? [{ path: ['types'], issue: 'is allowed only on an entry field' }]
+        : []),
+      ...(many === true && (due !== undefined || recurs !== undefined)
+        ? [
+            {
+              path: ['many'],
+              issue:
+                'cannot be given with `due` or `recurs`: a deadline or a recurring date holds one date',
+            },
+          ]
         : []),
     ]),
   )
