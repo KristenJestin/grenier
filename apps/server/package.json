@@ -9,7 +9,6 @@
     "start": "bun --env-file=../../.env src/serve.ts",
     "mcp": "bun --env-file=../../.env src/mcp/main.ts",
     "grenier": "bun --env-file=../../.env src/cli.ts",
-    "import": "bun --env-file=../../.env src/import/main.ts",
     "db:generate": "drizzle-kit generate",
     "openapi": "bun src/openapi.ts ../../packages/api/openapi.json",
     "typecheck": "tsc -p tsconfig.json",

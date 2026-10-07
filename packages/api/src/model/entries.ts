@@ -101,7 +101,7 @@ export type TreeEntry = typeof TreeEntry.Type
  * removing a key. Without `entry`, it creates one. `parent` and `superseded_by` take an id or a
  * slug. `created`, a date or a date and time, keeps when a note was first written: taken when the
  * entry is created, or on an update while the entry has not changed since its creation. `updated`
- * is the time of the write, unless an import gives it when it creates the entry. With `append`, the
+ * is the time of the write, unless the write gives it too when it creates the entry. With `append`, the
  * `body` given is added at the end of the entry's body: a body too long for one call is written in
  * parts, each part one write. With `edits`, a few words of the body change in place: each `find`
  * must match the body exactly once, and the edits apply in order, in one write. The rules are checked by the write, not by this schema, so that every problem is

@@ -10,7 +10,8 @@
  *   bun src/cli.ts entry:verify <slug or id>…        (as the owner, recorded in the history)
  *   bun src/cli.ts entry:unverify <slug or id>…
  *   bun src/cli.ts entry:unverified [--type <type>] [--under <slug>]
- *   bun src/cli.ts inbox:add <folder> [--origin <name>]   (one pending item per file)
+ *   bun src/cli.ts inbox:add <folder> [--origin <name>] [--dry-run] [--again]
+ *                                         (one pending item per file, sub-folders included)
  *   bun src/cli.ts type:sensitive <type> [--off]          (only the owner lifts it)
  *   bun src/cli.ts field:sensitive <type> <field> [--off]
  *   bun src/cli.ts findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
@@ -24,14 +25,14 @@
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
 import { readdirSync, readFileSync } from 'node:fs'
-import { basename, join, relative, resolve, sep } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
 import { FindingFilter, findingsWithOccurrences } from './core/findings/index.ts'
-import { addToInbox } from './core/inbox/index.ts'
+import { addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
@@ -47,7 +48,7 @@ const USAGE = `Usage:
   entry:verify <slug or id>...
   entry:unverify <slug or id>...
   entry:unverified [--type <type>] [--under <slug>]
-  inbox:add <folder> [--origin <name>]
+  inbox:add <folder> [--origin <name>] [--dry-run] [--again]
   type:sensitive <type> [--off]
   field:sensitive <type> <field> [--off]
   findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
@@ -75,8 +76,29 @@ const { positionals, values } = parseArgs({
     'include-sensitive': { type: 'boolean' },
     remote: { type: 'string' },
     'deploy-key': { type: 'string' },
+    'dry-run': { type: 'boolean' },
+    again: { type: 'boolean' },
   },
 })
+
+/**
+ * The files under a folder, by their path from it with `/`, in order, and what is skipped: hidden
+ * files (`.gitkeep`) and hidden folders (`.obsidian/`, never walked).
+ */
+const filesUnder = (folder: string) => {
+  const files: Array<string> = []
+  const skipped: Array<string> = []
+  const walk = (inside: string) => {
+    for (const found of readdirSync(join(folder, inside), { withFileTypes: true })) {
+      const path = inside === '' ? found.name : `${inside}/${found.name}`
+      if (found.name.startsWith('.')) skipped.push(found.isDirectory() ? `${path}/` : path)
+      else if (found.isDirectory()) walk(path)
+      else if (found.isFile()) files.push(path)
+    }
+  }
+  walk('')
+  return { files: files.toSorted(), skipped: skipped.toSorted() }
+}
 
 /** The command line is the owner's: their writes are recorded under the actor `owner`. */
 const asOwner = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -198,23 +220,38 @@ const command = Effect.gen(function* () {
       const folder = positionals[1]
       if (folder === undefined) return yield* Effect.fail({ message: USAGE })
       const origin = values.origin ?? basename(resolve(folder))
-      // Every file but the hidden ones, and those of hidden folders.
-      const files = readdirSync(folder, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => relative(folder, join(entry.parentPath, entry.name)))
-        .filter((path) => !path.split(sep).some((part) => part.startsWith('.')))
-        .toSorted()
-      yield* asOwner(
-        Effect.forEach(files, (file) =>
-          addToInbox({
-            kind: 'file',
-            name: file.split(sep).join('/'),
-            data: readFileSync(join(folder, file)).toString('base64'),
-            origin,
-          }),
-        ),
-      )
-      return `Added to the inbox: ${files.length} items, from ${origin}.`
+      const { files, skipped } = filesUnder(folder)
+      const added: Array<string> = []
+      const refused: Array<string> = []
+      let already = 0
+      for (const file of files) {
+        const bytes = readFileSync(join(folder, file))
+        const input = { kind: 'file' as const, name: file, data: bytes.toString('base64'), origin }
+        if (values.again !== true && (yield* fileInInbox({ name: file, origin, bytes })))
+          already += 1
+        else {
+          const refusal =
+            values['dry-run'] === true
+              ? inboxRefusalOf(input)
+              : yield* asOwner(addToInbox(input)).pipe(
+                  Effect.as(undefined),
+                  Effect.catchTag('Refused', Effect.succeed),
+                )
+          if (refusal === undefined) added.push(file)
+          else refused.push(`${file} (${refusal.message})`)
+        }
+      }
+      return [
+        values['dry-run'] === true
+          ? `Would add to the inbox, from ${origin}: ${added.length} items.`
+          : `Added to the inbox, from ${origin}: ${added.length} items.`,
+        ...(values['dry-run'] === true ? added.map((file) => `  ${file}`) : []),
+        ...(already === 0
+          ? []
+          : [`Already in the inbox: ${already} files; give --again to add them again.`]),
+        ...(skipped.length === 0 ? [] : [`Skipped: ${skipped.join(', ')}.`]),
+        ...(refused.length === 0 ? [] : [`Refused: ${refused.join('; ')}`]),
+      ].join('\n')
     }
     case 'type:sensitive': {
       const type = positionals[1]

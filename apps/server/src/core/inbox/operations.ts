@@ -6,7 +6,7 @@ import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { findEntry, identityOf, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
-import { mimeOf, storeFile } from '../media/files.ts'
+import { mimeOf, sha256Of, storeFile } from '../media/files.ts'
 import { Refused } from '../refused.ts'
 import { INBOX } from './store.ts'
 
@@ -95,10 +95,8 @@ const textOf = (bytes: Uint8Array) => {
   }
 }
 
-/** Puts something in the inbox, pending, for an agent to turn into entries. */
-export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) {
-  const db = yield* drizzle
-  const origin = input.origin ?? ''
+/** Why the inbox would refuse an item, if it would: one sentence per problem. */
+export const inboxRefusalOf = (input: InboxInput) => {
   const given = { text: input.text, url: input.url, name: input.name, data: input.data }
   const problems = [
     ...NEEDS[input.kind]
@@ -110,15 +108,55 @@ export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) 
       )
       .map(([key]) => `An item of kind \`${input.kind}\` takes no \`${key}\`.`),
   ]
-  if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+  if (problems.length > 0) return new Refused({ message: problems.join(' ') })
   const url = input.url ?? ''
   if (input.kind === 'url' && !(/^https?:\/\//.test(url) && URL.canParse(url))) {
-    return yield* new Refused({ message: `The URL \`${url}\` must be an http or https address.` })
+    return new Refused({ message: `The URL \`${url}\` must be an http or https address.` })
   }
+  if (Math.floor(((input.data ?? '').length * 3) / 4) > BYTES_LIMIT) {
+    return new Refused({ message: 'A file sent to the inbox is 20 MB at most.' })
+  }
+  return undefined
+}
+
+const held = rowsOf(Schema.Struct({ id: Schema.String }))
+
+/**
+ * Whether the inbox holds this file already, whatever became of it: the same content, under the
+ * same path, from the same origin.
+ */
+export const fileInInbox = Effect.fn('fileInInbox')(function* (file: {
+  readonly name: string
+  readonly origin: string
+  readonly bytes: Uint8Array
+}) {
+  const db = yield* drizzle
+  const text = textOf(file.bytes)
+  const found = yield* held(
+    db
+      .select({ id: inbox.id })
+      .from(inbox)
+      .where(
+        and(
+          eq(inbox.kind, 'file'),
+          eq(inbox.name, file.name),
+          eq(inbox.origin, file.origin),
+          text === undefined ? eq(inbox.sha256, sha256Of(file.bytes)) : eq(inbox.content, text),
+        ),
+      )
+      .limit(1),
+  )
+  return found.length > 0
+})
+
+/** Puts something in the inbox, pending, for an agent to turn into entries. */
+export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) {
+  const db = yield* drizzle
+  const origin = input.origin ?? ''
+  const refused = inboxRefusalOf(input)
+  if (refused !== undefined) return yield* refused
+  const url = input.url ?? ''
   const data = input.data ?? ''
-  if (Math.floor((data.length * 3) / 4) > BYTES_LIMIT) {
-    return yield* new Refused({ message: 'A file sent to the inbox is 20 MB at most.' })
-  }
   const row =
     input.kind === 'file'
       ? yield* Effect.gen(function* () {

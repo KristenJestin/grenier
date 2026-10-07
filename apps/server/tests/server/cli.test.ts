@@ -63,19 +63,71 @@ describe('a folder dropped into the inbox', () => {
   const folder = mkdtempSync(join(tmpdir(), 'grenier-drop-'))
   afterAll(() => rmSync(folder, { recursive: true, force: true }))
 
-  test('gives one pending item per file', async () => {
-    mkdirSync(join(folder, 'garden'))
+  beforeAll(() => {
+    mkdirSync(join(folder, 'garden/beds'), { recursive: true })
+    mkdirSync(join(folder, '.obsidian'))
     writeFileSync(join(folder, 'pancakes.md'), '# Pancakes\n')
     writeFileSync(join(folder, 'garden/hedge.md'), '# Hedge\n')
-    writeFileSync(join(folder, '.hidden'), 'left out')
-    expect(cli('inbox:add', folder, '--origin', 'old-notes')).toBe(
-      'Added to the inbox: 2 items, from old-notes.\n',
+    writeFileSync(join(folder, 'garden/beds/leeks.md'), '# Leeks\n')
+    writeFileSync(join(folder, 'garden/.gitkeep'), '')
+    writeFileSync(join(folder, '.obsidian/app.json'), '{}')
+    writeFileSync(join(folder, 'too-big.bin'), Buffer.alloc(21 * 1024 * 1024, 1))
+  })
+
+  const dropped = async () =>
+    (await database.runPromise(listInbox({}))).items
+      .filter(({ origin }) => origin === 'old-notes')
+      .map(({ name, status }) => [name, status])
+      .toSorted()
+
+  test('--dry-run says what would be added, and adds nothing', async () => {
+    expect(cli('inbox:add', folder, '--origin', 'old-notes', '--dry-run')).toBe(
+      [
+        'Would add to the inbox, from old-notes: 3 items.',
+        '  garden/beds/leeks.md',
+        '  garden/hedge.md',
+        '  pancakes.md',
+        'Skipped: .obsidian/, garden/.gitkeep.',
+        'Refused: too-big.bin (A file sent to the inbox is 20 MB at most.)',
+        '',
+      ].join('\n'),
     )
-    const { items } = await database.runPromise(listInbox({}))
-    expect(items.map(({ name, status, origin }) => [name, status, origin]).toSorted()).toEqual([
-      ['garden/hedge.md', 'pending', 'old-notes'],
-      ['pancakes.md', 'pending', 'old-notes'],
-    ])
+    expect(await dropped()).toEqual([])
+  })
+
+  test('a nested fixture folder dropped once gives one pending item per file, each with its relative path; dropped again, nothing new is added', async () => {
+    expect(cli('inbox:add', folder, '--origin', 'old-notes')).toBe(
+      [
+        'Added to the inbox, from old-notes: 3 items.',
+        'Skipped: .obsidian/, garden/.gitkeep.',
+        'Refused: too-big.bin (A file sent to the inbox is 20 MB at most.)',
+        '',
+      ].join('\n'),
+    )
+    const once = [
+      ['garden/beds/leeks.md', 'pending'],
+      ['garden/hedge.md', 'pending'],
+      ['pancakes.md', 'pending'],
+    ]
+    expect(await dropped()).toEqual(once)
+    expect(cli('inbox:add', folder, '--origin', 'old-notes')).toBe(
+      [
+        'Added to the inbox, from old-notes: 0 items.',
+        'Already in the inbox: 3 files; give --again to add them again.',
+        'Skipped: .obsidian/, garden/.gitkeep.',
+        'Refused: too-big.bin (A file sent to the inbox is 20 MB at most.)',
+        '',
+      ].join('\n'),
+    )
+    expect(await dropped()).toEqual(once)
+  })
+
+  test('--again adds the same files once more', async () => {
+    rmSync(join(folder, 'too-big.bin'))
+    expect(cli('inbox:add', folder, '--origin', 'old-notes', '--again')).toMatch(
+      /^Added to the inbox, from old-notes: 3 items\.\n/,
+    )
+    expect(await dropped()).toHaveLength(6)
   })
 })
 

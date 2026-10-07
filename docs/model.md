@@ -224,9 +224,15 @@ stays taken until it is done or dismissed. Answers that follow a write
 (`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
 summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no
-mechanical re-import. The owner drops a folder into the inbox, one item per file, with
-`inbox:add <folder>`. The Markdown importer stays, to try the model on a collection; it is not
-the way content enters.
+mechanical re-import. A collection (a folder of notes, a whole wiki) is brought in the same way:
+the owner drops its folder into the inbox with `inbox:add <folder> [--origin <name>]`, one item
+per file. Sub-folders are walked, and each item keeps the file's path from the folder as its
+name, so an agent can rebuild the tree; hidden files and folders (`.gitkeep`, `.obsidian/`) are
+skipped, and what is skipped or refused is listed at the end. `--dry-run` says what would be
+added; a file the inbox holds already (same content, same path, same origin, whatever became of
+it) is not added again unless `--again`. The folder must be on the server's machine: for the
+container, copy it in first (`docker compose cp <folder> grenier:/tmp/<name>`), then run
+`docker compose exec grenier bun src/cli.ts inbox:add /tmp/<name> --origin <name>`.
 
 ## Sources
 
@@ -239,8 +245,8 @@ notes, the relative path of the file), with the entry it gave and a hash of its 
 unchanged item is skipped, a changed one updates the entry it gave. A write may give an entry its
 `created` time when it creates the entry, or later as long as the entry has not been updated
 since (a draft written first, so that others could refer to it, still takes its real date; the
-change is recorded in its history); `updated` is then the time of the write. An import may also
-give `updated`, and only when it creates the entry.
+change is recorded in its history); `updated` is then the time of the write, unless the write
+gives it too when it creates the entry.
 
 ## Time
 
