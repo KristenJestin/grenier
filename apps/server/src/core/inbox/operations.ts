@@ -331,11 +331,15 @@ const PART = 16_000
  * An item with the first part of its text, and where the rest starts (`next_offset`, in
  * characters), or `null` when the text is whole.
  */
-const withFirstPart = (item: typeof Full.Type) => ({
-  ...item,
-  text: item.text === null ? null : item.text.slice(0, PART),
-  next_offset: item.text !== null && item.text.length > PART ? PART : null,
-})
+const withFirstPart = (item: typeof Full.Type) => {
+  // Counted in characters (code points), so a part never ends inside one.
+  const characters = item.text === null ? [] : Array.from(item.text)
+  return {
+    ...item,
+    text: item.text === null ? null : characters.slice(0, PART).join(''),
+    next_offset: characters.length > PART ? PART : null,
+  }
+}
 
 /** An item with its content, as it is, without taking it. */
 export const peekItem = Effect.fn('peekItem')(function* (id: string) {
@@ -383,12 +387,13 @@ export const readItem = Effect.fn('readItem')(function* (input: {
     return yield* new Refused({
       message: `The item \`${item.id}\` holds no text to read in parts: fetch its file at \`${item.media_url}\`.`,
     })
-  const end = Math.min(item.text.length, input.offset + Math.min(input.limit ?? PART, PART))
+  const characters = Array.from(item.text)
+  const end = Math.min(characters.length, input.offset + Math.min(input.limit ?? PART, PART))
   return {
     id: item.id,
     offset: input.offset,
-    text: item.text.slice(input.offset, end),
-    next_offset: end < item.text.length ? end : null,
+    text: characters.slice(input.offset, end).join(''),
+    next_offset: end < characters.length ? end : null,
   }
 })
 
@@ -501,9 +506,14 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
+  const twice = ids.find((id, index) => ids.indexOf(id) !== index)
+  if (twice !== undefined)
+    return yield* new Refused({ message: `Give each item once: \`${twice}\` comes twice.` })
   return yield* client.withTransaction(
     Effect.gen(function* () {
-      const found = yield* Effect.forEach(ids, (id) =>
+      // Locked in one order whatever the order given: two agents taking the same items never
+      // wait for each other in a circle. Answered in the order given.
+      const found = yield* Effect.forEach(ids.toSorted(), (id) =>
         lockedItem(id).pipe(
           Effect.flatMap((item) => {
             const refused = refusalFor(item, actor)
@@ -522,7 +532,7 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
         .set({ status: 'taken', taken_by: actor, taken_at: sql`now()` })
         .where(inArray(inbox.id, taken))
       const read = yield* items(db.select(FULL).from(inbox).where(inArray(inbox.id, taken)))
-      return taken.flatMap((id) => read.filter((item) => item.id === id)).map(withFirstPart)
+      return ids.flatMap((id) => read.filter((item) => item.id === id)).map(withFirstPart)
     }),
   )
 })

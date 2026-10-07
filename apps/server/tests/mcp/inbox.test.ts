@@ -237,3 +237,25 @@ describe('six agents work the inbox in parallel', () => {
     })
   })
 })
+
+describe('several images taken at once', () => {
+  test('each is shown to the agent', async () => {
+    const PIXEL =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    const ids = await Promise.all(
+      ['one.png', 'two.png'].map(async (name) =>
+        Schema.decodeUnknownSync(Added)(
+          await answerOf('inbox_add', { kind: 'file', name, data: PIXEL }),
+        ).item.id,
+      ),
+    )
+    const { result } = await mcp().request('tools/call', {
+      name: 'inbox_take',
+      arguments: { ids },
+    })
+    const { content } = Schema.decodeUnknownSync(
+      Schema.Struct({ content: Schema.Array(Schema.Struct({ type: Schema.String })) }),
+    )(result)
+    expect(content.map(({ type }) => type)).toEqual(['text', 'image', 'image'])
+  })
+})

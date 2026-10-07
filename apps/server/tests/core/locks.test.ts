@@ -3,7 +3,15 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
-import { addToInbox, finishItem, takeItem } from '../../src/core/inbox/index.ts'
+import {
+  addToInbox,
+  finishItem,
+  peekItem,
+  readItem,
+  takeItem,
+  takeItems,
+} from '../../src/core/inbox/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
 import { link, pendingOf } from '../../src/core/links/index.ts'
 import { confirmProposal, defineType, proposeTypeDeletion } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -192,5 +200,42 @@ describe('references and renames at the same moment', () => {
       expect(linked).toEqual([])
       expect(await run(pendingOf(jelly.entry.id))).toEqual(['medlar'])
     }
+  })
+})
+
+describe('several inbox items taken at once', () => {
+  test('two agents taking the same items in two orders never wait for each other in a circle', async () => {
+    const [a, b] = await run(
+      Effect.forEach(['Mow.', 'Rake.'], (text) =>
+        Effect.map(addToInbox({ kind: 'text', text }), ({ id }) => id),
+      ),
+    )
+    const as = (actor: string) => Effect.provideService(Actor, actor)
+    const ended = await run(
+      whileLocked(execute('SELECT 1 FROM inbox WHERE id = $1::uuid FOR UPDATE', a ?? ''), [
+        as('agent-one')(Effect.asVoid(takeItems([a ?? '', b ?? '']))),
+        as('agent-two')(Effect.asVoid(takeItems([b ?? '', a ?? '']))),
+      ]),
+    )
+    const outcomes = ended.map(outcomeOf)
+    expect(outcomes.filter((outcome) => outcome === 'written')).toHaveLength(1)
+    expect(outcomes.find((outcome) => outcome !== 'written')).toMatch(/is taken by `agent-/)
+  })
+
+  test('an item named twice is refused', async () => {
+    const id = await run(
+      Effect.map(addToInbox({ kind: 'text', text: 'Sweep.' }), (item) => item.id),
+    )
+    const refused = await run(Effect.flip(takeItems([id, id])))
+    expect(refused.message).toBe(`Give each item once: \`${id}\` comes twice.`)
+  })
+
+  test('a long text is cut between characters, never inside one', async () => {
+    const text = `${'a'.repeat(15_999)}😀b`
+    const id = await run(Effect.map(addToInbox({ kind: 'text', text }), (item) => item.id))
+    const first = await run(peekItem(id))
+    expect(first.text?.endsWith('😀')).toBe(true)
+    const rest = await run(readItem({ id, offset: first.next_offset ?? 0 }))
+    expect(`${first.text}${rest.text}`).toBe(text)
   })
 })
