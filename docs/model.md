@@ -19,7 +19,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `parent_id` | where the entry is filed (see "The tree") |
 | `fields` | the values of the type's fields, validated against the type |
 | `provenance` | per field: `extracted` (read from a source), `inferred` (deduced by an agent) or `ambiguous` (sources disagree) |
-| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the source registry (`{ "source": "notes", "item": "<identifier>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
+| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `verified` | false until the owner has reviewed the entry; only the owner sets it to true, and a write that changes the entry by a writer without the `owner` right sets it back to false (recorded in the event like any changed field) |
@@ -275,17 +275,15 @@ container, copy it in first (`docker compose cp <folder> grenier:/tmp/<name>`), 
 
 ## Sources
 
-The source registry records what an import read and which entries it produced, with each item's
-identifier at the source (for example the identifier of a post). A second import of the same
-source processes only what is new, and an item is never imported twice.
+An entry made from an inbox item cites it as `{ "source": "inbox", "item": "<id>" }`:
+`inbox_done` adds that source to each entry it names, and a write may give it too, for an item
+the inbox holds. No other item is cited this way: a source outside Grenier is a URL or an
+external identifier.
 
-Each item is recorded by its source name and its identifier at the source (for a folder of
-notes, the relative path of the file), with the entry it gave and a hash of its content: an
-unchanged item is skipped, a changed one updates the entry it gave. A write may give an entry its
-`created` time when it creates the entry, or later as long as the entry has not been updated
-since (a draft written first, so that others could refer to it, still takes its real date; the
-change is recorded in its history); `updated` is then the time of the write, unless the write
-gives it too when it creates the entry.
+A write may give an entry its `created` time when it creates the entry, or later as long as the
+entry has not been updated since (a draft written first, so that others could refer to it, still
+takes its real date; the change is recorded in its history); `updated` is then the time of the
+write, unless the write gives it too when it creates the entry.
 
 ## Time
 

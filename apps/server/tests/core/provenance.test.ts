@@ -67,6 +67,22 @@ describe('an entry says where it comes from', () => {
     )
   })
 
+  test('an item is cited from the inbox only: an item of another source is refused', async () => {
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({
+            type: 'note',
+            title: 'Quince tart',
+            sources: [{ source: 'notes', item: 'tarts/quince.md' }],
+          }),
+        ),
+      ),
+    ).toBe(
+      'The source `sources.0` names an item of `notes`: an item is cited from the inbox only, as `{ "source": "inbox", "item": "<id>" }`.',
+    )
+  })
+
   test('the entry used as a source shows the entries that cite it', async () => {
     const notebook = await run(readEntry('kitchen-notebook'))
     expect(notebook.cited_by).toMatchObject([{ slug: 'plum-tart', title: 'Plum tart' }])
