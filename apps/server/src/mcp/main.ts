@@ -57,7 +57,10 @@ const program = Effect.gen(function* () {
   const server = McpServer.layerStdio({
     name: mcpServerName(instance.name),
     version: instance.version,
-    instructions: yield* Effect.provideService(instructions, Instance, instance),
+    instructions: yield* instructions.pipe(
+      Effect.provideService(Instance, instance),
+      Effect.provideService(Rights, rights),
+    ),
     protocols: PROTOCOLS,
   }).pipe(Layer.provide(BunStdio.layer))
   return yield* Layer.launch(GrenierServer.pipe(Layer.provide(server))).pipe(

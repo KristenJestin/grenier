@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { instructionsFor } from '../../src/mcp/instructions.ts'
+import { INBOX_STANDARD, instructionsFor } from '../../src/mcp/instructions.ts'
+import { inboxTakeTool } from '../../src/mcp/tools/inbox.ts'
 
 const development = { name: 'development', diagnostics: false } as const
 const production = { name: 'production', diagnostics: false } as const
@@ -110,5 +111,22 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
     const instructions = instructionsFor(types, development)
     expect(instructions).not.toContain('Diagnostics')
     expect(instructions).not.toContain('grenier_report')
+  })
+})
+
+describe('agents that may write learn how an inbox item becomes entries', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+
+  test('a key with write gets the paragraph in its instructions and in the description of inbox_take; a read-only key does not', () => {
+    const writer = instructionsFor(types, development, null, true)
+    const reader = instructionsFor(types, development, null, false)
+    expect(writer).toContain(INBOX_STANDARD)
+    expect(reader).not.toContain(INBOX_STANDARD)
+    expect(inboxTakeTool.description).toContain(INBOX_STANDARD)
+  })
+
+  test('the rules of the instance come after it, and may add to it', () => {
+    const told = instructionsFor(types, development, 'Write in short sentences.', true)
+    expect(told.indexOf(INBOX_STANDARD)).toBeLessThan(told.indexOf('Write in short sentences.'))
   })
 })
