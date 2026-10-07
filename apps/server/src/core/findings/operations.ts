@@ -169,6 +169,9 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
                   kind: report.kind,
                   place: report.place,
                   severity: report.severity,
+                  // One clock reading for both: two column defaults read the clock twice.
+                  first_seen: sql`statement_timestamp()`,
+                  last_seen: sql`statement_timestamp()`,
                 })
                 .returning(FINDING),
             )
