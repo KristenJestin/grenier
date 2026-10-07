@@ -140,8 +140,10 @@ A key that may write is also told, in its instructions and in the description of
 generic standard for turning an inbox item into entries: the type from the content, one entry per
 subject, fields filled only from what the item says, every fact kept, nothing added without its
 source, a dated text kept in its time, `edits` rather than a retyped body, the item's language,
-and sensitive values left out when the key may not write them. The rules of the instance come
-after it and may add to it.
+sensitive values left out when the key may not write them, and, for an item that brings again
+what Grenier holds, the entries it gave before read and compared with the whole item fact by fact,
+then completed or corrected (what the types and rules now ask for included), never taken as
+complete because they exist. The rules of the instance come after it and may add to it.
 
 What holds across types (what to ask before writing, what never to write, the style) lives in the
 **rules of the instance**: Markdown kept in the database, set by the owner alone from the command
@@ -304,7 +306,12 @@ entry of a sensitive type, or a sensitive field. Answers that follow a write
 (`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
 summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no
-mechanical re-import. A collection (a folder of notes, a whole wiki) is brought in the same way:
+mechanical re-import. `inbox_take` and `inbox_peek` give with an item `earlier`: the items
+processed or dismissed before that came from the same origin under the same path (for an item
+without a path, with the same content), each with when it was received and closed, its status,
+and the entries it gave (those that cite it), by their identity (id, slug, type, title); an entry
+of a sensitive type is left out for a key without the right `sensitive`. The agent reads those
+entries, compares them with the item and completes them; it does not take them as complete. A collection (a folder of notes, a whole wiki) is brought in the same way:
 the owner drops its folder into the inbox with `inbox:add <folder> [--origin <name>]`, one item
 per file. Sub-folders are walked, and each item keeps the file's path from the folder as its
 name, so an agent can rebuild the tree; hidden files and folders (`.gitkeep`, `.obsidian/`) are

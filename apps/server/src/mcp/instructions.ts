@@ -52,6 +52,7 @@ export const INBOX_STANDARD = [
   '- To change a few words of a body, use `edits`; never retype a whole body.',
   "- Keep the item's language, unless the instance's rules say otherwise.",
   '- Leave out a sensitive value this key may not write, and say in the entry that it was left out.',
+  "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_read` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
 ].join('\n')
 
 /** Rules longer than this are given by their opening, and read whole with `instance_rules`. */
