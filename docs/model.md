@@ -44,7 +44,11 @@ whole batch, naming each refused entry with its sentences.
 The values of the field kinds, as they are written and read: `date` as `2026-10-05`,
 `datetime` as `2026-10-05T14:30:00Z` (with an offset), `duration` as an ISO 8601 duration,
 `money` as an amount and an ISO 4217 currency (`12.50 EUR`), `url` as an `http` or `https`
-URL, and `entry` as the slug or id of an existing entry, kept as its id. A write names the
+URL, and `entry` as the slug or id of an existing entry, kept as its id (of one of the field's
+`types`, when it names them). A field that is `many` takes a list of such values, kept in the
+order given: `["Welsh", "Basque"]`, or for an `entry` field, several entries by slug or id, each
+kept as its id; `read` gives the titles of the entries the fields name, by id, in `titles`. A
+write names the
 parent (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
 the `body` given is added at the end of the current body: a body too long for one call (a
@@ -76,7 +80,12 @@ A **type** has a name, a label, a description and a list of field definitions:
 
 Field kinds: `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `duration`, `enum`,
 `money`, `url`, `entry` (a reference to another entry). A field may be `required`, may list
-allowed `values`, and may be `sensitive`. A whole type may be `sensitive` too (a diary, health
+allowed `values`, and may be `sensitive`. A field of kind `entry` may name the `types` its entries
+are of (`{ "name": "employer", "kind": "entry", "types": ["organization"] }`): a write that names
+an entry of another type is refused with a sentence naming the field and the types it accepts. Any
+field may be `many: true` (the sellers of a part, the languages someone speaks): its value is then
+a list of values of its kind, each checked as one value, in the order given and without repeats
+(two names of one entry, its slug and its id, are one value), and `required` means at least one. A whole type may be `sensitive` too (a diary, health
 records), at its definition or later with `change_type`; a field becomes sensitive at its
 definition, with `add_field`, or later with `change_field`. Any writer may make a field or a type
 sensitive; only the owner makes it no longer sensitive, from the command line (`field:sensitive`,
@@ -87,7 +96,7 @@ field is hidden in the history if it was sensitive in any version.
 
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker
-`[hidden]` wherever an entry is read, its history shows the change with both values hidden (a
+`[hidden]` wherever an entry is read (a list as a whole), its history shows the change with both values hidden (a
 field sensitive in any version of any type the entry has had stays hidden there, and so does a
 field that a rename or a merge made the same field as a sensitive one, so a rename, a merge or a
 change of type does not show its past values), a search does not match it, and the occurrences of
@@ -113,7 +122,11 @@ A type's name is unique and in lowercase kebab-case (`bank-account`); its descri
 required. Field names are unique within a type and in snake_case (`monthly_cost`). `values` is
 required on an `enum` field and refused on any other kind. Only a `date` field may carry `due:
 { notice }` or `recurs: { every: yearly | monthly | weekly, notice }`, the notice being an ISO
-8601 duration. A definition with an unknown key is refused.
+8601 duration. `types` is allowed only on an `entry` field, and each name must be a type that
+exists (or the type being defined, which may accept its own entries); a type named in the `types`
+of another type's field is neither deleted nor merged away until that field stops naming it. A
+field that is `many` may not carry `due` or `recurs`, which follow one date. A definition with an
+unknown key is refused.
 
 ### How agents learn an instance
 
@@ -151,8 +164,14 @@ problem, naming the field and what is expected (through `formatSchemaError`).
 Every change of a type is recorded in the event log like any other write.
 
 How the server does it: `change_field` makes a field required (or optional), changes its kind (a
-field that stops being a date loses its `due` and `recurs`), renames it (its values and their
-provenance move with it) or changes its allowed values. It checks every entry of the type, archived
+field that stops being a date loses its `due` and `recurs`, one that stops being an entry its
+`types`), renames it (its values and their provenance move with it) or changes its allowed values.
+It changes the `types` an entry field accepts (`null` accepts any): the stored values are kept as
+they are, and those that name an entry of a type no longer accepted are listed in its answer
+(`mismatched`), entry by entry, without the value; a write that leaves such a value as it is stored
+keeps it. It makes a field `many`, each stored value becoming a list of one, or single again, a list
+of one becoming its value, refused while an entry holds several values, naming each; a `mapping`
+then applies to each value of a list. It checks every entry of the type, archived
 ones included, and refuses while one would become invalid, naming each (never its value); a `default` fills the
 entries that lack a field made required, a `mapping` turns old values into new ones, and every
 entry repaired gets an `update` event. `dry_run` answers what would happen and writes nothing. A
@@ -184,7 +203,16 @@ Each part stays an entry of its own, found by search with its history, sources a
 ## Links
 
 Links are separate from filing. A link has a source entry, a target entry and a free relation
-name (`about`, `supersedes`, `done_by`, `related`…). `[[slug]]` references in a body are parsed
+name (`about`, `supersedes`, `done_by`, `works_at`, `related`…). A link may also say a `note`, a
+short text of 200 characters at most (the role the relation does not say: `accountant` for
+`works_at`, `graphics card` for `bought_from`), and the dates it held between, `valid_from` and
+`valid_until` (`2024-01-01`; the end is not before the start). `link` sets them; linking again the
+same source, target and relation (and, for `fulfills`, field and period) changes only them, in one
+event, a key left out staying as it is and `null` removing it, and nothing when they are unchanged.
+`read` gives them on links and backlinks, and the export writes them; `unlink` removes the link
+with them. A field of kind `entry` says what an entry is (its employer, its sellers); a link says
+how two entries relate over time, with a role and dates: the same person may work at several
+organizations, one after the other. `[[slug]]` references in a body are parsed
 at every write and kept as links:
 
 - backlinks come for free;
@@ -199,10 +227,14 @@ at every write and kept as links:
 
 A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link
 points to the slug either way. The references of a body are kept as links of relation
-`mentions`, replaced at every write of the body; `mentions` is not used for explicit links.
+`mentions`, replaced at every write of the body, and carry no note and no dates; `mentions` is not
+used for explicit links.
 Relation names are snake_case (`done_by`). Linking and unlinking are recorded in the event log
-on the source entry (`links.<relation>`), and a rewrite of a body after a rename is recorded as
-a change of that body. Links never change the tree.
+on the source entry (`links.<relation>`: the target's id, or `{ entry, note, valid_from,
+valid_until }` when the link says more), and a rewrite of a body after a rename is recorded as a
+change of that body. To a key without the right `sensitive`, a link to or from an entry it may not
+see is left out with what it says, and its changes in a history show both values hidden. Links
+never change the tree.
 
 ## Media
 

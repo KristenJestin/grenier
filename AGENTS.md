@@ -19,7 +19,9 @@ Three rules shape everything:
 
 - **Nothing is typed in code.** The system knows generic notions (an entry, its type, its
   fields, its parent, its links, its media, its history). Types such as "recipe" or "contract"
-  and their fields are data, created and changed at run time.
+  and their fields are data, created and changed at run time; so are the relations between
+  entries: a field of kind `entry` names the types it accepts and may hold a list (`many`), and a
+  link carries a note and the dates it held between (see `docs/model.md`).
 - **The server runs no AI.** It stores, indexes, validates, searches full text and enforces the
   rules. Every judgement (summarising, linking, deduplicating) comes from an agent, through MCP.
 - **The rules live in the server.** A write that breaks a type's definition, a broken link or a
