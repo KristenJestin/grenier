@@ -22,6 +22,7 @@ fn main() {
         .with_assets(ui::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            ui::theme::load_fonts(cx);
             ui::viewer::init(cx);
             ui::theme::set_dark(dark, cx);
             gpui_kit::open_window(

@@ -24,7 +24,7 @@ use crate::parts::{
     Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, title, warning_chip,
 };
 use crate::status;
-use crate::theme::{self, space, text, width};
+use crate::theme::{self, font, space, text, width};
 
 /// What the server shows in place of a value the key may not see.
 pub const HIDDEN: &str = "[hidden]";
@@ -640,6 +640,7 @@ fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &Ap
                     div()
                         .mt(space::XXL)
                         .mb(space::M)
+                        .font_family(font::HEADING)
                         .text_size(text::SUBHEADING)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(label.clone())
