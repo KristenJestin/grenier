@@ -28,7 +28,9 @@ export const AttachMediaInput = Schema.Struct({
 export type AttachMediaInput = typeof AttachMediaInput.Type
 
 const inboxFiles = rowsOf(Schema.Struct({ mime: Schema.NullOr(Schema.String) }))
-const owners = rowsOf(Schema.Struct({ entry_id: Schema.String, alt: Schema.String }))
+const owners = rowsOf(
+  Schema.Struct({ entry_id: Schema.String, alt: Schema.String, type: Schema.String }),
+)
 
 /** The descriptions of an entry's media, kept on the entry for search. */
 const refreshMediaText = Effect.fn('refreshMediaText')(function* (entryId: string) {
@@ -133,16 +135,19 @@ export const describeMedia = Effect.fn('describeMedia')(function* (id: string, a
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
+  const { hidesType } = yield* sensitivity
   const { media } = tables
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const [owner] = yield* owners(
         db
-          .select({ entry_id: media.entry_id, alt: media.alt })
+          .select({ entry_id: media.entry_id, alt: media.alt, type: tables.entries.type })
           .from(media)
+          .innerJoin(tables.entries, eq(tables.entries.id, media.entry_id))
           .where(sql`${media.id}::text = ${id}`),
       )
-      if (owner === undefined) {
+      // A medium of an entry the caller may not see does not exist for it.
+      if (owner === undefined || hidesType(owner.type)) {
         return yield* new Refused({ message: `There is no medium \`${id}\`.` })
       }
       const [medium] = yield* asMedia(
