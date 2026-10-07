@@ -20,6 +20,7 @@ GRENIER_ACTOR=agent-laptop GRENIER_INSTANCE=local bun --env-file=.env apps/serve
 - `GRENIER_INSTANCE` (required): `local`, `development` or `production`. The server announces
   itself as `grenier-local`, `grenier-dev` or `grenier`, and its instructions start by saying
   what the instance holds. `GRENIER_DIAGNOSTICS=on` adds the report tools (see `docs/model.md`).
+  The rules the owner set (`rules:set`) follow, then how to choose a type, and the types.
 - `DATABASE_URL` names the database; `SEARCH_LANGUAGE` the search language (`simple` by
   default).
 - At start, the database is brought to the latest version.

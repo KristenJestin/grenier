@@ -517,3 +517,17 @@ export const findingOccurrences = pgTable(
     index('finding_occurrences_finding').on(table.finding, table.at),
   ],
 )
+
+/**
+ * The rules the owner gives every agent of this instance, as Markdown: one row at most, set by the
+ * owner alone and given in the instructions of each MCP session.
+ */
+export const instanceRules = pgTable(
+  'instance_rules',
+  {
+    id: integer().primaryKey().default(1),
+    rules: text().notNull(),
+    updated: timestamp(at).notNull().defaultNow(),
+  },
+  () => [check('instance_rules_one', sql`id = 1`)],
+)

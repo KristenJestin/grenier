@@ -115,6 +115,8 @@ no longer sensitive, which only the owner may do.
 `findings:list [--kind <kind>] [--place <place>] [--severity <severity>]`, `findings:show <number>`
 and `findings:export` (Markdown on stdout) read what diagnostics found, occurrences included: the
 owner's only way to read them in full.
+`rules:set <file>` sets the rules every agent is given in its instructions (`rules:show` prints
+them); only the owner sets them.
 `export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]` writes
 everything as Markdown into a git repository and commits what changed; the server runs it every
 night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
