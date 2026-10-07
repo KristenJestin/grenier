@@ -11,8 +11,11 @@ use serde::Deserialize;
 pub enum Intent {
     /// Open the entry of that id or slug.
     Open(SharedString),
-    /// Open the ancestor at that depth of the open entry's path (0 is the root).
-    OpenAncestor(usize),
+    /// Open the entry of that slug at a heading of its body, named as `[[slug#heading]]` names it.
+    OpenAt {
+        entry: SharedString,
+        heading: SharedString,
+    },
     /// Search for that text, of one type when given.
     Search {
         query: SharedString,
@@ -20,8 +23,6 @@ pub enum Intent {
     },
     /// Open a web address in the browser.
     OpenUrl(SharedString),
-    /// Open the entry of that slug as the read API returns it, in the browser.
-    OpenInApi(SharedString),
     /// Go back, or forward, in what was opened.
     Back,
     Forward,
@@ -45,16 +46,26 @@ actions!(viewer, [Back, Forward, FocusSearch]);
 /// The scheme of a `[[slug]]` reference once rendered as a link.
 pub const ENTRY_LINK: &str = "grenier://";
 
-/// What following a link means: an entry of the vault, or a web address.
+/// What following a link means: an entry of the vault, at one of its headings when the link names
+/// one, or a web address.
 pub fn intent_of_link(url: &str) -> Intent {
-    url.strip_prefix(ENTRY_LINK).map_or_else(
-        || Intent::OpenUrl(url.to_string().into()),
-        |slug| Intent::Open(slug.to_string().into()),
-    )
+    match url.strip_prefix(ENTRY_LINK) {
+        None => Intent::OpenUrl(url.to_string().into()),
+        Some(target) => match target.split_once('#') {
+            Some((entry, heading)) if !heading.is_empty() => Intent::OpenAt {
+                entry: entry.to_string().into(),
+                heading: heading.to_string().into(),
+            },
+            Some((entry, _)) => Intent::Open(entry.to_string().into()),
+            None => Intent::Open(target.to_string().into()),
+        },
+    }
 }
 
-/// A Markdown body with each `[[slug]]` reference turned into a link to the entry, named by its
-/// title when `title_of` knows it, else by its slug. References inside code are left alone.
+/// A Markdown body with each reference turned into a link to the entry, in the three forms the
+/// server reads: `[[slug]]`, `[[slug|text]]` and `[[slug#heading]]` (the last two together too).
+/// A link is named by its text when it gives one, else by the entry's title when `title_of`
+/// knows it, else by its slug. References inside code are left alone.
 pub fn with_entry_links(body: &str, title_of: impl Fn(&str) -> Option<String>) -> String {
     let mut out = String::with_capacity(body.len());
     let mut fenced = false;
@@ -81,9 +92,15 @@ pub fn with_entry_links(body: &str, title_of: impl Fn(&str) -> Option<String>) -
                 && !inner[..end].is_empty()
                 && !inner[..end].contains(['[', ']', '\n'])
             {
-                let slug = &inner[..end];
-                let title = title_of(slug).unwrap_or_else(|| slug.to_string());
-                out.push_str(&format!("[{title}]({ENTRY_LINK}{slug})"));
+                let (target, text) = inner[..end]
+                    .split_once('|')
+                    .map_or((&inner[..end], None), |(target, text)| (target, Some(text)));
+                let slug = target.split_once('#').map_or(target, |(slug, _)| slug);
+                let title = text
+                    .map(str::to_string)
+                    .or_else(|| title_of(slug))
+                    .unwrap_or_else(|| slug.to_string());
+                out.push_str(&format!("[{title}]({ENTRY_LINK}{target})"));
                 rest = &inner[end + 2..];
             } else {
                 out.push('[');
@@ -117,6 +134,30 @@ mod tests {
                 (slug == "plum-tart").then(|| "Plum tart".to_string())
             }),
             "See [Plum tart](grenier://plum-tart)."
+        );
+    }
+
+    #[test]
+    fn a_reference_may_name_its_text_and_a_heading() {
+        let title_of = |slug: &str| (slug == "plum-tart").then(|| "Plum tart".to_string());
+        assert_eq!(
+            with_entry_links(
+                "[[plum-tart|the tart]], [[plum-tart#method]], [[plum-tart#method|how]].",
+                title_of
+            ),
+            "[the tart](grenier://plum-tart), [Plum tart](grenier://plum-tart#method), \
+             [how](grenier://plum-tart#method)."
+        );
+    }
+
+    #[test]
+    fn a_link_to_a_heading_opens_the_entry_at_it() {
+        assert_eq!(
+            intent_of_link("grenier://plum-tart#method"),
+            Intent::OpenAt {
+                entry: "plum-tart".into(),
+                heading: "method".into()
+            }
         );
     }
 

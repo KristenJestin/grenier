@@ -175,9 +175,23 @@ const masked = Effect.fn('masked')(function* (entry: Kept) {
 
 /** The titles of the ancestors of an entry, from the root; a hidden one shows as hidden. */
 export const pathOf = Effect.fn('pathOf')(function* (id: string) {
+  return (yield* ancestorsOf(id)).map(({ title }) => title)
+})
+
+/**
+ * The ancestors of an entry from the root, archived ones included, each with its id; one the
+ * caller may not see keeps its place, without its id or its title.
+ */
+const ancestorsOf = Effect.fn('ancestorsOf')(function* (id: string) {
   const { hidesType } = yield* sensitivity
   const lineage = yield* lineageOf(id)
-  return lineage.slice(0, -1).map(({ title, type }) => (hidesType(type) ? HIDDEN : title))
+  return lineage
+    .slice(0, -1)
+    .map((ancestor) =>
+      hidesType(ancestor.type)
+        ? { id: null, title: HIDDEN }
+        : { id: ancestor.id, title: ancestor.title },
+    )
 })
 
 /**
@@ -257,6 +271,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   return {
     entry,
     path: yield* pathOf(entry.id),
+    ancestors: yield* ancestorsOf(entry.id),
     links: yield* outgoing(entry.id, hiddenTypes),
     media: yield* mediaOf(entry.id),
     backlinks: yield* incoming(entry.id, hiddenTypes),

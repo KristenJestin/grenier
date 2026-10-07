@@ -4,7 +4,9 @@
 use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
-use api::{Child, EntryRead, FieldDefinitionKind, Medium, Source, TypeDefinition};
+use api::{
+    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, Medium, Source, TypeDefinition,
+};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
@@ -44,20 +46,24 @@ pub struct EntryScreen {
     on_intent: OnIntent,
     scroll: ScrollHandle,
     shown: usize,
+    jump: Option<SharedString>,
 }
 
 impl EntryScreen {
+    /// The screen; `jump` names a heading of the body to glide to once the page is laid out.
     pub fn new(
         load: Load<EntryData>,
         on_intent: OnIntent,
         scroll: ScrollHandle,
         shown: usize,
+        jump: Option<SharedString>,
     ) -> Self {
         Self {
             load,
             on_intent,
             scroll,
             shown,
+            jump,
         }
     }
 }
@@ -84,7 +90,15 @@ impl RenderOnce for EntryScreen {
                 ))
                 .into_any_element(),
             Load::Ready(data) => {
-                return ready(data, &self.on_intent, &self.scroll, self.shown, window, cx);
+                return ready(
+                    data,
+                    &self.on_intent,
+                    &self.scroll,
+                    self.shown,
+                    self.jump,
+                    window,
+                    cx,
+                );
             }
         };
         layout(window, &self.scroll, self.shown, article, None).into_any_element()
@@ -147,6 +161,7 @@ fn ready(
     on_intent: &OnIntent,
     scroll: &ScrollHandle,
     shown: usize,
+    jump: Option<SharedString>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -156,8 +171,8 @@ fn ready(
     } = data;
     let entry = &read.entry;
     let mut article = Article::default();
-    if !read.path.is_empty() {
-        article.push(crumbs(&read.path, on_intent, window, cx));
+    if !read.ancestors.is_empty() {
+        article.push(crumbs(&read.ancestors, on_intent, window, cx));
     }
     article.push(title(entry.title.clone()));
     if !entry.summary.is_empty() {
@@ -245,6 +260,27 @@ fn ready(
     let marked: Vec<usize> = article.anchors.iter().map(|(index, _)| *index).collect();
     let viewport = scroll.clone();
     let known = places.read(cx).clone();
+    // Once laid out, the page glides to the heading a reference named, once.
+    if let Some(heading) = jump
+        && let Some(index) = article
+            .anchors
+            .iter()
+            .position(|(_, anchor)| anchor_of(&anchor.label) == anchor_of(&heading))
+        && let Some(place) = known.get(index).copied()
+    {
+        let jumped = window.use_keyed_state(
+            SharedString::from(format!("jumped-{}-{shown}", entry.id)),
+            cx,
+            |_, _| false,
+        );
+        if !*jumped.read(cx) {
+            jumped.update(cx, |jumped, _| *jumped = true);
+            let scroll = scroll.clone();
+            window.defer(cx, move |window, cx| {
+                glide(scroll, place - space::L, window, cx)
+            });
+        }
+    }
     let page = page()
         .on_children_prepainted(move |bounds, _, cx| {
             let origin = viewport.bounds().top() + viewport.offset().y;
@@ -272,20 +308,39 @@ fn ready(
     .into_any_element()
 }
 
-/// Where the entry sits: each ancestor opens.
-fn crumbs(path: &[String], on_intent: &OnIntent, window: &mut Window, cx: &mut App) -> Div {
+/// A heading as a reference names it: `## Late pruning` as `late-pruning`.
+fn anchor_of(heading: &str) -> String {
+    heading
+        .to_lowercase()
+        .split(|letter: char| !letter.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Where the entry sits: each ancestor opens, by its id; one the key may not see stays still.
+fn crumbs(
+    ancestors: &[EntryReadAncestorsItem],
+    on_intent: &OnIntent,
+    window: &mut Window,
+    cx: &mut App,
+) -> Div {
     let theme = cx.theme();
     let (muted, foreground) = (theme.muted_foreground, theme.foreground);
     let mut row = h_flex()
         .gap(space::XS)
         .text_size(text::SMALL)
         .text_color(muted);
-    for (depth, ancestor) in path.iter().enumerate() {
+    for (depth, ancestor) in ancestors.iter().enumerate() {
         if depth > 0 {
             row = row.child(Icon::new(IconName::ChevronRight).xsmall());
         }
-        let on_intent = on_intent.clone();
-        let ancestor = ancestor.clone();
+        let title = ancestor.title.clone();
+        let Some(id) = ancestor.id.clone() else {
+            row = row.child(div().child(title));
+            continue;
+        };
+        let open = opener(on_intent, id);
         row = row.child(hoverable(
             ElementId::named_usize("crumb", depth),
             window,
@@ -294,10 +349,9 @@ fn crumbs(path: &[String], on_intent: &OnIntent, window: &mut Window, cx: &mut A
                 element
                     .text_color(mix(muted, foreground, hover.0))
                     .cursor_pointer()
-                    .on_click(move |_, window, cx| {
-                        on_intent(Intent::OpenAncestor(depth), window, cx)
-                    })
-                    .child(ancestor)
+                    .debug_selector(|| format!("crumb-{depth}"))
+                    .on_click(open)
+                    .child(title)
             },
         ));
     }

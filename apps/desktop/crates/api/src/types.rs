@@ -178,6 +178,7 @@ impl ::std::convert::TryFrom<::std::string::String> for EntryProvenanceValue {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct EntryRead {
+    pub ancestors: ::std::vec::Vec<EntryReadAncestorsItem>,
     pub backlinks: ::std::vec::Vec<Link>,
     pub children: ::std::vec::Vec<Child>,
     pub cited_by: ::std::vec::Vec<EntryReadCitedByItem>,
@@ -186,6 +187,14 @@ pub struct EntryRead {
     pub links: ::std::vec::Vec<Link>,
     pub media: ::std::vec::Vec<Medium>,
     pub path: ::std::vec::Vec<::std::string::String>,
+}
+#[doc = "`EntryReadAncestorsItem`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct EntryReadAncestorsItem {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub id: ::std::option::Option<::std::string::String>,
+    pub title: ::std::string::String,
 }
 #[doc = "`EntryReadCitedByItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

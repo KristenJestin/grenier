@@ -29,7 +29,8 @@ pub struct Shell {
     viewer: Entity<Viewer>,
     client: Option<Client>,
     types: Vec<TypeDefinition>,
-    tree: Vec<TreeEntry>,
+    /// The heading the next entry opened glides to, named by the reference that opens it.
+    jump: Option<SharedString>,
     history: Vec<Location>,
     at: usize,
     // A request replaced by another is dropped, and so cancelled: a late answer never shows.
@@ -53,7 +54,7 @@ impl Shell {
             viewer,
             client: None,
             types: Vec::new(),
-            tree: Vec::new(),
+            jump: None,
             history: Vec::new(),
             at: 0,
             tree_request: None,
@@ -93,20 +94,14 @@ impl Shell {
     fn asked(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
         match intent {
             Intent::Open(entry) => self.go(Location::Entry(entry), window, cx),
-            Intent::OpenAncestor(depth) => {
-                if let Some(id) = self.ancestor(depth, cx) {
-                    self.go(Location::Entry(id), window, cx);
-                }
+            Intent::OpenAt { entry, heading } => {
+                self.jump = Some(heading);
+                self.go(Location::Entry(entry), window, cx);
             }
             Intent::Search { query, type_name } => {
                 self.go(Location::Search { query, type_name }, window, cx)
             }
             Intent::OpenUrl(url) => cx.open_url(&url),
-            Intent::OpenInApi(slug) => {
-                if let Some(client) = &self.client {
-                    cx.open_url(&format!("{}/api/entries/{slug}", client.server()));
-                }
-            }
             Intent::Back if self.at > 0 => {
                 self.at -= 1;
                 self.show(window, cx);
@@ -142,6 +137,7 @@ impl Shell {
         };
         match location.clone() {
             Location::Entry(entry) => {
+                let jump = self.jump.take();
                 self.set_pane(Pane::Entry(Box::new(Load::Loading)), window, cx);
                 let request = cx
                     .background_executor()
@@ -166,7 +162,13 @@ impl Shell {
                                 }
                                 Err(problem) => Load::Failed(problem),
                             };
+                            let ready = matches!(load, Load::Ready(_));
                             shell.set_pane(Pane::Entry(Box::new(load)), window, cx);
+                            if let (true, Some(heading)) = (ready, jump) {
+                                shell
+                                    .viewer
+                                    .update(cx, |viewer, cx| viewer.jump_to(heading, cx));
+                            }
                         })
                         .ok();
                 }));
@@ -232,7 +234,6 @@ impl Shell {
                         Ok((types, tree)) => {
                             shell.types = types;
                             let nodes = tree_of(&tree);
-                            shell.tree = tree;
                             if nodes.is_empty() {
                                 Load::Empty
                             } else {
@@ -247,26 +248,6 @@ impl Shell {
                 })
                 .ok();
         }));
-    }
-
-    /// The id of the ancestor at `depth` of the open entry, from the root; none when one of its
-    /// ancestors is out of the tree this key sees.
-    fn ancestor(&self, depth: usize, cx: &Context<Self>) -> Option<SharedString> {
-        let viewer = self.viewer.read(cx);
-        let opened = viewer.opened()?;
-        let parents: HashMap<&str, Option<&str>> = self
-            .tree
-            .iter()
-            .map(|entry| (entry.id.as_str(), entry.parent_id.as_deref()))
-            .collect();
-        let mut line = Vec::new();
-        let mut at = parents.get(opened).copied().flatten();
-        while let Some(id) = at {
-            line.push(id);
-            at = parents.get(id).copied().flatten();
-        }
-        line.reverse();
-        line.get(depth).map(|id| SharedString::from(id.to_string()))
     }
 }
 
