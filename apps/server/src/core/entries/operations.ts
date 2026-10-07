@@ -632,9 +632,18 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           )
         }
 
-        /** The id of the entry a field names, or a problem when there is none. */
-        const resolve = Effect.fn('resolve')(function* (field: string, reference: string | null) {
+        /**
+         * The id of the entry a field names, or a problem when there is none. A reference the
+         * write leaves as it is stored is kept unchecked: it may name an entry the caller may not
+         * see, which the write neither changes nor shows.
+         */
+        const resolve = Effect.fn('resolve')(function* (
+          field: string,
+          reference: string | null,
+          stored: Schema.Json | undefined,
+        ) {
           if (reference === null) return null
+          if (existing !== undefined && reference === stored) return reference
           const id = yield* visibleIdOf(reference)
           if (id !== undefined) return id
           problems.push(
@@ -643,7 +652,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           return null
         })
 
-        const parentId = yield* resolve('parent', state.parent)
+        const parentId = yield* resolve('parent', state.parent, existing?.parent_id)
         if (parentId !== null && existing !== undefined) {
           const lineage = yield* lineageOf(parentId)
           if (lineage.some(({ id }) => id === existing.id)) {
@@ -652,12 +661,17 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
-        const supersededBy = yield* resolve('superseded_by', state.superseded_by)
+        const supersededBy = yield* resolve(
+          'superseded_by',
+          state.superseded_by,
+          existing?.superseded_by,
+        )
         const references = { ...state.fields }
         for (const field of type?.fields ?? []) {
           const value = state.fields[field.name]
           if (field.kind === 'entry' && Predicate.isString(value)) {
-            references[field.name] = (yield* resolve(`fields.${field.name}`, value)) ?? value
+            references[field.name] =
+              (yield* resolve(`fields.${field.name}`, value, existing?.fields[field.name])) ?? value
           }
         }
 
@@ -666,7 +680,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
           if ('entry' in source) {
-            const id = yield* visibleIdOf(source.entry)
+            // An entry it already cites stays cited, whether the caller may see it or not.
+            const kept = existing?.sources.some(
+              (held) => 'entry' in held && held.entry === source.entry,
+            )
+            const id = kept === true ? source.entry : yield* visibleIdOf(source.entry)
             if (id === undefined)
               problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
             else sources.push({ ...source, entry: id })

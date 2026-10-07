@@ -83,7 +83,8 @@ backup, an export) stays where it went.
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker
 `[hidden]` wherever an entry is read, its history shows the change with both values hidden (a
-field sensitive in any version of any type the entry has had stays hidden there, so a rename or a
+field sensitive in any version of any type the entry has had stays hidden there, and so does a
+field that a rename or a merge made the same field as a sensitive one, so a rename, a merge or a
 change of type does not show its past values), a search does not match it, and the occurrences of
 a date field that is sensitive are left out of `upcoming`, `heads_up` and `briefing`, since their
 date, their order or their count in a window would give the date back.
@@ -92,7 +93,9 @@ find it, its parent counts it among `hidden_children`, its links and its media a
 its occurrences are left out. Such a key may not write a sensitive field
 nor an entry of a sensitive type, nor change the type of an entry that holds a sensitive value,
 nor change a sensitive field or any field of a sensitive type; to its writes, an entry it may not
-see does not exist. Only the owner moves an entry to a type where a sensitive value it holds, or
+see does not exist, and neither do its media. A reference a write or a change of a field leaves as
+it is stored (a parent, `superseded_by`, a source, a field naming an entry) is kept unchecked, so
+such a key still updates a visible entry that points to a hidden one. Only the owner moves an entry to a type where a sensitive value it holds, or
 the entry itself, would no longer be sensitive. A refusal never quotes a stored value. Sensitive data
 is never sent to an external service, and an export leaves it out unless asked to include it.
 

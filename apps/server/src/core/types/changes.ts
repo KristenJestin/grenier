@@ -95,19 +95,23 @@ type Rewrite = { before: Stored; slug: string; type: string; fields: Values; pro
 /**
  * Turns each value of the `entry` fields named into the id of the entry it names, by its slug or
  * its id, as a write of an entry does: an id is what is stored. A value naming no entry stays, and
- * is the problem of its entry.
+ * is the problem of its entry. An id the entry already held in one of its fields of kind `entry`
+ * (`wereEntries`, their names before the change) is kept unchecked: it may name an entry the caller may
+ * not see, which the change neither moves nor shows.
  */
 const withEntryIds = Effect.fn('withEntryIds')(function* (
   rewrites: ReadonlyArray<Rewrite>,
   fields: ReadonlyArray<string>,
+  wereEntries: ReadonlyArray<string>,
 ) {
   const unknown: Array<{ slug: string; problem: string }> = []
   const resolved = yield* Effect.forEach(rewrites, (rewrite) =>
     Effect.gen(function* () {
       const ids: Record<string, Schema.Json> = {}
+      const held = wereEntries.map((field) => rewrite.before.fields[field])
       for (const field of fields) {
         const value = rewrite.fields[field]
-        if (!Predicate.isString(value)) continue
+        if (!Predicate.isString(value) || held.includes(value)) continue
         const id = yield* visibleIdOf(value)
         if (id === undefined) {
           unknown.push({
@@ -251,6 +255,7 @@ export const changeField = Effect.fn('changeField')(
     const { resolved: proposed, unknown } = yield* withEntryIds(
       rewrites,
       kind === 'entry' ? [name] : [],
+      old.kind === 'entry' ? [old.name] : [],
     )
     const invalid = problemsOf(next, proposed, unknown)
     const repaired = proposed.filter(
@@ -429,6 +434,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
         if (proposal.action === 'merge' && proposal.into !== null) {
           // Both types locked in the order of their names: two merges at once lock them alike.
           yield* Effect.forEach([proposal.type, proposal.into].toSorted(), lockedType)
+          const source = yield* lockedType(proposal.type)
           const into = yield* lockedType(proposal.into)
           const mapping = proposal.mapping ?? {}
           const shared = sharedTargets(proposal.type, mapping)
@@ -465,6 +471,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
           const { resolved: moved, unknown } = yield* withEntryIds(
             rewrites,
             into.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
+            source.fields.filter(({ kind }) => kind === 'entry').map(({ name }) => name),
           )
           const invalid = problemsOf(into, moved, unknown)
           if (invalid.length > 0) {
