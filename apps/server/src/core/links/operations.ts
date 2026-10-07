@@ -1,6 +1,8 @@
-import { Effect } from 'effect'
+import { HIDDEN } from '@grenier/api/model'
+import { Effect, Predicate } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { findEntry } from '../entries/operations.ts'
+import type { FieldValues } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
@@ -18,7 +20,8 @@ const PERIOD = /^\d{4}(-\d{2}(-\d{2})?|-W\d{2})?$/
 
 /** A link `fulfills` closes the occurrence of one period, which it names; no other link has one. */
 const checkPeriod = Effect.fnUntraced(function* (relation: string, period: string) {
-  if (relation === 'fulfills' && !PERIOD.test(period)) {
+  // A single deadline may be closed without a period: its form is checked with the field.
+  if (relation === 'fulfills' && period !== '' && !PERIOD.test(period)) {
     return yield* new Refused({
       message:
         'A link `fulfills` needs a period: `2026` for a yearly date, `2026-10` monthly, `2026-W41` weekly, or the date itself.',
@@ -27,6 +30,43 @@ const checkPeriod = Effect.fnUntraced(function* (relation: string, period: strin
   if (relation !== 'fulfills' && period !== '') {
     return yield* new Refused({ message: 'Only a link `fulfills` takes a period.' })
   }
+})
+
+/** The form of the period of each recurrence, and how it is said. */
+const FORMS = {
+  yearly: { form: /^\d{4}$/, every: 'every year', example: '2026' },
+  monthly: { form: /^\d{4}-\d{2}$/, every: 'every month', example: '2026-10' },
+  weekly: { form: /^\d{4}-W\d{2}$/, every: 'every week', example: '2026-W41' },
+} as const
+
+/**
+ * The period a link `fulfills` closes, in the form its date comes back by: `2026` for a yearly
+ * date, `2026-10` monthly, `2026-W41` weekly; a single deadline takes no period, or its date,
+ * which it is kept as. A period of another form would close nothing, and is refused.
+ */
+const periodClosed = Effect.fnUntraced(function* (
+  target: { readonly slug: string; readonly type: string; readonly fields: FieldValues },
+  field: string,
+  period: string,
+) {
+  const definition = (yield* findType(target.type))?.fields.find(({ name }) => name === field)
+  const rule = definition === undefined ? undefined : ruleOf(definition)
+  if (rule === undefined) return period
+  const at = `The field \`${field}\` of \`${target.slug}\``
+  if (rule.every === 'once') {
+    const date = target.fields[field]
+    const shown = Predicate.isString(date) && date !== HIDDEN ? date : undefined
+    if (period === '' && shown !== undefined) return shown
+    if (period !== '' && period === date) return period
+    return yield* new Refused({
+      message: `${at} is a single deadline: a link \`fulfills\` names no period, or its date${shown === undefined ? '' : ` \`${shown}\``}.`,
+    })
+  }
+  const { form, every, example } = FORMS[rule.every]
+  if (form.test(period)) return period
+  return yield* new Refused({
+    message: `${at} comes back ${every}: a link \`fulfills\` names its period as \`${example}\`.`,
+  })
 })
 
 const listed = (names: ReadonlyArray<string>) =>
@@ -103,12 +143,13 @@ export const link = Effect.fn('link')(function* (
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
       const closed = yield* fieldClosed(relation, target, field)
+      const kept = relation === 'fulfills' ? yield* periodClosed(target, closed, period) : period
       const inserted = yield* sql`INSERT INTO links (source_id, target_id, relation, period, field)
-        VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${period}, ${closed})
+        VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${kept}, ${closed})
         ON CONFLICT DO NOTHING RETURNING relation`
       if (inserted.length > 0) {
         yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
-          { field: fieldOf(relation, period, closed), before: null, after: target.id },
+          { field: fieldOf(relation, kept, closed), before: null, after: target.id },
         ])
       }
       return { field: closed }

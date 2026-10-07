@@ -4,7 +4,7 @@ import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
-import { findEntry, identityOf, writeEntry } from '../entries/operations.ts'
+import { identityOf, lockedEntry, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { mimeOf, sha256Of, storeFile } from '../media/files.ts'
 import { Refused } from '../refused.ts'
@@ -474,7 +474,8 @@ export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput)
       const cited = { source: INBOX, item: item.id }
       const entries = yield* Effect.forEach(input.entries, (reference) =>
         Effect.gen(function* () {
-          const entry = yield* findEntry(reference)
+          // Locked before its sources are read: two items finished on it both stay cited.
+          const entry = yield* lockedEntry(reference)
           const kept = entry.sources.map((source) => {
             if (!('entry' in source)) return source
             const { entry: id, note } = source
