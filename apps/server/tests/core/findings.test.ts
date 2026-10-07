@@ -6,10 +6,12 @@ import {
   findingsWithOccurrences,
   listFindings,
   maskedCall,
+  mergeFindings,
   recordDefect,
   reportFinding,
   titleSimilarity,
 } from '../../src/core/findings/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
 import { Instance } from '../../src/core/instance.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -25,6 +27,12 @@ const report = (title: string, extra: { kind?: 'bug' | 'slow'; place?: string } 
   happened: 'The date was refused.',
   expected: 'The date to be kept.',
 })
+
+/** A report that was recorded, not answered with the open findings of its place. */
+const recordedOf = (answer: Effect.Success<ReturnType<typeof reportFinding>>) => {
+  if (answer.finding === undefined) throw new Error('the report was not recorded')
+  return { finding: answer.finding, new: answer.new }
+}
 
 const onDiagnostics = {
   name: 'development',
@@ -49,8 +57,8 @@ describe('titles are compared by their words', () => {
 
 describe('a report becomes a finding, or one more occurrence of it', () => {
   test('a report creates a finding with its first occurrence', async () => {
-    const { finding, new: created } = await run(
-      reportFinding(report('The write tool refuses a valid date')),
+    const { finding, new: created } = recordedOf(
+      await run(reportFinding(report('The write tool refuses a valid date'))),
     )
     expect(created).toBe(true)
     expect(finding).toMatchObject({
@@ -65,8 +73,8 @@ describe('a report becomes a finding, or one more occurrence of it', () => {
   })
 
   test('a similar title, of the same kind and place, adds an occurrence and keeps the worst severity', async () => {
-    const { finding, new: created } = await run(
-      reportFinding({ ...report('Write tool refuses valid date!'), severity: 'blocks' }),
+    const { finding, new: created } = recordedOf(
+      await run(reportFinding({ ...report('Write tool refuses valid date!'), severity: 'blocks' })),
     )
     expect(created).toBe(false)
     expect(finding).toMatchObject({ number: 1, occurrences: 2, severity: 'blocks' })
@@ -87,8 +95,14 @@ describe('a report becomes a finding, or one more occurrence of it', () => {
     expect(slow).toMatchObject({ new: true, finding: { number: 3 } })
   })
 
-  test('a title less than half similar is another finding', async () => {
-    const other = await run(reportFinding(report('Archived children vanish from the tree')))
+  test('a title less than half similar, at the same kind and place, is another finding once the reporter says so', async () => {
+    const asked = await run(reportFinding(report('Archived children vanish from the tree')))
+    expect(asked).toMatchObject({ same_place: [{ number: 1 }] })
+    const other = await run(
+      reportFinding(report('Archived children vanish from the tree'), undefined, 'agent', {
+        new: true,
+      }),
+    )
     expect(other).toMatchObject({ new: true, finding: { number: 4 } })
   })
 
@@ -196,10 +210,15 @@ describe('the call a finding is about is kept masked', () => {
 
   test('a report about a call keeps its tool and its masked arguments', async () => {
     await run(
-      reportFinding(report('The safe refuses its combination', { place: 'write' }), {
-        tool: 'write',
-        arguments: { type: 'safe', title: 'Office safe', fields: { combination: '7-3-9' } },
-      }),
+      reportFinding(
+        report('The safe refuses its combination', { place: 'write' }),
+        {
+          tool: 'write',
+          arguments: { type: 'safe', title: 'Office safe', fields: { combination: '7-3-9' } },
+        },
+        'agent',
+        { new: true },
+      ),
     )
     const all = await run(findingsWithOccurrences({}))
     const text = JSON.stringify(all)
@@ -261,5 +280,69 @@ describe('an unexpected error keeps nothing of the data in production', () => {
     const [local] = await defect('local', Cause.die(new TypeError('cannot read x')), 'history')
     expect(local?.finding.title).toBe('Unexpected error: cannot read x')
     expect(local?.occurrences[0]?.happened).toContain('TypeError')
+  })
+})
+
+describe('the same problem reported by two agents is one finding', () => {
+  const inbox = (title: string) => ({
+    ...report(title),
+    kind: 'tool_error' as const,
+    place: 'inbox_list',
+  })
+  const as = (actor: string) => Effect.provideService(Actor, actor)
+
+  test('two reports of the same kind and place by two keys end as one finding with two occurrences, the second answer naming the first', async () => {
+    const first = await run(as('agent-one')(reportFinding(inbox('inbox_list answers too much'))))
+    expect(first).toMatchObject({ new: true })
+    const number = 'finding' in first ? first.finding.number : 0
+    const asked = await run(as('agent-two')(reportFinding(inbox('The list of items is too large'))))
+    expect(asked).toEqual({
+      same_place: [expect.objectContaining({ number, title: 'inbox_list answers too much' })],
+    })
+    const second = await run(
+      as('agent-two')(
+        reportFinding(inbox('The list of items is too large'), undefined, 'agent', {
+          same_as: number,
+        }),
+      ),
+    )
+    expect(second).toMatchObject({ new: false, finding: { number, occurrences: 2 } })
+    const [found] = await run(findingsWithOccurrences({ number }))
+    expect(found?.occurrences.map(({ key_name }) => key_name)).toEqual(['agent-one', 'agent-two'])
+  })
+
+  test('new: true opens another finding of the same kind and place', async () => {
+    const other = await run(
+      as('agent-two')(
+        reportFinding(inbox('inbox_list forgets the origin filter'), undefined, 'agent', {
+          new: true,
+        }),
+      ),
+    )
+    expect(other).toMatchObject({ new: true, finding: { place: 'inbox_list' } })
+  })
+
+  test('the findings are listed by place and kind', async () => {
+    const { findings } = await run(
+      listFindings({ limit: 10, offset: 0 }, { place: 'inbox_list', kind: 'tool_error' }),
+    )
+    expect(findings.map(({ title }) => title)).toEqual([
+      'inbox_list answers too much',
+      'inbox_list forgets the origin filter',
+    ])
+  })
+
+  test('a merge moves the occurrences and closes the merged finding', async () => {
+    const { findings } = await run(listFindings({ limit: 10, offset: 0 }, { place: 'inbox_list' }))
+    const [into, from] = findings.map(({ number }) => number)
+    await run(mergeFindings(into ?? 0, from ?? 0))
+    const [merged] = await run(findingsWithOccurrences({ number: into ?? 0 }))
+    expect(merged?.finding.occurrences).toBe(3)
+    expect(merged?.occurrences).toHaveLength(3)
+    expect(
+      (await run(listFindings({ limit: 10, offset: 0 }, { place: 'inbox_list' }))).findings.map(
+        ({ number }) => number,
+      ),
+    ).toEqual([into])
   })
 })

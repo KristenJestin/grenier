@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { Cause, Clock, Effect, Option, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
@@ -6,6 +6,7 @@ import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { Actor } from '../events/actor.ts'
 import { Instance } from '../instance.ts'
+import { Refused } from '../refused.ts'
 import { maskedCall } from './mask.ts'
 import { SIMILAR, titleSimilarity } from './similar.ts'
 
@@ -127,17 +128,28 @@ const worst = (
 ): (typeof SEVERITIES)[number] =>
   SEVERITIES.indexOf(left) <= SEVERITIES.indexOf(right) ? left : right
 
+/** What a reporter says of a finding open at the same kind and place, once it has seen it. */
+export type ReportChoice = {
+  /** The number of the open finding this report is one more occurrence of. */
+  readonly same_as?: number | undefined
+  /** This report is another problem: it opens a finding of its own. */
+  readonly new?: boolean | undefined
+}
+
 /**
  * Records a report: one more occurrence of the finding of the same kind and place whose title is
- * similar enough, or a new finding. The occurrence keeps what was reported, and what the server
- * adds: the instance, its version and commit, the current actor's key, and the call it is about,
- * its arguments masked and cut short. Reports are recorded one at a time, so two at once never
- * make the same finding twice.
+ * similar enough, or of the one `same_as` names, or a new finding. When the title matches none
+ * but an agent's report has the kind and place of open findings, nothing is written: the answer
+ * names them (`same_place`), and the agent reports again with `same_as` or `new`. The occurrence
+ * keeps what was reported, and what the server adds: the instance, its version and commit, the
+ * current actor's key, and the call it is about, its arguments masked and cut short. Reports are
+ * recorded one at a time, so two at once never make the same finding twice.
  */
 export const reportFinding = Effect.fn('reportFinding')(function* (
   report: FindingReport,
   call?: Call,
   origin: 'agent' | 'server' = 'agent',
+  choice: ReportChoice = {},
 ) {
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
@@ -152,15 +164,37 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         db
           .select(FINDING)
           .from(findings)
-          .where(and(eq(findings.kind, report.kind), eq(findings.place, report.place)))
+          .where(
+            and(
+              eq(findings.kind, report.kind),
+              eq(findings.place, report.place),
+              isNull(findings.merged_into),
+            ),
+          )
           .orderBy(asc(findings.number)),
       )
+      const named =
+        choice.same_as === undefined
+          ? undefined
+          : (yield* listed(
+              db
+                .select(FINDING)
+                .from(findings)
+                .where(and(eq(findings.number, choice.same_as), isNull(findings.merged_into))),
+            ))[0]
+      if (choice.same_as !== undefined && named === undefined)
+        return yield* new Refused({
+          message: `There is no open finding ${choice.same_as}: read \`grenier_reports\`.`,
+        })
       const [similar] = candidates
         .map((finding) => ({ finding, similarity: titleSimilarity(finding.title, report.title) }))
         .filter(({ similarity }) => similarity >= SIMILAR)
         .toSorted((left, right) => right.similarity - left.similarity)
+      const same = named ?? (choice.new === true ? undefined : similar?.finding)
+      if (same === undefined && origin === 'agent' && choice.new !== true && candidates.length > 0)
+        return { same_place: candidates }
       const [finding] =
-        similar === undefined
+        same === undefined
           ? yield* listed(
               db
                 .insert(findings)
@@ -179,11 +213,11 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
               db
                 .update(findings)
                 .set({
-                  severity: worst(similar.finding.severity, report.severity),
+                  severity: worst(same.severity, report.severity),
                   occurrences: sql`${findings.occurrences} + 1`,
                   last_seen: sql`clock_timestamp()`,
                 })
-                .where(eq(findings.number, similar.finding.number))
+                .where(eq(findings.number, same.number))
                 .returning(FINDING),
             )
       if (finding === undefined) return yield* Effect.die('a finding just written cannot be read')
@@ -203,7 +237,52 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         call_tool: call?.tool ?? null,
         call_arguments,
       })
-      return { finding, new: similar === undefined }
+      return { finding, new: same === undefined }
+    }),
+  )
+})
+
+/**
+ * Merges a finding into another: its occurrences move there, which keeps the worst severity and
+ * the first and last times seen of both, and the merged finding is closed.
+ */
+export const mergeFindings = Effect.fn('mergeFindings')(function* (into: number, from: number) {
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      yield* client`SELECT pg_advisory_xact_lock(hashtext('grenier.findings'))`
+      const open = (number: number) =>
+        listed(
+          db
+            .select(FINDING)
+            .from(findings)
+            .where(and(eq(findings.number, number), isNull(findings.merged_into))),
+        )
+      const [target] = yield* open(into)
+      const [merged] = yield* open(from)
+      if (target === undefined || merged === undefined || into === from)
+        return yield* new Refused({
+          message: `Give two different open findings: ${into} and ${from} are not.`,
+        })
+      yield* db
+        .update(findingOccurrences)
+        .set({ finding: into })
+        .where(eq(findingOccurrences.finding, from))
+      yield* db
+        .update(findings)
+        .set({
+          severity: worst(target.severity, merged.severity),
+          occurrences: sql`${findings.occurrences} + ${merged.occurrences}`,
+          first_seen: sql`least(${findings.first_seen}, ${merged.first_seen}::timestamptz)`,
+          last_seen: sql`greatest(${findings.last_seen}, ${merged.last_seen}::timestamptz)`,
+        })
+        .where(eq(findings.number, into))
+      yield* db
+        .update(findings)
+        .set({ merged_into: into, occurrences: 0 })
+        .where(eq(findings.number, from))
+      return { into, from }
     }),
   )
 })
@@ -304,6 +383,7 @@ export type FindingFilter = typeof FindingFilter.Type
 
 const matching = (filter: FindingFilter) =>
   and(
+    isNull(findings.merged_into),
     ...[
       filter.kind === undefined ? undefined : eq(findings.kind, filter.kind),
       filter.place === undefined ? undefined : eq(findings.place, filter.place),
