@@ -45,7 +45,6 @@ apps/server       @grenier/server  Everything else, one program and its folders:
                                                   log, authentication: the only folder that
                                                   reaches the database;
                                    `src/mcp`      the MCP tools, over stdio and over HTTP;
-                                   `src/import`   the importer of Markdown notes;
                                    the HTTP server, Effect's on Bun (no web framework), and
                                    the command lines.
 apps/desktop      @grenier/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
@@ -120,8 +119,7 @@ them); only the owner sets them.
 `export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]` writes
 everything as Markdown into a git repository and commits what changed; the server runs it every
 night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
-entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
-and `bun run import` (see `src/import/README.md`).
+entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`).
 
 Grenier with Docker, server and database in one command (the image is built from
 `apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database

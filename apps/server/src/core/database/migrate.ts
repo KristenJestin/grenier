@@ -78,7 +78,7 @@ const takeOver = Effect.gen(function* () {
 
 /**
  * Serialises the migration runs on a database: Drizzle's migrator takes no lock, and the server,
- * the MCP server, the importer and every command line migrate when they start.
+ * the MCP server and every command line migrate when they start.
  */
 const MIGRATION_LOCK = 7_418_311
 

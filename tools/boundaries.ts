@@ -6,7 +6,7 @@
  * Validation, the event log and the rules of the types are enforced in `apps/server/src/core`. A
  * part of the server that reached the database on its own would write around them, so the SQL
  * clients and Drizzle are imported under `apps/server/src/core/` (and by its tests and
- * drizzle-kit's configuration) and nowhere else: the MCP tools, the HTTP server and the importer call the core.
+ * drizzle-kit's configuration) and nowhere else: the MCP tools, the HTTP server and the command lines call the core.
  * Nor do they import the core's database layer (its tables, its Drizzle handle), but the one module
  * it exposes for wiring the pool and running the migrations at startup. `packages/api` is the contract a client imports, a
  * browser application included: it imports nothing from an application, no Node or Bun API, and
@@ -32,7 +32,7 @@ export const DATABASE_LAYER = `${CORE}database/`
 
 /**
  * What the core exposes of its database layer for wiring: the pool's layer, the migration run
- * and the health check, which the entry points (the HTTP server, the MCP server, the importer,
+ * and the health check, which the entry points (the HTTP server, the MCP server,
  * the command lines) provide and run when they start. It hands out no table and no Drizzle
  * handle, so importing it gives no way to write around the core.
  */
