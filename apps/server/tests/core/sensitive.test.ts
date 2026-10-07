@@ -482,7 +482,7 @@ describe('a write does not tell a key without the right that a hidden entry exis
     expect(refused.message).toBe('The field `slug` cannot be `quiet-morning`: choose another slug.')
     const visible = await refusalOf(writeEntry({ type: 'folder', title: 'Probe', slug: 'papers' }))
     expect(visible.message).toBe(
-      'The field `slug` must be unique: `papers` is already used by another entry.',
+      'An entry with the slug `papers` exists: pass `entry` to update it, or choose another slug.',
     )
   })
 })

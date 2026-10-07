@@ -23,7 +23,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `verified` | false until the owner has reviewed the entry; only the owner sets it to true, and a write that changes the entry by a writer without the `owner` right sets it back to false (recorded in the event like any changed field) |
-| `created`, `updated` | when Grenier learned it and last changed it |
+| `created`, `updated` | when Grenier learned it and last changed it (the time of the last write) |
 | `valid_from`, `valid_until`, `superseded_by` | when it was true in the world, and what replaced it |
 | `archived_at` | set when the entry is archived: it stays in place and leaves the default views |
 
@@ -215,8 +215,11 @@ source processes only what is new, and an item is never imported twice.
 
 Each item is recorded by its source name and its identifier at the source (for a folder of
 notes, the relative path of the file), with the entry it gave and a hash of its content: an
-unchanged item is skipped, a changed one updates the entry it gave. An import may give an entry
-its `created` and `updated` times, and only when it creates the entry.
+unchanged item is skipped, a changed one updates the entry it gave. A write may give an entry its
+`created` time when it creates the entry, or later as long as the entry has not been updated
+since (a draft written first, so that others could refer to it, still takes its real date; the
+change is recorded in its history); `updated` is then the time of the write. An import may also
+give `updated`, and only when it creates the entry.
 
 ## Time
 
