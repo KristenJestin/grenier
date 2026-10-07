@@ -78,7 +78,9 @@ records), at its definition or later with `change_type`; a field becomes sensiti
 definition, with `add_field`, or later with `change_field`. Any writer may make a field or a type
 sensitive; only the owner makes it no longer sensitive, from the command line (`field:sensitive`,
 `type:sensitive … --off`), since that shows its values at once. A value copied out before (a
-backup, an export) stays where it went.
+backup, an export) stays where it went. The history is the exception, on purpose: a value recorded
+while its field or type was sensitive stays hidden there after the sensitivity is lifted, since a
+field is hidden in the history if it was sensitive in any version.
 
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker

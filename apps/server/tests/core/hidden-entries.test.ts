@@ -10,6 +10,7 @@ import type { Right } from '../../src/core/auth/index.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { entryHistory, fieldHistory } from '../../src/core/events/index.ts'
 import { addToInbox, finishItem, takeItem } from '../../src/core/inbox/index.ts'
+import { backlinksOf, link, linksOf, unlink } from '../../src/core/links/index.ts'
 import { attachMedia, describeMedia } from '../../src/core/media/index.ts'
 import {
   changeField,
@@ -175,5 +176,39 @@ describe('the history hides a value recorded under a field’s former name', () 
     )
     expect((await plain(readEntry('office-badge'))).entry.type).toBe('pass')
     expect(JSON.stringify(await plain(entryHistory('office-badge')))).not.toContain('zebra-')
+  })
+})
+
+describe('a key without the right sensitive cannot tell that a hidden entry exists', () => {
+  test('a title whose slug a hidden entry holds is refused with the neutral sentence, not suffixed', async () => {
+    const refusal = await plain(Effect.flip(writeEntry({ type: 'folder', title: 'Secret page' })))
+    expect(refusal.message).toBe('The field `slug` cannot be `secret-page`: choose another slug.')
+    // With the right, the hidden entry is seen, and the next free slug is taken.
+    expect((await trusted(writeEntry({ type: 'folder', title: 'Secret page' }))).slug).toBe(
+      'secret-page-2',
+    )
+  })
+
+  test('link and unlink answer for a hidden entry as for one that does not exist', async () => {
+    const refusalOf = (effect: Effect.Effect<unknown, { readonly message: string }, Database>) =>
+      plain(Effect.flip(effect)).then(({ message }) => message.replace('secret-page', 'X'))
+    const missing = (effect: Effect.Effect<unknown, { readonly message: string }, Database>) =>
+      plain(Effect.flip(effect)).then(({ message }) => message.replace('no-such-page', 'X'))
+    expect(await refusalOf(link('spare-folder', 'secret-page', 'about'))).toBe(
+      await missing(link('spare-folder', 'no-such-page', 'about')),
+    )
+    expect(await refusalOf(unlink('spare-folder', 'secret-page', 'about'))).toBe(
+      await missing(unlink('spare-folder', 'no-such-page', 'about')),
+    )
+  })
+
+  test('the links of a visible entry leave out those to a hidden one', async () => {
+    await trusted(link('spare-folder', 'secret-page', 'about'))
+    expect(await plain(linksOf('spare-folder'))).toEqual([])
+    expect((await trusted(linksOf('spare-folder'))).map(({ slug }) => slug)).toEqual([
+      'secret-page',
+    ])
+    await trusted(link('secret-page', 'spare-folder', 'about'))
+    expect(await plain(backlinksOf('spare-folder'))).toEqual([])
   })
 })
