@@ -108,9 +108,21 @@ const looksLikeHtml = (bytes: Uint8Array) =>
 export const mimeOf = (bytes: Uint8Array) =>
   Effect.promise(() => fileTypeFromBuffer(bytes)).pipe(Effect.map((detected) => detected?.mime))
 
+/**
+ * An SVG image: an XML document whose root element is `svg`, after an optional declaration,
+ * comments and doctype. A document with another root is not one, whatever it holds.
+ */
+const looksLikeSvg = (bytes: Uint8Array) =>
+  /^\uFEFF?\s*(<\?xml[^>]*\?>\s*)?(<!--[\s\S]*?-->\s*|<!DOCTYPE[^>]*>\s*)*<svg[\s>/]/.test(
+    new TextDecoder().decode(bytes.slice(0, 4096)),
+  )
+
 /** The type of a file, read from its content, never from what the caller says. */
 export const typeOf = Effect.fn('typeOf')(function* (bytes: Uint8Array) {
-  const detected = yield* Effect.promise(() => fileTypeFromBuffer(bytes))
+  // Before the magic numbers: an SVG is XML, which they would tell as XML only.
+  const detected = looksLikeSvg(bytes)
+    ? { mime: 'image/svg+xml' }
+    : yield* Effect.promise(() => fileTypeFromBuffer(bytes))
   const mime = detected?.mime ?? (looksLikeHtml(bytes) ? 'text/html' : undefined)
   if (mime === undefined) {
     return yield* new Refused({

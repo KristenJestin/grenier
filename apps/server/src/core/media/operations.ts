@@ -8,6 +8,7 @@ import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { findEntry } from '../entries/operations.ts'
+import { itemFile } from '../inbox/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
@@ -17,11 +18,19 @@ import { asMedia, MEDIUM_COLUMNS } from './store.ts'
 
 const BYTES_LIMIT = 20 * 1024 * 1024
 
-/** What an attachment says: the entry, and the file as base64 `data` or as a `url` to fetch. */
+/**
+ * What an attachment says: the entry, and the file as base64 `data`, as a `url` to fetch, or as
+ * the `item` of the inbox it came in.
+ */
 export const AttachMediaInput = Schema.Struct({
   entry: Schema.String,
   data: Schema.optionalKey(Schema.String),
   url: Schema.optionalKey(Schema.String),
+  item: Schema.optionalKey(
+    Schema.String.annotate({
+      description: 'The id of an inbox item you took, or just processed: its file, not sent again.',
+    }),
+  ),
   alt: Schema.optionalKey(Schema.String),
   mime: Schema.optionalKey(Schema.String),
 })
@@ -82,8 +91,11 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
   const db = yield* drizzle
   const actor = yield* currentActor
   const entry = yield* findEntry(input.entry)
-  if ((input.data === undefined) === (input.url === undefined)) {
-    return yield* new Refused({ message: 'Give the file either as `data` (base64) or as a `url`.' })
+  const given = [input.data, input.url, input.item].filter((source) => source !== undefined)
+  if (given.length !== 1) {
+    return yield* new Refused({
+      message: 'Give the file in one way: as `data` (base64), as a `url`, or as an inbox `item`.',
+    })
   }
   // Four characters of base64 carry three bytes: a body too long is refused before it is decoded.
   if (input.data !== undefined && Math.floor((input.data.length * 3) / 4) > BYTES_LIMIT) {
@@ -92,12 +104,22 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
     })
   }
   const { hash, size, mime, kind, width, height } =
-    input.data === undefined
-      ? yield* keptFromUrl(input.url ?? '')
-      : yield* keptFromBytes(new Uint8Array(Buffer.from(input.data, 'base64')))
+    input.item !== undefined
+      ? yield* keptFromBytes(yield* itemFile(input.item))
+      : input.data === undefined
+        ? yield* keptFromUrl(input.url ?? '')
+        : yield* keptFromBytes(new Uint8Array(Buffer.from(input.data, 'base64')))
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const { media } = tables
+      // The same file attached again to the same entry is the medium it already has.
+      const [already] = yield* asMedia(
+        db
+          .select(MEDIUM_COLUMNS)
+          .from(media)
+          .where(and(eq(media.entry_id, entry.id), eq(media.sha256, hash))),
+      )
+      if (already !== undefined) return { media: already }
       const [medium] = yield* asMedia(
         db
           .insert(media)

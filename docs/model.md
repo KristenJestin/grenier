@@ -189,13 +189,18 @@ A medium is a file attached to an entry: an image, a video, a copy of a web page
 on the server's disk, stored by content hash; the database keeps its record (kind, MIME type,
 size, hash, dimensions or duration, source URL, alternative text). Media never go into git.
 
-How the server does it: a file comes as base64 (20 MB at most) or as an http(s) URL the server
+How the server does it: a file comes as base64 (20 MB at most), as the file of an inbox item the
+caller has taken or just processed (`item`, so an agent never sends it again), or as an http(s) URL the server
 fetches (200 MB, 30 seconds, every redirect checked, never a private address unless
 `MEDIA_ALLOW_PRIVATE=true`; the connection goes to the very address that was checked, so a
 name that resolves elsewhere a moment later cannot lead it to the private network). Its type is read from its content, never from what the caller
-declares; images, videos, sounds, PDF and HTML are kept, anything else is refused. It is written
-once under `MEDIA_DIR`, at a path made of its SHA-256, however many entries it is attached to,
-and served at `/media/<sha256>` to a valid key. The alternative text is searched with the entry
+declares; images (SVG included: an XML document whose root is `svg`), videos, sounds, PDF and
+HTML are kept, anything else is refused. It is written once under `MEDIA_DIR`, at a path made of
+its SHA-256, however many entries it is attached to, and the same file attached twice to one
+entry is one medium. It is served at `/media/<sha256>` to a valid key, with `nosniff` and a
+content security policy that runs nothing: `sandbox` for every file, and for an SVG, which may
+carry script, also `default-src 'none'; style-src 'unsafe-inline'`, so it loads nothing but its
+own styles. The alternative text is searched with the entry
 (it is part of the body's weight). Width, height and duration are not measured yet.
 
 ## Events
