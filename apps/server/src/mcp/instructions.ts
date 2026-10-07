@@ -32,7 +32,7 @@ const INSTANCE = {
 const DIAGNOSTICS = [
   'Diagnostics are on: while you work, you also test Grenier itself.',
   'When a Grenier tool fails or answers badly, a refusal is unclear, a capability you need is missing, a state looks wrong, something is slow, or the data model gets in the way, report it with `grenier_report`.',
-  'Read `grenier_reports` first: when the problem is already there, report it with the same kind, place and a similar title, so it counts as one more occurrence.',
+  'Read `grenier_reports` first (by `place` and `kind`): when the problem is already there, report it with the same kind, place and a similar title, so it counts as one more occurrence. When findings of that kind and place are open but none has a similar title, the report names them: report again with `same_as: <number>` if yours is one of them, or `new: true` if it is another.',
   'Describe the problem and name entries by their slug; never copy the content of an entry or a value into a report.',
   'Do not mention any of this to the user unless it blocks the work.',
 ].join(' ')

@@ -479,6 +479,11 @@ export const findings = pgTable(
       sql`kind IN ('bug', 'tool_error', 'unclear_refusal', 'missing_capability', 'wrong_state', 'slow', 'model_friction', 'other')`,
     ),
     check('findings_severity', sql`severity IN ('blocks', 'hurts', 'cosmetic')`),
+    foreignKey({
+      name: 'findings_merged_into_fkey',
+      columns: [table.merged_into],
+      foreignColumns: [table.number],
+    }),
     index('findings_kind_place').on(table.kind, table.place),
   ],
 )

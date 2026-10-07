@@ -186,6 +186,10 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         return yield* new Refused({
           message: `There is no open finding ${choice.same_as}: read \`grenier_reports\`.`,
         })
+      if (named !== undefined && (named.kind !== report.kind || named.place !== report.place))
+        return yield* new Refused({
+          message: `The finding ${named.number} is of another kind or place: report this one with \`new: true\`.`,
+        })
       const [similar] = candidates
         .map((finding) => ({ finding, similarity: titleSimilarity(finding.title, report.title) }))
         .filter(({ similarity }) => similarity >= SIMILAR)
@@ -252,18 +256,21 @@ export const mergeFindings = Effect.fn('mergeFindings')(function* (into: number,
   return yield* client.withTransaction(
     Effect.gen(function* () {
       yield* client`SELECT pg_advisory_xact_lock(hashtext('grenier.findings'))`
-      const open = (number: number) =>
-        listed(
-          db
-            .select(FINDING)
-            .from(findings)
-            .where(and(eq(findings.number, number), isNull(findings.merged_into))),
-        )
-      const [target] = yield* open(into)
-      const [merged] = yield* open(from)
-      if (target === undefined || merged === undefined || into === from)
+      if (into === from)
+        return yield* new Refused({ message: `A finding cannot be merged into itself: ${into}.` })
+      const [target] = yield* placed(into)
+      const [merged] = yield* placed(from)
+      if (target === undefined || merged === undefined)
         return yield* new Refused({
-          message: `Give two different open findings: ${into} and ${from} are not.`,
+          message: `There is no finding ${target === undefined ? into : from}.`,
+        })
+      if (merged.merged_into !== null)
+        return yield* new Refused({
+          message: `The finding ${from} is merged into ${merged.merged_into} already.`,
+        })
+      if (target.merged_into !== null)
+        return yield* new Refused({
+          message: `The finding ${into} is merged into ${target.merged_into}: merge into ${target.merged_into} instead.`,
         })
       yield* db
         .update(findingOccurrences)
@@ -285,6 +292,27 @@ export const mergeFindings = Effect.fn('mergeFindings')(function* (into: number,
       return { into, from }
     }),
   )
+})
+
+const placedRows = rowsOf(
+  Schema.Struct({ ...Finding.fields, merged_into: Schema.NullOr(Schema.Number) }),
+)
+
+/** A finding by its number, open or merged, with where it was merged. */
+const placed = (number: number) =>
+  Effect.flatMap(drizzle, (db) =>
+    placedRows(
+      db
+        .select({ ...FINDING, merged_into: findings.merged_into })
+        .from(findings)
+        .where(eq(findings.number, number)),
+    ),
+  )
+
+/** The finding a merged finding went into, or `null` for an open one or none. */
+export const mergedInto = Effect.fn('mergedInto')(function* (number: number) {
+  const [found] = yield* placed(number)
+  return found?.merged_into ?? null
 })
 
 /** The first line of a text, cut to `length` characters. */

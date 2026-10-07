@@ -32,7 +32,12 @@ import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
-import { FindingFilter, findingsWithOccurrences, mergeFindings } from './core/findings/index.ts'
+import {
+  FindingFilter,
+  findingsWithOccurrences,
+  mergeFindings,
+  mergedInto,
+} from './core/findings/index.ts'
 import { addFileOnce, addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
@@ -300,6 +305,9 @@ const command = Effect.gen(function* () {
       const number = Number(positionals[1])
       if (!Number.isInteger(number)) return yield* Effect.fail({ message: USAGE })
       const [found] = yield* findingsWithOccurrences({ number })
+      const into = yield* mergedInto(number)
+      if (into !== null)
+        return `The finding ${number} is merged into ${into}: \`findings:show ${into}\`.`
       if (found === undefined)
         return yield* Effect.fail({ message: `There is no finding ${number}.` })
       return markdownOf(found)

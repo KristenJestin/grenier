@@ -230,6 +230,7 @@ describe('the lead agent merges two findings of one problem', () => {
     expect(cli('findings:merge', '1', '2')).toBe('The finding 2 is merged into 1.\n')
     expect(cli('findings:list').trim().split('\n')).toHaveLength(before - 1)
     expect(cli('findings:show', '1').match(/^### Occurrence/gm)).toHaveLength(3)
+    expect(cli('findings:show', '2')).toBe('The finding 2 is merged into 1: `findings:show 1`.\n')
   })
 })
 
