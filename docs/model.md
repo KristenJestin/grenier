@@ -23,7 +23,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `verified` | false until the owner has reviewed the entry; only the owner sets it to true, and a write that changes the entry by a writer without the `owner` right sets it back to false (recorded in the event like any changed field) |
-| `created`, `updated` | when Grenier learned it and last changed it (the time of the last write) |
+| `created`, `updated` | when the entry came to be (the time of the write that created it, or the date a migrated note gives) and when Grenier last changed it (the time of the last write) |
 | `valid_from`, `valid_until`, `superseded_by` | when it was true in the world, and what replaced it |
 | `archived_at` | set when the entry is archived: it stays in place and leaves the default views |
 
@@ -230,7 +230,8 @@ Every write is recorded: when, by which key (which agent on which machine), on w
 type, which field, the value before and after. The history of any value can be read back.
 
 Each write is one event, recorded in the transaction of the write: its actor (a write without
-one is refused), its action (`create`, `update`, `archive`, `define`, `add_field`) and the list
+one is refused), its action (`create`, `update`, `rewrite` when a rename rewrote a body that
+cites it, `archive`, `define`, `add_field`…) and the list
 of the fields it changed, each with its value before and after. Fields are named as in a
 refusal: `title`, `parent_id`, `body`, `fields.provider`, `provenance.provider`. A write that
 changes nothing records nothing. The history of one field lists its changes after the

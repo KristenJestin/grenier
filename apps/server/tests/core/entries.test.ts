@@ -5,6 +5,7 @@ import { archiveEntry, listEntries, readEntry, writeEntry } from '../../src/core
 import { Rights } from '../../src/core/auth/index.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
 import { Refused } from '../../src/core/refused.ts'
+import { attachMedia, describeMedia } from '../../src/core/media/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -569,5 +570,18 @@ describe('edits on their own, counted as they overlap', () => {
     expect(
       await run(refusalOf(writeEntry({ entry: 'buzz', edits: [{ find: 'aa', replace: 'b' }] }))),
     ).toBe('The edit 1 (`aa`) matches the body 2 times: give a longer `find` that matches once.')
+  })
+})
+
+describe('a draft keeps its right to its real date', () => {
+  test('a rewrite by a rename and a description of its media are not changes of its own', async () => {
+    const PAGE = Buffer.from('<!doctype html><p>Notes</p>').toString('base64')
+    await run(writeEntry({ type: 'note', title: 'Old name' }))
+    await run(writeEntry({ type: 'note', title: 'Field draft', body: 'See [[old-name]].' }))
+    await run(writeEntry({ entry: 'old-name', slug: 'new-name' }))
+    const { media } = await run(attachMedia({ entry: 'field-draft', data: PAGE }))
+    await run(describeMedia(media.id, 'The notes'))
+    const redated = await run(writeEntry({ entry: 'field-draft', created: '2019-03-01' }))
+    expect(redated.created).toBe('2019-03-01T00:00:00.000Z')
   })
 })

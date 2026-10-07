@@ -380,7 +380,10 @@ const freeSlugOf = Effect.fn('freeSlugOf')(function* (
 
 const events = rowsOf(Schema.Struct({ id: Schema.Number }))
 
-/** Whether an entry was updated or archived since it was created. */
+/**
+ * Whether an entry was updated or archived since it was created, by a writer of its own: a body
+ * rewritten by a rename it cites, or a description of its media, is not a change of the entry.
+ */
 const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: string) {
   const db = yield* drizzle
   const found = yield* events(
@@ -388,7 +391,13 @@ const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: stri
       .select({ id: tables.events.id })
       .from(tables.events)
       .where(
-        and(eq(tables.events.entry_id, id), inArray(tables.events.action, ['update', 'archive'])),
+        and(
+          eq(tables.events.entry_id, id),
+          inArray(tables.events.action, ['update', 'archive']),
+          // The description of a medium describes the medium, not the entry.
+          sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${tables.events.changes}) AS c(change)
+            WHERE c.change ->> 'field' NOT LIKE 'media.%')`,
+        ),
       )
       .limit(1),
   )
@@ -988,7 +997,7 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
         .update(table)
         .set({ body, updated: sql`now()` })
         .where(eq(table.id, source.id))
-      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'rewrite', [
         { field: 'body', before: source.body, after: body },
       ])
     }),
