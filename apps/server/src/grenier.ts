@@ -92,7 +92,10 @@ const mcp = HttpRouter.use((router) =>
         // A session keeps the instructions it started with.
         const told =
           session === undefined
-            ? yield* Effect.provideService(instructions, Instance, instance)
+            ? yield* instructions.pipe(
+                Effect.provideService(Instance, instance),
+                Effect.provideService(Rights, verified.success.rights),
+              )
             : ''
         const web = yield* HttpServerRequest.toWeb(request)
         const response = yield* Effect.promise(() =>

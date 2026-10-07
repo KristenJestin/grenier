@@ -115,6 +115,13 @@ fits), followed by the types of the instance with their descriptions (their name
 50, with `list_types` for the rest). What a type is for lives in its description, in the data:
 it should say when to use the type, not only what it is.
 
+A key that may write is also told, in its instructions and in the description of `inbox_take`, a
+generic standard for turning an inbox item into entries: the type from the content, one entry per
+subject, fields filled only from what the item says, every fact kept, nothing added without its
+source, a dated text kept in its time, `edits` rather than a retyped body, the item's language,
+and sensitive values left out when the key may not write them. The rules of the instance come
+after it and may add to it.
+
 What holds across types (what to ask before writing, what never to write, the style) lives in the
 **rules of the instance**: Markdown kept in the database, set by the owner alone from the command
 line (`rules:set <file>`, `rules:show`), and readable by any key. The instructions give them
