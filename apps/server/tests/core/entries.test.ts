@@ -456,3 +456,84 @@ describe('an entry the owner verified is no longer verified once a writer withou
     expect(written.verified).toBe(true)
   })
 })
+
+describe('a long body written in parts', () => {
+  const parts = Array.from(
+    { length: 5 },
+    (_, index) => `## Week ${index + 1}\n\n${'Rain, then sun on the beds.\n'.repeat(400)}\n`,
+  )
+
+  test('a body written in five parts reads back identical', async () => {
+    const [first = '', ...rest] = parts
+    await run(
+      Effect.gen(function* () {
+        yield* writeEntry({ type: 'note', title: 'Garden journal', body: first })
+        // One part after the other, as an agent sends them.
+        for (const part of rest)
+          yield* writeEntry({ entry: 'garden-journal', body: part, append: true })
+      }),
+    )
+    expect((await run(readEntry('garden-journal'))).entry.body).toBe(parts.join(''))
+  })
+
+  test('a refusal in the middle leaves the entry as before', async () => {
+    await run(writeEntry({ type: 'note', title: 'Pond journal', body: 'Day one.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({ entry: 'pond-journal', body: 'See [[no-such-entry]].\n', append: true }),
+        ),
+      ),
+    ).toBe('The field `body` refers to `no-such-entry`, which is not the slug of any entry.')
+    await run(writeEntry({ entry: 'pond-journal', body: 'Day two.\n', append: true }))
+    expect((await run(readEntry('pond-journal'))).entry.body).toBe('Day one.\nDay two.\n')
+    expect(await run(entryHistory('pond-journal'))).toHaveLength(2)
+  })
+})
+
+describe('a few words of a long body changed in place', () => {
+  test('three edits are applied in order, in one event', async () => {
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Orchard diary',
+        body: 'Pruned the plum tree.\nWatered the pear.\nPicked apples.\n',
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'orchard-diary',
+        edits: [
+          { find: 'plum tree', replace: 'cherry tree' },
+          { find: 'Watered', replace: 'Mulched' },
+          { find: 'Picked apples.', replace: 'Picked apples, then pears.' },
+        ],
+      }),
+    )
+    expect((await run(readEntry('orchard-diary'))).entry.body).toBe(
+      'Pruned the cherry tree.\nMulched the pear.\nPicked apples, then pears.\n',
+    )
+    expect(await run(entryHistory('orchard-diary'))).toHaveLength(2)
+  })
+
+  test('an edit that matches twice or never is refused, naming it, and changes nothing', async () => {
+    await run(writeEntry({ type: 'note', title: 'Hedge diary', body: 'Trim. Trim again. Rest.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'hedge-diary',
+            edits: [
+              { find: 'Rest', replace: 'Sleep' },
+              { find: 'Trim', replace: 'Cut' },
+              { find: 'Water', replace: 'Rain' },
+            ],
+          }),
+        ),
+      ),
+    ).toBe(
+      'The edit 2 (`Trim`) matches the body 2 times: give a longer `find` that matches once. The edit 3 (`Water`) matches nothing in the body.',
+    )
+    expect((await run(readEntry('hedge-diary'))).entry.body).toBe('Trim. Trim again. Rest.\n')
+  })
+})
