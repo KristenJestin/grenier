@@ -213,7 +213,7 @@ describe('the call a finding is about is kept masked', () => {
 class SqlError extends Schema.TaggedError<SqlError>()('SqlError', { message: Schema.String }) {}
 
 describe('an unexpected error keeps nothing of the data in production', () => {
-  const defect = (name: 'production' | 'local', cause: Cause.Cause<never>, place: string) =>
+  const defect = <E>(name: 'production' | 'local', cause: Cause.Cause<E>, place: string) =>
     run(
       Effect.andThen(
         recordDefect(place, cause, { tool: place, arguments: { title: 'Plum tart' } }),
@@ -237,6 +237,24 @@ describe('an unexpected error keeps nothing of the data in production', () => {
     const kept = JSON.stringify([typed, tagged])
     for (const leak of ['7-3-9', 'Plum tart', 'SELECT', 'at ']) expect(kept).not.toContain(leak)
     expect(tagged?.occurrences[0]).toMatchObject({ call_tool: 'search', call_arguments: null })
+  })
+
+  test('in production, a defect that is no Error is named by its class or its kind, not unknown', async () => {
+    class Jammed {
+      readonly part = 'gearbox'
+    }
+    const [classed] = await defect('production', Cause.die(new Jammed()), 'upcoming')
+    expect(classed?.finding.title).toBe('Unexpected error: Jammed')
+    const [plain] = await defect('production', Cause.die('the 7-3-9 of the safe'), 'briefing')
+    expect(plain?.finding.title).toBe('Unexpected error: a string')
+    // The defect, not a failure the same cause carries beside it.
+    const [mixed] = await defect(
+      'production',
+      Cause.combine(Cause.fail({ code: 7 }), Cause.die(new RangeError('out'))),
+      'link',
+    )
+    expect(mixed?.finding.title).toBe('Unexpected error: RangeError')
+    expect(JSON.stringify([classed, plain, mixed])).not.toContain('7-3-9')
   })
 
   test('elsewhere, the message and the stack, cut short', async () => {

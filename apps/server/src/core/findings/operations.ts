@@ -1,5 +1,5 @@
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm'
-import { Cause, Effect, Option, Schema, Struct } from 'effect'
+import { Cause, Clock, Effect, Option, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
@@ -215,27 +215,61 @@ const firstLine = (text: string, length: number) => {
 const Tagged = Schema.Struct({ _tag: Schema.String })
 
 /**
- * Records an unexpected failure of the server (a defect, never a refusal) as an occurrence of a
- * `bug` at `place`, when diagnostics are on; does nothing otherwise. In production, where a
- * message, a stack or a statement could carry the owner's data, it keeps only the tag or class of
- * the error, the place and the tool; elsewhere, the message as the title and the stack with what
- * happened. Recording never fails the request it is about.
+ * What kind of thing a defect is, never what it says: the tag of a tagged error (`SqlError`), the
+ * class of an error or of any object (`TypeError`, `Jammed`), else the kind of value (`a string`).
+ */
+const classOf = (defect: ReturnType<typeof Cause.squash>) =>
+  Option.match(Schema.decodeUnknownOption(Tagged)(defect), {
+    onSome: ({ _tag }) => _tag,
+    onNone: () =>
+      Predicate.isObject(defect)
+        ? defect.constructor.name || 'an object'
+        : Predicate.isString(defect)
+          ? 'a string'
+          : 'a value',
+  })
+
+/**
+ * Records an unexpected failure of the server (a defect, never a refusal) at `place`. It is
+ * written first, in every instance, as one line of JSON on the server's standard error, with the
+ * class, the message and the stack, the place, the tool and the key, never the arguments: the
+ * output stays on the machine, and a message of the database may quote a value there. Then, when
+ * diagnostics are on, it is recorded as an occurrence of a `bug` at `place`; in production, where
+ * a message, a stack or a statement could carry the owner's data, the finding keeps only the class
+ * of the defect, the place and the tool; elsewhere, the message as the title and the stack with
+ * what happened. Recording never fails the request it is about.
  */
 export const recordDefect = Effect.fn('recordDefect')(function* <E>(
   place: string,
   cause: Cause.Cause<E>,
   call?: Call,
 ) {
+  if (!Cause.hasDies(cause)) return
   const instance = yield* Instance
-  if (!instance.diagnostics || !Cause.hasDies(cause)) return
-  const error = Cause.squash(cause)
+  // The defect itself, not a failure the same cause may carry beside it.
+  const error = Result.getOrElse(Cause.findDefect(cause), () => Cause.squash(cause))
   const production = instance.name === 'production'
   const message = error instanceof Error ? error.message : String(error)
-  // The tag of a tagged error, else the name of its class: `SqlError`, `TypeError`.
-  const name = Option.match(Schema.decodeUnknownOption(Tagged)(error), {
-    onSome: ({ _tag }) => _tag,
-    onNone: () => (error instanceof Error ? error.name : 'unknown'),
-  })
+  const name = classOf(error)
+  const at = new Date(yield* Clock.currentTimeMillis).toISOString()
+  const key = yield* Actor
+  yield* Effect.sync(() =>
+    process.stderr.write(
+      `${JSON.stringify({
+        at,
+        level: 'error',
+        event: 'unexpected error',
+        class: name,
+        message,
+        place,
+        tool: call?.tool ?? null,
+        key: key ?? null,
+        instance: instance.name,
+        stack: Cause.pretty(cause),
+      })}\n`,
+    ),
+  )
+  if (!instance.diagnostics) return
   yield* reportFinding(
     {
       title: `Unexpected error: ${production ? name : firstLine(message, 180) || 'no message'}`,
@@ -244,7 +278,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
       severity: 'blocks',
       trying: call === undefined ? `A request to ${place}.` : `A call of the tool ${call.tool}.`,
       happened: production
-        ? 'The server failed unexpectedly; in production, its message and stack are not kept.'
+        ? 'The server failed unexpectedly; in production, its message and stack are kept only in the server output.'
         : Cause.pretty(cause).slice(0, 4000),
       expected: 'An answer or a refusal, not an unexpected error.',
     },
