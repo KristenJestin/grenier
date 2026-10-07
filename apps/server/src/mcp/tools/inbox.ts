@@ -54,7 +54,7 @@ export const inboxTakeTool = defineTool({
 export const inboxPeekTool = defineTool({
   name: 'inbox_peek',
   description:
-    'Reads an item with its content without taking it (a long text in parts: the first here, the rest with `inbox_read`), to decide how to group items before taking them.',
+    'Reads an item with its content without taking it (a long text in parts: the first here, the rest with `inbox_read`), and `earlier`, the items it came as before with the entries they gave, to decide how to group items before taking them.',
   input: Schema.Struct({ id: Schema.String }),
   right: 'read',
   run: ({ id }) => Effect.map(peekItem(id), (item) => ({ item })),

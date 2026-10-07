@@ -12,7 +12,9 @@ import {
   dismissItem,
   finishItem,
   listInbox,
+  peekItem,
   takeItem,
+  takeItems,
 } from '../../src/core/inbox/index.ts'
 import { readMedia } from '../../src/core/media/index.ts'
 import { Refused } from '../../src/core/refused.ts'
@@ -182,5 +184,96 @@ describe('a file of the inbox is served only while it waits', () => {
     expect(await served(hashOf(data), ['read', 'write'])).toBe(
       `There is no file \`${hashOf(data)}\`.`,
     )
+  })
+})
+
+describe('an item that comes again says what it gave before', () => {
+  const file = (name: string, text: string, origin: string) =>
+    addToInbox({ kind: 'file', name, data: Buffer.from(text).toString('base64'), origin })
+  const identity = (slug: string) =>
+    Effect.map(readEntry(slug), ({ entry }) => ({
+      id: entry.id,
+      slug: entry.slug,
+      type: entry.type,
+      title: entry.title,
+    }))
+
+  test('an item dropped twice gets `earlier` naming the first item and its entries', async () => {
+    const first = await run(as('agent-one')(file('garden/roses.md', 'Roses: prune.', 'garden')))
+    await run(as('agent-one')(takeItem({ id: first.id })))
+    await run(writeEntry({ type: 'note', title: 'Rose pruning' }))
+    await run(writeEntry({ type: 'note', title: 'Rose varieties' }))
+    await run(
+      as('agent-one')(finishItem({ id: first.id, entries: ['rose-pruning', 'rose-varieties'] })),
+    )
+    const again = await run(
+      as('agent-two')(file('garden/roses.md', 'Roses: prune in March.', 'garden')),
+    )
+    const expected = [
+      {
+        id: first.id,
+        received_at: first.received_at,
+        closed_at: expect.any(String),
+        status: 'processed',
+        entries: [await run(identity('rose-pruning')), await run(identity('rose-varieties'))],
+      },
+    ]
+    expect((await run(peekItem(again.id))).earlier).toEqual(expected)
+    expect((await run(as('agent-two')(takeItem({ id: again.id })))).earlier).toEqual(expected)
+  })
+
+  test('a text without a path is matched by its content and origin; taken among several, too', async () => {
+    const first = await run(
+      as('agent-one')(addToInbox({ kind: 'text', text: 'Tulips in October.', origin: 'chat' })),
+    )
+    await run(as('agent-one')(dismissItem({ id: first.id, reason: 'Already known.' })))
+    const again = await run(
+      as('agent-one')(addToInbox({ kind: 'text', text: 'Tulips in October.', origin: 'chat' })),
+    )
+    const elsewhere = await run(
+      as('agent-one')(addToInbox({ kind: 'text', text: 'Tulips in October.', origin: 'mail' })),
+    )
+    const [taken, other] = await run(as('agent-one')(takeItems([again.id, elsewhere.id])))
+    expect(taken?.earlier).toEqual([
+      {
+        id: first.id,
+        received_at: first.received_at,
+        closed_at: expect.any(String),
+        status: 'dismissed',
+        entries: [],
+      },
+    ])
+    expect(other?.earlier).toEqual([])
+  })
+
+  test('an item with no earlier match gets none', async () => {
+    const item = await run(as('agent-one')(file('garden/lilies.md', 'Lilies.', 'garden')))
+    expect((await run(as('agent-one')(takeItem({ id: item.id })))).earlier).toEqual([])
+  })
+
+  test('an entry of a sensitive type is not named to a key without the right `sensitive`', async () => {
+    await run(
+      defineType({
+        name: 'vault',
+        label: 'Vault',
+        description: 'A private record.',
+        fields: [],
+        sensitive: true,
+      }),
+    )
+    const first = await run(as('agent-one')(file('garden/shed.md', 'Shed lock.', 'garden')))
+    await run(as('agent-one')(takeItem({ id: first.id })))
+    await run(writeEntry({ type: 'note', title: 'Garden shed' }))
+    await run(writeEntry({ type: 'vault', title: 'Shed lock' }))
+    await run(as('agent-one')(finishItem({ id: first.id, entries: ['garden-shed', 'shed-lock'] })))
+    const again = await run(as('agent-one')(file('garden/shed.md', 'Shed lock, new.', 'garden')))
+    const slugs = (rights: ReadonlyArray<'read' | 'write' | 'sensitive'>) =>
+      run(
+        Effect.provideService(peekItem(again.id), Rights, rights).pipe(
+          Effect.map(({ earlier }) => earlier.flatMap(({ entries }) => entries.map((e) => e.slug))),
+        ),
+      )
+    expect(await slugs(['read', 'write'])).toEqual(['garden-shed'])
+    expect(await slugs(['read', 'write', 'sensitive'])).toEqual(['garden-shed', 'shed-lock'])
   })
 })

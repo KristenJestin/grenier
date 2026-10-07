@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { Effect, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
@@ -342,6 +342,86 @@ const withFirstPart = (item: typeof Full.Type) => {
   }
 }
 
+/** An earlier item, closed, that came from the same place, and the entries it gave. */
+const Earlier = Schema.Struct({
+  id: Schema.String,
+  received_at: Schema.String,
+  closed_at: Schema.NullOr(Schema.String),
+  status: Schema.Literals(['processed', 'dismissed']),
+})
+
+const earlierRows = rowsOf(Earlier)
+
+const gaveRows = rowsOf(
+  Schema.Struct({
+    id: Schema.String,
+    slug: Schema.String,
+    type: Schema.String,
+    title: Schema.String,
+  }),
+)
+
+/**
+ * The items processed or dismissed before that the same thing came as: the same origin and path,
+ * or, for an item without a path, the same origin and content. Each with the entries it gave, by
+ * their identity; an entry the caller may not see is left out.
+ */
+const earlierOf = Effect.fn('earlierOf')(function* (item: typeof Full.Type) {
+  const db = yield* drizzle
+  const { entries } = tables
+  const { hidesType } = yield* sensitivity
+  const same =
+    item.name !== null
+      ? eq(inbox.name, item.name)
+      : item.sha256 !== null
+        ? eq(inbox.sha256, item.sha256)
+        : and(
+            isNull(inbox.name),
+            eq(inbox.kind, item.kind),
+            eq(inbox.content, item.text ?? item.url ?? ''),
+          )
+  const found = yield* earlierRows(
+    db
+      .select({
+        id: inbox.id,
+        received_at: SUMMARY.received_at,
+        closed_at: sql<
+          string | null
+        >`to_char(${inbox.closed_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+        status: inbox.status,
+      })
+      .from(inbox)
+      .where(
+        and(
+          ne(inbox.id, item.id),
+          eq(inbox.origin, item.origin),
+          inArray(inbox.status, ['processed', 'dismissed']),
+          same,
+        ),
+      )
+      .orderBy(asc(inbox.received_at), asc(inbox.id)),
+  )
+  return yield* Effect.forEach(found, (earlier) =>
+    Effect.map(
+      gaveRows(
+        db
+          .select({ id: entries.id, slug: entries.slug, type: entries.type, title: entries.title })
+          .from(entries)
+          .where(
+            sql`${entries.sources} @> ${JSON.stringify([{ source: INBOX, item: earlier.id }])}::jsonb`,
+          )
+          .orderBy(asc(entries.title), asc(entries.id)),
+      ),
+      (gave) => ({ ...earlier, entries: gave.filter(({ type }) => !hidesType(type)) }),
+    ),
+  )
+})
+
+/** An item as an agent reads it: the first part of its text, and what it gave before. */
+const asRead = Effect.fn('asRead')(function* (item: typeof Full.Type) {
+  return { ...withFirstPart(item), earlier: yield* earlierOf(item) }
+})
+
 /** An item with its content, as it is, without taking it. */
 export const peekItem = Effect.fn('peekItem')(function* (id: string) {
   const db = yield* drizzle
@@ -350,7 +430,7 @@ export const peekItem = Effect.fn('peekItem')(function* (id: string) {
     : []
   if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
   yield* readable(item)
-  return withFirstPart(item)
+  return yield* asRead(item)
 })
 
 /**
@@ -448,7 +528,7 @@ export const takeItem = Effect.fn('takeItem')(function* (input: { readonly id?: 
         .update(inbox)
         .set({ status: 'taken', taken_by: actor, taken_at: sql`now()` })
         .where(eq(inbox.id, next.id))
-      return withFirstPart({ ...next, status: 'taken', taken_by: actor })
+      return yield* asRead({ ...next, status: 'taken', taken_by: actor })
     }),
   )
 })
@@ -487,7 +567,10 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
         .set({ status: 'taken', taken_by: actor, taken_at: sql`now()` })
         .where(inArray(inbox.id, taken))
       const read = yield* items(db.select(FULL).from(inbox).where(inArray(inbox.id, taken)))
-      return ids.flatMap((id) => read.filter((item) => item.id === id)).map(withFirstPart)
+      return yield* Effect.forEach(
+        ids.flatMap((id) => read.filter((item) => item.id === id)),
+        asRead,
+      )
     }),
   )
 })
