@@ -456,3 +456,37 @@ describe('an entry the owner verified is no longer verified once a writer withou
     expect(written.verified).toBe(true)
   })
 })
+
+describe('a long body written in parts', () => {
+  const parts = Array.from(
+    { length: 5 },
+    (_, index) => `## Week ${index + 1}\n\n${'Rain, then sun on the beds.\n'.repeat(400)}\n`,
+  )
+
+  test('a body written in five parts reads back identical', async () => {
+    const [first = '', ...rest] = parts
+    await run(
+      Effect.gen(function* () {
+        yield* writeEntry({ type: 'note', title: 'Garden journal', body: first })
+        // One part after the other, as an agent sends them.
+        for (const part of rest)
+          yield* writeEntry({ entry: 'garden-journal', body: part, append: true })
+      }),
+    )
+    expect((await run(readEntry('garden-journal'))).entry.body).toBe(parts.join(''))
+  })
+
+  test('a refusal in the middle leaves the entry as before', async () => {
+    await run(writeEntry({ type: 'note', title: 'Pond journal', body: 'Day one.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({ entry: 'pond-journal', body: 'See [[no-such-entry]].\n', append: true }),
+        ),
+      ),
+    ).toBe('The field `body` refers to `no-such-entry`, which is not the slug of any entry.')
+    await run(writeEntry({ entry: 'pond-journal', body: 'Day two.\n', append: true }))
+    expect((await run(readEntry('pond-journal'))).entry.body).toBe('Day one.\nDay two.\n')
+    expect(await run(entryHistory('pond-journal'))).toHaveLength(2)
+  })
+})

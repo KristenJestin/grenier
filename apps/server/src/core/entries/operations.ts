@@ -477,11 +477,13 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // lock lets other writes still point to the entry (as a parent, through a foreign key).
         const existing =
           input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
-        const { entry: _, fields = {}, provenance = {}, created, updated, ...given } = input
+        const { entry: _, fields = {}, provenance = {}, created, updated, append, ...given } = input
         const base = existing === undefined ? CREATED : stateOf(existing)
         const state = {
           ...base,
           ...given,
+          // A part of a long body, added at the end of what is there.
+          body: append === true ? base.body + (given.body ?? '') : (given.body ?? base.body),
           fields: withoutNulls({ ...base.fields, ...fields }),
           provenance: withoutNulls({ ...base.provenance, ...provenance }),
         }

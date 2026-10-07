@@ -43,7 +43,10 @@ The values of the field kinds, as they are written and read: `date` as `2026-10-
 `money` as an amount and an ISO 4217 currency (`12.50 EUR`), `url` as an `http` or `https`
 URL, and `entry` as the slug or id of an existing entry, kept as its id. A write names the
 parent (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
-`fields` and `provenance` are merged key by key, and `null` removes a key.
+`fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
+the `body` given is added at the end of the current body: a body too long for one call (a
+journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
+sees a whole number of parts.
 
 ## Types are data
 

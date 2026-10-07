@@ -101,7 +101,9 @@ export type TreeEntry = typeof TreeEntry.Type
  * removing a key. Without `entry`, it creates one. `parent` and `superseded_by` take an id or a
  * slug. `created`, a date or a date and time, keeps when a note was first written: taken when the
  * entry is created, or on an update while the entry has not changed since its creation. `updated`
- * is the time of the write, unless an import gives it when it creates the entry. The rules are checked by the write, not by this schema, so that every problem is
+ * is the time of the write, unless an import gives it when it creates the entry. With `append`, the
+ * `body` given is added at the end of the entry's body: a body too long for one call is written in
+ * parts, each part one write. The rules are checked by the write, not by this schema, so that every problem is
  * reported at once.
  */
 export const WriteEntryInput = Schema.Struct({
@@ -116,6 +118,7 @@ export const WriteEntryInput = Schema.Struct({
   provenance: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
   sources: Schema.optionalKey(Schema.Array(SourceGiven)),
   body: Schema.optionalKey(Schema.String),
+  append: Schema.optionalKey(Schema.Boolean),
   summary: Schema.optionalKey(Schema.String),
   verified: Schema.optionalKey(Schema.Boolean),
   valid_from: Schema.optionalKey(Schema.NullOr(Schema.String)),
