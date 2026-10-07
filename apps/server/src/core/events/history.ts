@@ -4,6 +4,7 @@ import { rowsOf } from '../database/rows.ts'
 import { findEntry } from '../entries/operations.ts'
 import { HIDDEN } from '@grenier/api/model'
 import { Refused } from '../refused.ts'
+import { hiddenIn, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { Change } from './record.ts'
 
@@ -26,6 +27,15 @@ export const FieldChange = Schema.Struct({
 export type FieldChange = typeof FieldChange.Type
 
 const events = rowsOf(Event)
+
+/** The values a change holds, before and after. */
+const valuesOf = ({
+  before,
+  after,
+}: {
+  readonly before: Schema.Json
+  readonly after: Schema.Json
+}) => [before, after]
 const fieldChanges = rowsOf(FieldChange)
 const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
@@ -115,6 +125,7 @@ export const entryHistory = Effect.fn('entryHistory')(function* (reference: stri
   const hides = yield* maskingOf(id, type)
   const written = yield* events(sql`SELECT ${sql.literal(AT)}, actor, action, changes FROM events
     WHERE entry_id = ${id}::uuid ORDER BY id`)
+  const hidden = yield* hiddenIn(written.flatMap(({ changes }) => changes.flatMap(valuesOf)))
   return written.map(({ at, actor, action, changes }) => ({
     at,
     actor,
@@ -122,7 +133,11 @@ export const entryHistory = Effect.fn('entryHistory')(function* (reference: stri
     changes: changes.map((change) =>
       hides?.(change.field) === true
         ? { field: change.field, before: HIDDEN, after: HIDDEN }
-        : change,
+        : {
+            field: change.field,
+            before: withoutHidden(change.before, hidden),
+            after: withoutHidden(change.after, hidden),
+          },
     ),
   }))
 })
@@ -140,9 +155,15 @@ export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: stri
     FROM events e, jsonb_array_elements(e.changes) AS c(change)
     WHERE e.entry_id = ${id}::uuid AND e.action <> 'create' AND c.change ->> 'field' = ${field}
     ORDER BY e.id`)
-  return hides?.(field) === true
-    ? changes.map((change) => ({ ...change, before: HIDDEN, after: HIDDEN }))
-    : changes
+  if (hides?.(field) === true)
+    return changes.map((change) => ({ ...change, before: HIDDEN, after: HIDDEN }))
+  const hidden = yield* hiddenIn(changes.flatMap(valuesOf))
+  return changes.map(({ at, actor, before, after }) => ({
+    at,
+    actor,
+    before: withoutHidden(before, hidden),
+    after: withoutHidden(after, hidden),
+  }))
 })
 
 /** Every change of a type, oldest first; a deleted or merged type keeps its history. */

@@ -9,6 +9,7 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { hiddenIn, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
@@ -141,7 +142,8 @@ export const lockedEntry = Effect.fn('lockedEntry')(function* (reference: string
     db.select({ id: table.id, type: table.type }).from(table).where(named(reference)),
   )
   if (current !== undefined) yield* findType(current.type, 'share')
-  return yield* masked(yield* entryNamed(reference, true))
+  // As it is kept, to write it again: what the caller may not see stays as it is stored.
+  return yield* entryNamed(reference, true)
 })
 
 /**
@@ -167,11 +169,26 @@ const masked = Effect.fn('masked')(function* (entry: Kept) {
     const hidden = other === undefined || hidesType(other.type)
     return {
       ...source,
+      entry: hidden ? HIDDEN : source.entry,
       slug: hidden ? HIDDEN : other.slug,
       title: hidden ? HIDDEN : other.title,
     }
   })
-  return { ...entry, fields: maskFields(entry.type, entry.fields), sources }
+  // No id of an entry the caller may not see: as its parent, its successor or a field's value.
+  const hidden = yield* hiddenIn([entry.parent_id, entry.superseded_by, entry.fields])
+  return {
+    ...entry,
+    parent_id: entry.parent_id !== null && hidden.has(entry.parent_id) ? null : entry.parent_id,
+    superseded_by:
+      entry.superseded_by !== null && hidden.has(entry.superseded_by) ? null : entry.superseded_by,
+    fields: Object.fromEntries(
+      Object.entries(maskFields(entry.type, entry.fields)).map(([name, value]) => [
+        name,
+        withoutHidden(value, hidden),
+      ]),
+    ),
+    sources,
+  }
 })
 
 /** The titles of the ancestors of an entry, from the root; a hidden one shows as hidden. */
@@ -308,7 +325,14 @@ export const listEntries = Effect.fn('listEntries')(function* () {
       .where(isNull(table.archived_at))
       .orderBy(asc(table.title)),
   )
-  return all.filter(({ type }) => !hidesType(type))
+  const shown = all.filter(({ type }) => !hidesType(type))
+  // A parent the caller may not see is no parent: its child stands at the root.
+  const hidden = yield* hiddenIn(shown.map(({ parent_id }) => parent_id))
+  return shown.map((entry) =>
+    entry.parent_id !== null && hidden.has(entry.parent_id)
+      ? Object.assign(entry, { parent_id: null })
+      : entry,
+  )
 })
 
 /** The slug of a title: `Château de Bois` gives `chateau-de-bois`. */
@@ -965,6 +989,7 @@ const labelOf = (input: WriteEntryInput, index: number) => {
  */
 const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEntryInput>) {
   const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
   const coming = new Set<string>()
   const renamed = new Map<string, string>()
   const displaced = new Map<string, { title: string; slug: string }>()
@@ -973,14 +998,16 @@ const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEn
   const ends: Array<End> = []
   for (const input of batch) {
     if (input.entry !== undefined) {
-      const [found] = yield* typedSlugs(
+      // As the caller may see it: an entry it may not see plans nothing, and is refused when
+      // written, as one that does not exist.
+      const [found] = (yield* typedSlugs(
         db.select({ slug: table.slug, type: table.type }).from(table).where(named(input.entry)),
-      )
+      )).filter(({ type }) => !hidesType(type))
       const to = input.slug ?? found?.slug
       if (to !== undefined) coming.add(to)
       if (found !== undefined && to !== undefined && to !== found.slug) renamed.set(found.slug, to)
       planned.push(input)
-      ends.push({ slug: to, type: input.type ?? found?.type })
+      ends.push({ slug: found === undefined ? undefined : to, type: input.type ?? found?.type })
     } else if (input.slug === undefined && input.title !== undefined) {
       const slug = yield* freeSlugOf(input.title, coming)
       coming.add(slug)
@@ -1019,7 +1046,7 @@ const orderOf = Effect.fn('orderOf')(function* (
   planned.forEach((input, index) => {
     const slug = ends[index]?.slug
     if (slug !== undefined) at.set(slug, index)
-    if (input.entry !== undefined) at.set(input.entry, index)
+    if (input.entry !== undefined && slug !== undefined) at.set(input.entry, index)
   })
   const inBatch = (reference: string | null | undefined) =>
     reference === null || reference === undefined

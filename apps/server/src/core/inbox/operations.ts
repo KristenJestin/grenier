@@ -8,6 +8,7 @@ import { identityOf, lockedEntry, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { mimeOf, readFileOf, sha256Of, storeFile } from '../media/files.ts'
 import { Refused } from '../refused.ts'
+import { sensitivity } from '../sensitive.ts'
 import { INBOX } from './store.ts'
 
 const BYTES_LIMIT = 20 * 1024 * 1024
@@ -262,13 +263,15 @@ export const listInbox = Effect.fn('listInbox')(function* (filter: InboxFilter) 
   const limit = filter.limit ?? PAGE
   const rank = sql<number>`CASE WHEN ${inbox.status} = 'pending' THEN 0 ELSE 1 END`
   const after = filter.cursor === undefined ? undefined : yield* placeOf(filter.cursor)
+  // A processed item is read through its entries: no preview of it without the right.
+  const shown = (yield* sensitivity).allowed ? sql`true` : sql`${inbox.status} <> 'processed'`
   const found = yield* listedRows(
     db
       .select({
         ...LISTED,
         preview: sql<
           string | null
-        >`left(array_to_string((string_to_array(left(${inbox.content}, 2000), E'\\n'))[1:${PREVIEW_LINES}], E'\\n'), ${PREVIEW_LENGTH})`,
+        >`CASE WHEN ${shown} THEN left(array_to_string((string_to_array(left(${inbox.content}, 2000), E'\\n'))[1:${PREVIEW_LINES}], E'\\n'), ${PREVIEW_LENGTH}) END`,
         rank,
         at: SUMMARY.received_at,
       })
@@ -322,7 +325,23 @@ export const peekItem = Effect.fn('peekItem')(function* (id: string) {
     ? yield* items(db.select(FULL).from(inbox).where(eq(inbox.id, id)))
     : []
   if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
+  yield* readable(item)
   return withFirstPart(item)
+})
+
+/**
+ * Refuses the content of a processed item to a key without the right `sensitive`: what it held
+ * now lives in the entries it gave, which may be of a sensitive type or hold sensitive fields, and
+ * is read through them, as its file is only served through them.
+ */
+const readable = Effect.fn('readable')(function* (item: {
+  readonly id: string
+  readonly status: string
+}) {
+  if (item.status === 'processed' && !(yield* sensitivity).allowed)
+    return yield* new Refused({
+      message: `The item \`${item.id}\` is processed: what it held is read through the entries it gave.`,
+    })
 })
 
 /**
@@ -340,6 +359,7 @@ export const readItem = Effect.fn('readItem')(function* (input: {
     : []
   if (item === undefined)
     return yield* new Refused({ message: `There is no item \`${input.id}\`.` })
+  yield* readable(item)
   if (item.text === null)
     return yield* new Refused({
       message: `The item \`${item.id}\` holds no text to read in parts: fetch its file at \`${item.media_url}\`.`,

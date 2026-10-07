@@ -1,6 +1,6 @@
 import { WriteEntryInput } from '@grenier/api/model'
 import { identityOf, writeEntry } from '../../core/entries/index.ts'
-import { pendingOf } from '../../core/links/index.ts'
+import { referencesOf } from '../../core/links/index.ts'
 import { Effect } from 'effect'
 import { defineTool } from '../tool.ts'
 
@@ -17,7 +17,10 @@ export const writeTool = defineTool({
       const written = yield* writeEntry(input)
       return {
         entry: yield* identityOf(written),
-        pending_references: yield* pendingOf(written.id),
+        // As the caller sees them: a reference to an entry it may not see waits like any other.
+        pending_references: (yield* referencesOf(written.body)).flatMap(({ reference, id }) =>
+          id === null ? [reference] : [],
+        ),
       }
     }),
 })
