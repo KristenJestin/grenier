@@ -26,6 +26,8 @@ import {
   inboxDoneTool,
   inboxListTool,
   inboxPeekTool,
+  inboxReadTool,
+  inboxReleaseTool,
   inboxTakeTool,
 } from './tools/inbox.ts'
 import { confirmProposalTool } from './tools/confirm-proposal.ts'
@@ -71,6 +73,8 @@ export const GrenierTools = Toolkit.make(
   writeManyTool.tool,
   inboxAddTool.tool,
   inboxListTool.tool,
+  inboxReadTool.tool,
+  inboxReleaseTool.tool,
   inboxDoneTool.tool,
   inboxDismissTool.tool,
 )
@@ -188,6 +192,8 @@ export const GrenierHandlers = GrenierTools.toLayer(
       write_many: handlerOf(writeManyTool),
       inbox_add: handlerOf(inboxAddTool),
       inbox_list: handlerOf(inboxListTool),
+      inbox_read: handlerOf(inboxReadTool),
+      inbox_release: handlerOf(inboxReleaseTool),
       inbox_done: handlerOf(inboxDoneTool),
       inbox_dismiss: handlerOf(inboxDismissTool),
     }

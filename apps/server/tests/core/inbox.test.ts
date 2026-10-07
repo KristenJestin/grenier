@@ -48,7 +48,7 @@ describe('the inbox', () => {
       ),
     )
     expect(item).toMatchObject({ kind: 'text', status: 'pending', origin: 'chat' })
-    expect((await run(listInbox({}))).map(({ id }) => id)).toContain(item.id)
+    expect((await run(listInbox({}))).items.map(({ id }) => id)).toContain(item.id)
     const taken = await run(as('agent-one')(takeItem({ id: item.id })))
     expect(taken).toMatchObject({
       id: item.id,
@@ -80,7 +80,7 @@ describe('the inbox', () => {
     const produced = await run(Effect.forEach(['apricot-jam', 'jam-jars'], readEntry))
     for (const { entry } of produced)
       expect(entry.sources).toContainEqual({ source: 'inbox', item: item.id })
-    expect((await run(listInbox({}))).map(({ id }) => id)).not.toContain(item.id)
+    expect((await run(listInbox({}))).items.map(({ id }) => id)).not.toContain(item.id)
   })
 
   test('a dismissed item keeps its reason and leaves the pending list', async () => {
@@ -92,8 +92,10 @@ describe('the inbox', () => {
       status: 'dismissed',
       reason: 'A passing errand, not knowledge.',
     })
-    expect((await run(listInbox({}))).map(({ id }) => id)).not.toContain(item.id)
-    expect((await run(listInbox({ status: 'dismissed' }))).map(({ id }) => id)).toContain(item.id)
+    expect((await run(listInbox({}))).items.map(({ id }) => id)).not.toContain(item.id)
+    expect((await run(listInbox({ status: 'dismissed' }))).items.map(({ id }) => id)).toContain(
+      item.id,
+    )
   })
 
   test('a file is kept as its text when it is text', async () => {

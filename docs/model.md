@@ -204,9 +204,14 @@ image the agent sees, its longest side 1568 pixels at most; any other file is gi
 address, `/media/<hash>`, fetched only when needed, served to a key with `write` while the
 item is pending or taken, and afterwards only through the entries that hold it); it then marks the item processed with those
 entries, each of which cites the item in its `sources` (`{ "source": "inbox", "item": "<id>" }`).
-Before taking, an agent may plan a batch: the list gives, on request, the first lines of each
-text (five lines, 300 characters at most) and its size, `inbox_peek` reads an item whole without
-taking it, and `inbox_take` takes several items at once, all or none. Answers that follow a write
+Before taking, an agent may plan a batch: the list comes a page at a time (50 items unless told,
+`next_cursor` for the next), filtered by status and by origin (exact or by prefix), each item
+small (id, name, origin, size, status) and, on request, with the first lines of its text (five
+lines, 300 characters at most); `inbox_peek` reads an item without taking it, and `inbox_take`
+takes several items at once, all or none. A long text comes in parts: an answer gives the first
+16,000 characters and `next_offset`, and `inbox_read` the rest, from that offset. An agent that
+cannot finish an item gives it back with `inbox_release`: it waits again; otherwise an item taken
+stays taken until it is done or dismissed. Answers that follow a write
 (`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
 summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no

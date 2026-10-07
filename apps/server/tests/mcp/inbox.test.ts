@@ -150,3 +150,89 @@ describe('agents plan a batch of the inbox before taking it', () => {
     expect(taken[1]?.text).toBe('Oil the shears.')
   })
 })
+
+describe('six agents work the inbox in parallel', () => {
+  const Page = Schema.Struct({
+    items: Schema.Array(Schema.Record(Schema.String, Schema.Json)),
+    next_cursor: Schema.NullOr(Schema.String),
+  })
+  const pageOf = async (args: Schema.Json) =>
+    Schema.decodeUnknownSync(Page)(await answerOf('inbox_list', args))
+
+  test('inbox_list filters by origin, exact or by prefix, and by status, and pages small answers', async () => {
+    await Promise.all(
+      ['a.md', 'b.md', 'c.md'].map((name) =>
+        answerOf('inbox_add', { kind: 'text', text: `Note ${name}`, origin: 'wiki/garden' }),
+      ),
+    )
+    await answerOf('inbox_add', { kind: 'text', text: 'Elsewhere', origin: 'wiki/kitchen' })
+    const first = await pageOf({ origin: 'wiki/garden', limit: 2 })
+    expect(first.items).toHaveLength(2)
+    expect(Object.keys(first.items[0] ?? {}).toSorted()).toEqual([
+      'id',
+      'name',
+      'origin',
+      'size',
+      'status',
+    ])
+    expect(first.next_cursor).not.toBeNull()
+    const second = await pageOf({ origin: 'wiki/garden', limit: 2, cursor: first.next_cursor })
+    expect(second.items).toHaveLength(1)
+    expect(second.next_cursor).toBeNull()
+    expect((await pageOf({ origin_prefix: 'wiki/' })).items).toHaveLength(4)
+    expect((await pageOf({ origin_prefix: 'wiki/', status: 'taken' })).items).toEqual([])
+  })
+
+  test('an item of 260 KB is read in parts: the first with the take, the rest with inbox_read', async () => {
+    const journal = Array.from({ length: 5200 }, (_, line) => `Day ${line}: rain, then sun.`).join(
+      '\n',
+    )
+    expect(journal.length).toBeGreaterThan(130_000)
+    const big = `${journal}\n${journal}`
+    const id = await added(big)
+    const Taken = Schema.Struct({
+      item: Schema.Struct({ text: Schema.String, size: Schema.Number, next_offset: Schema.Number }),
+    })
+    const taken = Schema.decodeUnknownSync(Taken)(await answerOf('inbox_take', { id }))
+    expect(taken.item.size).toBe(big.length)
+    expect(taken.item.text.length).toBeLessThan(big.length)
+    const Part = Schema.Struct({ text: Schema.String, next_offset: Schema.NullOr(Schema.Number) })
+    const rest = async (offset: number | null, read: string): Promise<string> => {
+      if (offset === null) return read
+      const part = Schema.decodeUnknownSync(Part)(await answerOf('inbox_read', { id, offset }))
+      return rest(part.next_offset, read + part.text)
+    }
+    expect(await rest(taken.item.next_offset, taken.item.text)).toBe(big)
+  })
+
+  test('inbox_release gives back an item taken, which waits again', async () => {
+    const id = await added('Sort the seeds.')
+    await answerOf('inbox_take', { id })
+    expect(await answerOf('inbox_release', { id })).toMatchObject({
+      item: { id, status: 'pending' },
+    })
+    expect(await answerOf('inbox_peek', { id })).toMatchObject({ item: { status: 'pending' } })
+  })
+
+  test('inbox_done answers with the item’s id and status and the entries’ identities only', async () => {
+    const id = await added('The greenhouse needs a new pane.')
+    await answerOf('inbox_take', { id })
+    expect(await answerOf('inbox_done', { id, entries: ['garden'] })).toEqual({
+      heads_up: [],
+      item: {
+        id,
+        status: 'processed',
+        entries: [
+          {
+            id: expect.any(String),
+            slug: 'garden',
+            type: 'note',
+            title: 'Garden',
+            summary: '',
+            path: [],
+          },
+        ],
+      },
+    })
+  })
+})

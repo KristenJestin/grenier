@@ -10,6 +10,8 @@ export {
   InboxItem,
   listInbox,
   peekItem,
+  readItem,
+  releaseItem,
   takeItem,
   takeItems,
 } from './operations.ts'
