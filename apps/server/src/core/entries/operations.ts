@@ -859,7 +859,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           const stored = existing?.fields[field.name]
           const at = `fields.${field.name}`
           if (field.kind !== 'entry') continue
-          if (Predicate.isString(value)) {
+          // A value of another shape than the field's is the decoder's problem.
+          if (field.many !== true && Predicate.isString(value)) {
             references[field.name] = (yield* resolve(at, value, stored, field.types)) ?? value
           } else if (field.many === true && Array.isArray(value)) {
             // Each item as one value; what is not text is the decoder's problem.

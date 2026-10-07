@@ -300,6 +300,11 @@ describe('a repeated field', () => {
         (await idOf('copper-shop')) +
         '`.',
     )
+    expect(
+      await run(
+        refusalOf(writeEntry({ entry: 'dov-reyes', fields: { bought_from: 'copper-shop' } })),
+      ),
+    ).toBe('The field `fields.bought_from` must be a list.')
     // A person is accepted too, and the list is read back with the reader's titles.
     await run(
       writeEntry({ entry: 'dov-reyes', fields: { bought_from: ['cleo-marsh', 'copper-shop'] } }),
