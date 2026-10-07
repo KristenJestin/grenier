@@ -29,10 +29,10 @@ const citing = rowsOf(
 )
 
 /**
- * The entry a reference names, as the caller may see it: the one with that slug, else the one
- * with that alias. None when no entry has it, or only one the caller may not see.
+ * The entry a reference names: the one with that slug, else the one with that alias. With
+ * `visible`, as the caller may see it: none when no entry has it, or only one it may not see.
  */
-const entryReferenced = Effect.fn('entryReferenced')(function* (reference: string) {
+const entryReferenced = Effect.fn('entryReferenced')(function* (reference: string, visible = true) {
   const db = yield* drizzle
   const { hidesType } = yield* sensitivity
   const found = yield* named(
@@ -42,7 +42,7 @@ const entryReferenced = Effect.fn('entryReferenced')(function* (reference: strin
       .where(or(eq(entries.slug, reference), sql`${entries.aliases} ? ${reference}`))
       .orderBy(sql`${entries.slug} = ${reference} DESC`, asc(entries.slug)),
   )
-  return found.find(({ type }) => !hidesType(type))
+  return found.find(({ type }) => !visible || !hidesType(type))
 })
 
 /**
@@ -61,8 +61,10 @@ export const referencesOf = Effect.fn('referencesOf')(function* (body: string) {
 
 /**
  * Keeps the references of a body: each to an entry that exists as a link `mentions`, each other one
- * as a pending reference, until an entry takes its slug. The slugs of `coming` (the rest of a
- * batch being written) are neither: the batch links them once all its entries exist.
+ * as a pending reference, until an entry takes its slug. They are looked up whatever the caller
+ * may see: what is stored does not depend on who wrote last, only what is answered does. The slugs
+ * of `coming` (the rest of a batch being written) are neither: the batch links them once all its
+ * entries exist.
  */
 export const keepReferences = Effect.fn('keepReferences')(function* (
   source: string,
@@ -70,7 +72,12 @@ export const keepReferences = Effect.fn('keepReferences')(function* (
   coming: ReadonlySet<string> = new Set(),
 ) {
   const db = yield* drizzle
-  const resolved = yield* referencesOf(body)
+  const resolved = yield* Effect.forEach(referencesIn(body), (reference) =>
+    Effect.map(entryReferenced(reference, false), (found) => ({
+      reference,
+      id: found?.id ?? null,
+    })),
+  )
   yield* replaceMentions(
     source,
     resolved.flatMap(({ id }) => (id === null || id === source ? [] : [id])),
@@ -121,14 +128,62 @@ export const resolvePending = Effect.fn('resolvePending')(function* (
   )
 })
 
+const hiddenLinks = rowsOf(
+  Schema.Struct({
+    id: Schema.String,
+    slug: Schema.String,
+    title: Schema.String,
+    body: Schema.String,
+  }),
+)
+
 /**
  * Every reference still waiting for its entry, by slug, with the entries that wrote it, but those
- * the caller may not see.
+ * the caller may not see. To a caller without the right `sensitive`, a reference to an entry it
+ * may not see is waiting too, as one to a slug no entry has: the list never tells them apart.
  */
 export const pendingReferences = Effect.gen(function* () {
   const db = yield* drizzle
   const { hiddenTypes } = yield* sensitivity
-  const rows = yield* citing(
+  const target = sql`(SELECT t.type FROM entries t WHERE t.id = ${tables.links.target_id})`
+  // The visible entries whose body cites an entry the caller may not see.
+  const citingHidden =
+    hiddenTypes.length === 0
+      ? []
+      : yield* hiddenLinks(
+          db
+            .selectDistinct({
+              id: entries.id,
+              slug: entries.slug,
+              title: entries.title,
+              body: entries.body,
+            })
+            .from(tables.links)
+            .innerJoin(entries, eq(entries.id, tables.links.source_id))
+            .where(
+              and(
+                eq(tables.links.relation, MENTIONS),
+                notInArray(entries.type, [...hiddenTypes]),
+                sql`${target} IN (${sql.join(
+                  hiddenTypes.map((type) => sql`${type}`),
+                  sql`, `,
+                )})`,
+              ),
+            ),
+        )
+  const throughHidden = yield* Effect.forEach(citingHidden, (source) =>
+    Effect.map(referencesOf(source.body), (resolved) =>
+      resolved
+        .filter(({ id }) => id === null)
+        .map(({ reference }) => ({
+          slug: reference,
+          id: source.id,
+          source_slug: source.slug,
+          title: source.title,
+        })),
+    ),
+  )
+  const stored = yield* citing(
     db
       .select({
         slug: pending.slug,
@@ -141,11 +196,16 @@ export const pendingReferences = Effect.gen(function* () {
       .where(hiddenTypes.length === 0 ? undefined : notInArray(entries.type, [...hiddenTypes]))
       .orderBy(asc(pending.slug), asc(entries.title)),
   )
-  const slugs = [...new Set(rows.map(({ slug }) => slug))]
+  const rows = [...stored, ...throughHidden.flat()]
+  const slugs = [...new Set(rows.map(({ slug }) => slug))].toSorted()
   return slugs.map((slug) => ({
     slug,
-    cited_by: rows
-      .filter((row) => row.slug === slug)
-      .map(({ id, source_slug, title }) => ({ id, slug: source_slug, title })),
+    cited_by: [
+      ...new Map(
+        rows
+          .filter((row) => row.slug === slug)
+          .map(({ id, source_slug, title }) => [id, { id, slug: source_slug, title }] as const),
+      ).values(),
+    ].toSorted((left, right) => (left.title < right.title ? -1 : left.title > right.title ? 1 : 0)),
   }))
 })

@@ -92,7 +92,12 @@ a date field that is sensitive are left out of `upcoming`, `heads_up` and `brief
 date, their order or their count in a window would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
-its occurrences are left out. Such a key may not write a sensitive field
+its occurrences are left out. Its id is never given either: as the parent, the successor or the
+value of a field of a visible entry (`null`, or `[hidden]` for a field), in the tree, nor in a
+history; a reference to it waits like a reference to a slug no entry has, in `references`, in
+`pending_references` and in the answer of a write, so nothing tells the two apart. What is stored
+does not depend on who writes: a reference to it is kept as a link even when such a key rewrites
+the body that holds it. Such a key may not write a sensitive field
 nor an entry of a sensitive type, nor change the type of an entry that holds a sensitive value,
 nor change a sensitive field or any field of a sensitive type; to its writes, an entry it may not
 see does not exist, and neither do its media. A reference a write or a change of a field leaves as
@@ -247,7 +252,10 @@ lines, 300 characters at most); `inbox_peek` reads an item without taking it, an
 takes several items at once, all or none. A long text comes in parts: an answer gives the first
 16,000 characters and `next_offset`, and `inbox_read` the rest, from that offset. An agent that
 cannot finish an item gives it back with `inbox_release`: it waits again; otherwise an item taken
-stays taken until it is done or dismissed. Answers that follow a write
+stays taken until it is done or dismissed. Once processed, an item is read through the entries
+it gave: its text is served (`inbox_peek`, `inbox_read`, a preview) only to a key with the right
+`sensitive`, as its file is served only through those entries, since what it held may now be an
+entry of a sensitive type, or a sensitive field. Answers that follow a write
 (`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
 summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no

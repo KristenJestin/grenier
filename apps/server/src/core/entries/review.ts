@@ -61,7 +61,10 @@ export const unverified = Effect.fn('unverified')(function* (filter: ReviewFilte
     ) CYCLE id SET looped USING trail
     SELECT e.id::text AS id, e.slug, e.type, e.title,
       to_char(e.updated AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated,
-      (SELECT actor FROM events WHERE entry_id = e.id ORDER BY id DESC LIMIT 1) AS by
+      -- Who last wrote it, not the link a reference resolved by itself when its entry came.
+      (SELECT actor FROM events WHERE entry_id = e.id
+        AND NOT (action = 'link' AND changes -> 0 ->> 'field' = 'links.mentions')
+        ORDER BY id DESC LIMIT 1) AS by
     FROM entries e
     WHERE NOT e.verified AND e.archived_at IS NULL
       AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
