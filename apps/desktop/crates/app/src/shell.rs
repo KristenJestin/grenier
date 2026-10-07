@@ -271,7 +271,8 @@ impl Shell {
 }
 
 /// The tree from its entries: each under its parent, by title as the server gives them; an entry
-/// whose parent this key does not see stands at the top, so that none goes missing.
+/// whose parent this key does not see stands at the top, so that none goes missing. A part of its
+/// parent (`in_parent`) is read in the parent's page, not listed under it.
 pub fn tree_of(entries: &[TreeEntry]) -> Vec<TreeNode> {
     let known: HashSet<&str> = entries.iter().map(|entry| entry.id.as_str()).collect();
     let mut under: HashMap<Option<&str>, Vec<&TreeEntry>> = HashMap::new();
@@ -280,6 +281,9 @@ pub fn tree_of(entries: &[TreeEntry]) -> Vec<TreeNode> {
             .parent_id
             .as_deref()
             .filter(|parent| known.contains(parent));
+        if entry.in_parent && parent.is_some() {
+            continue;
+        }
         under.entry(parent).or_default().push(entry);
     }
     fn build(
@@ -323,6 +327,7 @@ mod tests {
             title: id.into(),
             type_: "note".into(),
             parent_id: parent.map(Into::into),
+            in_parent: false,
         }
     }
 

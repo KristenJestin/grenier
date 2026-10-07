@@ -56,6 +56,7 @@ export const types = pgTable('types', {
   updated: timestamp(at).notNull().defaultNow(),
   deleted_at: timestamp(at),
   sensitive: boolean().notNull().default(false),
+  read_in_parent: boolean().notNull().default(false),
 })
 
 /**

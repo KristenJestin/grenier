@@ -7,7 +7,7 @@ use std::thread;
 
 use app::client::{Client, Key};
 use app::shell::Shell;
-use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, Modifiers, TestAppContext, VisualTestContext};
 use serde_json::{Value, json};
 use ui::intent::Intent;
 use ui::load::{Load, Problem};
@@ -36,13 +36,42 @@ fn serve(listener: TcpListener) {
             BufReader::new(&stream).read_line(&mut line).ok();
             let path = line.split(' ').nth(1).unwrap_or("").to_string();
             let (status, body) = match path.as_str() {
-                "/api/types" => ("200 OK", json!({ "types": [] })),
+                "/api/types" => (
+                    "200 OK",
+                    json!({ "types": [{
+                        "name": "item", "label": "Item", "description": "Something owned, or a part of it.",
+                        "read_in_parent": true,
+                        "fields": [
+                            { "name": "serial", "kind": "text" },
+                            { "name": "price", "kind": "money", "sensitive": true }
+                        ]
+                    }]}),
+                ),
                 "/api/entries" => (
                     "200 OK",
                     json!({ "entries": [
-                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null },
-                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen" }
+                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null, "in_parent": false },
+                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen", "in_parent": false },
+                        { "id": "computer", "slug": "computer", "type": "item", "title": "Computer", "parent_id": null, "in_parent": false },
+                        { "id": "main-disk", "slug": "main-disk", "type": "item", "title": "Main disk", "parent_id": "computer", "in_parent": true },
+                        { "id": "fan", "slug": "fan", "type": "item", "title": "Fan", "parent_id": "computer", "in_parent": true },
+                        { "id": "screen", "slug": "screen", "type": "item", "title": "Screen", "parent_id": null, "in_parent": false },
+                        { "id": "stand", "slug": "stand", "type": "item", "title": "Stand", "parent_id": "screen", "in_parent": true }
                     ]}),
+                ),
+                "/api/entries/computer" => {
+                    let mut computer = entry("computer", "Computer", None, "");
+                    computer["entry"]["type"] = json!("item");
+                    computer["children"] = json!([
+                        { "id": "fan", "slug": "fan", "type": "item", "title": "Fan", "summary": "", "in_parent": true, "fields": {} },
+                        { "id": "main-disk", "slug": "main-disk", "type": "item", "title": "Main disk", "summary": "", "in_parent": true,
+                          "fields": { "serial": "SN-0001", "price": "[hidden]" } }
+                    ]);
+                    ("200 OK", computer)
+                }
+                "/api/entries/main-disk" => (
+                    "200 OK",
+                    entry("main-disk", "Main disk", Some("computer"), ""),
                 ),
                 "/api/entries/kitchen" => ("200 OK", entry("kitchen", "Kitchen", None, "")),
                 "/api/entries/plum-tart" => (
@@ -148,4 +177,39 @@ fn a_server_that_stops_answering_shows_it_and_recovers_on_retry(cx: &mut TestApp
         viewer.tree_state(),
         Load::Ready(())
     )));
+}
+
+#[gpui_kit::test]
+fn the_parts_of_an_object_are_a_table_in_its_page_not_branches_of_the_tree(
+    cx: &mut TestAppContext,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    // The parts are not branches: the computer and the screen are not even folders.
+    let tree: Vec<(String, usize)> = viewer.read_with(cx, |viewer, _| {
+        viewer
+            .nodes()
+            .iter()
+            .map(|node| (node.id.to_string(), node.children.len()))
+            .collect()
+    });
+    assert_eq!(
+        tree,
+        vec![
+            ("kitchen".to_string(), 1),
+            ("computer".to_string(), 0),
+            ("screen".to_string(), 0)
+        ]
+    );
+    ask(&viewer, Intent::Open("computer".into()), cx);
+    cx.run_until_parked();
+    let row = cx
+        .debug_bounds("part-main-disk")
+        .expect("the main disk is a row of the table");
+    cx.simulate_click(row.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("main-disk"));
 }

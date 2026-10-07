@@ -27,7 +27,7 @@ const ENTRY: &str = r#"{
     "url": "/media/ab12"
   }],
   "backlinks": [],
-  "children": [{ "id": "01a1-child", "slug": "plum-jam", "type": "recipe", "title": "Plum jam", "summary": "" }],
+  "children": [{ "id": "01a1-child", "slug": "plum-jam", "type": "recipe", "title": "Plum jam", "summary": "", "in_parent": false }],
   "hidden_children": 1,
   "cited_by": [{ "id": "01a1-menu", "slug": "sunday-menu", "title": "Sunday menu" }]
 }"#;

@@ -82,6 +82,9 @@ export const Child = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   summary: Schema.String,
+  /** Read in this page as a part of it (its type says `read_in_parent`), with its `fields`. */
+  in_parent: Schema.Boolean,
+  fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
 }).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
@@ -92,6 +95,8 @@ export const TreeEntry = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   parent_id: Schema.NullOr(Schema.String),
+  /** Read in its parent's page rather than listed under it (its type says `read_in_parent`). */
+  in_parent: Schema.Boolean,
 }).annotate({ identifier: 'TreeEntry' })
 export type TreeEntry = typeof TreeEntry.Type
 
