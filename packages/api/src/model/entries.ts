@@ -99,8 +99,9 @@ export type TreeEntry = typeof TreeEntry.Type
  * What a write says. With `entry`, the id or slug of an existing entry, it updates that entry:
  * only the keys given change, and `fields` and `provenance` are merged key by key, a `null`
  * removing a key. Without `entry`, it creates one. `parent` and `superseded_by` take an id or a
- * slug. `created` and `updated`, a date or a date and time, are taken only when the entry is
- * created, for an import that keeps when a note was first written. The rules are checked by the write, not by this schema, so that every problem is
+ * slug. `created`, a date or a date and time, keeps when a note was first written: taken when the
+ * entry is created, or on an update while the entry has not changed since its creation. `updated`
+ * is the time of the write, unless an import gives it when it creates the entry. The rules are checked by the write, not by this schema, so that every problem is
  * reported at once.
  */
 export const WriteEntryInput = Schema.Struct({

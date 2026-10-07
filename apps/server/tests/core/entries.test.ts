@@ -175,8 +175,15 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 
   test('a duplicate slug', async () => {
     await run(writeEntry({ ...contract, slug: 'taken' }))
-    expect(await run(refusalOf(writeEntry({ ...contract, slug: 'taken' })))).toBe(
+    await run(writeEntry({ ...contract, slug: 'other' }))
+    expect(await run(refusalOf(writeEntry({ entry: 'other', slug: 'taken' })))).toBe(
       'The field `slug` must be unique: `taken` is already used by another entry.',
+    )
+  })
+
+  test('a write naming an existing slug without entry says to pass entry', async () => {
+    expect(await run(refusalOf(writeEntry({ ...contract, slug: 'taken' })))).toBe(
+      'An entry with the slug `taken` exists: pass `entry` to update it, or choose another slug.',
     )
   })
 
@@ -294,6 +301,15 @@ describe('several problems in one write are all reported in one refusal', () => 
 })
 
 describe('an import keeps when an entry was first written', () => {
+  test('with created given and no updated, updated is the time of the write', async () => {
+    const before = new Date().toISOString()
+    const entry = await run(
+      writeEntry({ type: 'note', title: 'Older note', created: '2019-03-01' }),
+    )
+    expect(entry.created).toBe('2019-03-01T00:00:00.000Z')
+    expect(entry.updated >= before).toBe(true)
+  })
+
   test('created and updated are taken on creation', async () => {
     const entry = await run(
       writeEntry({
@@ -325,10 +341,28 @@ describe('an import keeps when an entry was first written', () => {
     )
   })
 
-  test('they are refused on an update', async () => {
+  test('created is taken on an update while the entry has not changed since its creation, and recorded in its history', async () => {
+    await run(writeEntry({ type: 'note', title: 'Draft' }))
+    const entry = await run(
+      writeEntry({ entry: 'draft', created: '2019-03-01', body: 'The whole note.' }),
+    )
+    expect(entry.created).toBe('2019-03-01T00:00:00.000Z')
+    const history = await run(entryHistory('draft'))
+    expect(history.at(-1)?.changes).toContainEqual({
+      field: 'created',
+      before: expect.any(String),
+      after: '2019-03-01T00:00:00.000Z',
+    })
+  })
+
+  test('created is refused on an update once the entry has changed', async () => {
     await run(writeEntry({ type: 'note', title: 'Kept' }))
+    await run(writeEntry({ entry: 'kept', body: 'Changed.' }))
     expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(
-      'The field `created` can be given only when the entry is created.',
+      'The field `created` can be given on an update only while the entry has not changed since it was created.',
+    )
+    expect(await run(refusalOf(writeEntry({ entry: 'kept', updated: '2019-03-01' })))).toBe(
+      'The field `updated` can be given only when the entry is created.',
     )
   })
 })

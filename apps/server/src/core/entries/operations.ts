@@ -283,6 +283,23 @@ const freeSlugOf = Effect.fn('freeSlugOf')(function* (
   return suffix === 1 ? base : `${base}-${suffix}`
 })
 
+const events = rowsOf(Schema.Struct({ id: Schema.Number }))
+
+/** Whether an entry was updated or archived since it was created. */
+const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: string) {
+  const db = yield* drizzle
+  const found = yield* events(
+    db
+      .select({ id: tables.events.id })
+      .from(tables.events)
+      .where(
+        and(eq(tables.events.entry_id, id), inArray(tables.events.action, ['update', 'archive'])),
+      )
+      .limit(1),
+  )
+  return found.length > 0
+})
+
 /** The instant a date or a date and time names, in ISO 8601; a date is taken at midnight UTC. */
 const instantOf = (value: string | undefined) => {
   if (value === undefined) return null
@@ -514,11 +531,16 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const instants = { created, updated }
         for (const [field, value] of Object.entries(instants)) {
           if (value === undefined) continue
-          if (existing !== undefined) {
-            problems.push(`The field \`${field}\` can be given only when the entry is created.`)
+          if (existing !== undefined && field === 'updated') {
+            problems.push('The field `updated` can be given only when the entry is created.')
           } else if (instantOf(value) === undefined) {
             problems.push(
               `The field \`${field}\` must be a date such as \`2026-10-05\` or a date and time such as \`2026-10-05T14:30:00Z\`.`,
+            )
+          } else if (existing !== undefined && (yield* changedSinceCreated(existing.id))) {
+            // A draft written first, so that others could refer to it, still takes its real date.
+            problems.push(
+              'The field `created` can be given on an update only while the entry has not changed since it was created.',
             )
           }
         }
@@ -540,10 +562,13 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const owner = yield* idOf(slug)
         if (owner !== undefined && owner !== existing?.id) {
           // Said without confirming that an entry the caller may not see uses it.
+          const visible = (yield* visibleIdOf(slug)) !== undefined
           problems.push(
-            (yield* visibleIdOf(slug)) === undefined
+            !visible
               ? `The field \`slug\` cannot be \`${slug}\`: choose another slug.`
-              : `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
+              : existing === undefined
+                ? `An entry with the slug \`${slug}\` exists: pass \`entry\` to update it, or choose another slug.`
+                : `The field \`slug\` must be unique: \`${slug}\` is already used by another entry.`,
           )
         }
 
@@ -636,8 +661,16 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
               body: renameReferences(decoded.success.body, existing.slug, decoded.success.slug),
             }
           : decoded.success
-        const changesWith = (verified: boolean) =>
-          changesBetween(
+        // The date of creation an update gives, recorded as any changed field.
+        const redated = existing === undefined ? null : instantOf(created)
+        const redating =
+          existing === undefined || redated === null || redated === undefined
+            ? []
+            : [{ field: 'created', before: existing.created, after: redated }].filter(
+                (change) => change.before !== change.after,
+              )
+        const changesWith = (verified: boolean) => [
+          ...changesBetween(
             existing === undefined ? {} : snapshotOf(existing),
             snapshotOf({
               ...entry,
@@ -648,7 +681,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
               superseded_by: supersededBy,
               archived_at: existing?.archived_at ?? null,
             }),
-          )
+          ),
+          ...redating,
+        ]
         // What the owner verified is no longer verified once a writer without `owner` changes it.
         const verified = entry.verified && (byOwner || changesWith(true).length === 0)
         const changes = changesWith(verified)
@@ -679,14 +714,19 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
                   .values({
                     ...values,
                     created: sql`coalesce(${instantOf(created)}::timestamptz, now())`,
-                    updated: sql`coalesce(${instantOf(updated ?? created)}::timestamptz, now())`,
+                    // When Grenier wrote it, unless an import gives when the note last changed.
+                    updated: sql`coalesce(${instantOf(updated)}::timestamptz, now())`,
                   })
                   .returning({ id: table.id }),
               )
             : yield* ids(
                 db
                   .update(table)
-                  .set({ ...values, updated: sql`now()` })
+                  .set({
+                    ...values,
+                    created: sql`coalesce(${redated ?? null}::timestamptz, ${table.created})`,
+                    updated: sql`now()`,
+                  })
                   .where(eq(table.id, existing.id))
                   .returning({ id: table.id }),
               )
