@@ -7,6 +7,6 @@
   "scripts": {
     "lint": "oxlint -c ../.oxlintrc.json . && bun boundaries.ts",
     "fmt:check": "oxfmt -c ../.oxfmtrc.json --check .",
-    "test": "bun --bun vitest run --config ../vitest.config.ts --dir ."
+    "test": "bun --bun vitest run --config ../vitest.config.ts --dir . --no-file-parallelism"
   }
 }

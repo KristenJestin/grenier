@@ -236,6 +236,9 @@ Doctor will join the checks.
 - `bun run test` runs Vitest **under Bun** (`bun --bun vitest run`), the runtime of the server,
   in each package, with the `repository` project of `vitest.config.ts`.
 - Always `vitest run`: plain `vitest` starts watch mode and never ends.
+- The tests of `tools/` run one file at a time (`--no-file-parallelism`): some write deliberate
+  scratch files into the tree to prove the lint or the type check refuses them, while others read
+  the same tree.
 - A suite that needs PostgreSQL uses the local one of `docker-compose.yml` (in CI, the same image
   as a service), creates its own database with a unique name, and drops it at the end. It never
   touches a database that holds real data.
