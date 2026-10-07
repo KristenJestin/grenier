@@ -1,13 +1,15 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
-import { Clock, Effect, Schema } from 'effect'
+import { dirname, join, relative, resolve as resolvePath, sep } from 'node:path'
+import { Clock, Config, Effect, Schema } from 'effect'
 import { markdownFiles } from '../core/export/index.ts'
 import type { ExportedFile } from '../core/export/index.ts'
 
-/** Where the export goes, and where it is pushed. */
+/** Where the export goes, whether it holds sensitive data, and where it is pushed. */
 export type ExportOptions = {
   readonly folder: string
+  /** Whether the export holds sensitive data: never pushed, never in the nightly folder. */
+  readonly sensitive: boolean
   /** The remote repository, as git names it (an SSH or HTTPS URL, or a path). */
   readonly remote?: string | undefined
   /** The private key that may push to the remote, read by SSH from this file. */
@@ -60,6 +62,35 @@ const filesIn = (folder: string) =>
     .map((found) => relative(folder, join(found.parentPath, found.name)).split(sep).join('/'))
     .filter((path) => path !== '.git' && !path.startsWith('.git/'))
 
+/**
+ * The files of the last commit of the folder, by path, with their content: what the summary of
+ * the next commit counts against, whatever a run stopped in the middle left in the folder.
+ */
+const committed = (folder: string): ReadonlyMap<string, string> => {
+  const listed = spawnSync('git', ['-C', folder, 'ls-tree', '-r', '-z', '--name-only', 'HEAD'], {
+    encoding: 'utf8',
+  })
+  if (listed.status !== 0) return new Map()
+  const paths = listed.stdout.split('\0').filter((path) => path !== '')
+  const read = spawnSync('git', ['-C', folder, 'cat-file', '--batch'], {
+    input: paths.map((path) => `HEAD:${path}\n`).join(''),
+    maxBuffer: 1024 * 1024 * 1024,
+  })
+  // Each file as `<id> blob <size>`, a new line, its bytes, a new line.
+  const contents = new Map<string, string>()
+  let at = 0
+  for (const path of paths) {
+    const end = read.stdout.indexOf(10, at)
+    const size = Number(read.stdout.subarray(at, end).toString('utf8').split(' ')[2])
+    contents.set(path, read.stdout.subarray(end + 1, end + 1 + size).toString('utf8'))
+    at = end + 1 + size + 1
+  }
+  return contents
+}
+
+/** Where a folder says which export it holds: inside git's own folder, never committed. */
+const MODE = join('.git', 'grenier-export')
+
 /** The entry a file of an earlier export holds, read from its front matter. */
 const entryIn = (content: string) => {
   const front = /^---\n([\s\S]*?)\n---\n/.exec(content)?.[1] ?? ''
@@ -106,7 +137,32 @@ const summaryOf = (before: ReadonlyMap<string, string>, after: ReadonlyArray<Exp
  * that holds files but is not a git repository is refused, so nothing else is ever overwritten.
  */
 export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: ExportOptions) {
-  const { folder } = options
+  const { folder, sensitive } = options
+  const nightly = yield* Config.String('EXPORT_DIR').pipe(Config.withDefault(''))
+  if (sensitive && options.remote !== undefined)
+    return yield* new ExportRefused({
+      message: 'An export with sensitive data is never pushed: leave out --remote.',
+    })
+  if (sensitive && nightly.trim() !== '' && resolvePath(nightly) === resolvePath(folder))
+    return yield* new ExportRefused({
+      message:
+        'The folder of the nightly export (EXPORT_DIR) never holds sensitive data: give another folder.',
+    })
+  const mode = sensitive ? 'sensitive' : 'plain'
+  if (existsSync(join(folder, MODE)) && readFileSync(join(folder, MODE), 'utf8').trim() !== mode)
+    return yield* new ExportRefused({
+      message: sensitive
+        ? `The folder ${folder} holds an export without sensitive data: export with it into another folder, kept private.`
+        : `The folder ${folder} holds an export with sensitive data: export without it into another folder.`,
+    })
+  if (
+    sensitive &&
+    existsSync(join(folder, '.git')) &&
+    (yield* gitOrDie(folder, ['remote'])).trim() !== ''
+  )
+    return yield* new ExportRefused({
+      message: `The folder ${folder} has a remote: an export with sensitive data is never pushed.`,
+    })
   if (!existsSync(join(folder, '.git'))) {
     if (existsSync(folder) && readdirSync(folder).length > 0)
       return yield* new ExportRefused({
@@ -115,6 +171,7 @@ export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: Ex
     mkdirSync(folder, { recursive: true })
     yield* gitOrDie(folder, ['init', '--quiet', '--initial-branch=main'])
   }
+  if (!existsSync(join(folder, MODE))) writeFileSync(join(folder, MODE), `${mode}\n`)
 
   const files = yield* markdownFiles
   const before = new Map(
@@ -139,7 +196,7 @@ export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: Ex
   yield* gitOrDie(folder, ['add', '--all'])
   const changed = (yield* gitOrDie(folder, ['status', '--porcelain'])) !== ''
   const day = new Date(yield* Clock.currentTimeMillis).toISOString().slice(0, 10)
-  const commit = changed ? `Export of ${day}: ${summaryOf(before, files)}` : null
+  const commit = changed ? `Export of ${day}: ${summaryOf(committed(folder), files)}` : null
   if (commit !== null)
     yield* gitOrDie(folder, [
       ...IDENTITY,
@@ -154,7 +211,8 @@ export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: Ex
   if (options.remote === undefined) return { commit, push: null } satisfies ExportResult
   const pushed = yield* git(
     folder,
-    ['push', '--quiet', options.remote, 'HEAD:refs/heads/main'],
+    // After `--`: a remote that starts with `-` is a remote, never an option.
+    ['push', '--quiet', '--', options.remote, 'HEAD:refs/heads/main'],
     options.deployKey === undefined
       ? {}
       : {

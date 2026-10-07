@@ -13,8 +13,8 @@ const NIGHTLY = '0 3 * * *'
  * comes whatever happened. A failed push is told in the server's output and, when diagnostics are
  * on, as a finding; the commit stays for the next night to push.
  */
-export const exportOnce = (options: ExportOptions) =>
-  exportMarkdown(options).pipe(
+export const exportOnce = (options: Omit<ExportOptions, 'sensitive'>) =>
+  exportMarkdown({ ...options, sensitive: false }).pipe(
     Effect.provideService(Rights, ['read']),
     Effect.flatMap(({ commit, push }) =>
       Effect.gen(function* () {

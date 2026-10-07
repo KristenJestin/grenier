@@ -1,5 +1,6 @@
 /** The inbox: what arrives, before an agent turns it into entries that follow the rules. */
 export {
+  addFileOnce,
   addToInbox,
   dismissItem,
   DismissInput,

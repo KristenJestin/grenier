@@ -1,6 +1,6 @@
 import { HIDDEN } from '@grenier/api/model'
 import { Cause, Effect, Schema } from 'effect'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'
 import {
   findingsWithOccurrences,
@@ -14,6 +14,7 @@ import {
 import { Actor } from '../../src/core/events/index.ts'
 import { Instance } from '../../src/core/instance.ts'
 import { defineType } from '../../src/core/types/index.ts'
+import { renameTable } from '../../src/core/testing.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
@@ -344,5 +345,38 @@ describe('the same problem reported by two agents is one finding', () => {
         ({ number }) => number,
       ),
     ).toEqual([into])
+  })
+})
+
+describe('the server output never carries the values of a failed write', () => {
+  test('a failed query is logged with its text and class, never its parameters', async () => {
+    await run(defineType({ name: 'locker', label: 'Locker', description: 'A locker.', fields: [] }))
+    await run(renameTable('events', 'events_away'))
+    const cause = await run(
+      // As the server meets it: a failure it did not expect is a defect.
+      Effect.sandbox(
+        Effect.orDie(
+          writeEntry({
+            type: 'locker',
+            title: 'Zebra locker',
+            body: 'The code:\nzebra 7-3-9, then left.',
+          }),
+        ),
+      ).pipe(Effect.flip),
+    ).finally(() => run(renameTable('events_away', 'events')))
+    const written: Array<string> = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      await run(recordDefect('write', cause))
+    } finally {
+      spy.mockRestore()
+    }
+    const [line = ''] = written
+    expect(JSON.parse(line)).toMatchObject({ class: 'EffectDrizzleQueryError', place: 'write' })
+    expect(line).toContain('insert into')
+    expect(line).not.toContain('7-3-9')
   })
 })

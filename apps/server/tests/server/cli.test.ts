@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Effect, Layer, ManagedRuntime } from 'effect'
@@ -72,6 +72,7 @@ describe('a folder dropped into the inbox', () => {
     writeFileSync(join(folder, 'garden/.gitkeep'), '')
     writeFileSync(join(folder, '.obsidian/app.json'), '{}')
     writeFileSync(join(folder, 'too-big.bin'), Buffer.alloc(21 * 1024 * 1024, 1))
+    symlinkSync(join(folder, 'garden/hedge.md'), join(folder, 'hedge-again.md'))
   })
 
   const dropped = async () =>
@@ -87,7 +88,7 @@ describe('a folder dropped into the inbox', () => {
         '  garden/beds/leeks.md',
         '  garden/hedge.md',
         '  pancakes.md',
-        'Skipped: .obsidian/, garden/.gitkeep.',
+        'Skipped: .obsidian/, garden/.gitkeep, hedge-again.md (a link).',
         'Refused: too-big.bin (A file sent to the inbox is 20 MB at most.)',
         '',
       ].join('\n'),
@@ -99,7 +100,7 @@ describe('a folder dropped into the inbox', () => {
     expect(cli('inbox:add', folder, '--origin', 'old-notes')).toBe(
       [
         'Added to the inbox, from old-notes: 3 items.',
-        'Skipped: .obsidian/, garden/.gitkeep.',
+        'Skipped: .obsidian/, garden/.gitkeep, hedge-again.md (a link).',
         'Refused: too-big.bin (A file sent to the inbox is 20 MB at most.)',
         '',
       ].join('\n'),
@@ -114,7 +115,7 @@ describe('a folder dropped into the inbox', () => {
       [
         'Added to the inbox, from old-notes: 0 items.',
         'Already in the inbox: 3 files; give --again to add them again.',
-        'Skipped: .obsidian/, garden/.gitkeep.',
+        'Skipped: .obsidian/, garden/.gitkeep, hedge-again.md (a link).',
         'Refused: too-big.bin (A file sent to the inbox is 20 MB at most.)',
         '',
       ].join('\n'),
@@ -229,5 +230,34 @@ describe('the lead agent merges two findings of one problem', () => {
     expect(cli('findings:merge', '1', '2')).toBe('The finding 2 is merged into 1.\n')
     expect(cli('findings:list').trim().split('\n')).toHaveLength(before - 1)
     expect(cli('findings:show', '1').match(/^### Occurrence/gm)).toHaveLength(3)
+  })
+})
+
+describe('two drops of one folder at the same moment', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'grenier-twice-'))
+  afterAll(() => rmSync(folder, { recursive: true, force: true }))
+
+  test('add each file once', async () => {
+    for (const name of ['a.md', 'b.md', 'c.md', 'd.md'])
+      writeFileSync(join(folder, name), `# ${name}\n`)
+    const drop = () =>
+      new Promise<void>((done) => {
+        const child = spawn(
+          process.execPath,
+          ['src/cli.ts', 'inbox:add', folder, '--origin', 'twice'],
+          {
+            cwd: APP,
+            env: {
+              PATH: process.env['PATH'] ?? '',
+              DATABASE_URL: url,
+              BETTER_AUTH_SECRET: 'a-secret-for-the-tests-only-0123456789abcdef',
+            },
+          },
+        )
+        child.on('close', () => done())
+      })
+    await Promise.all([drop(), drop()])
+    const { items } = await database.runPromise(listInbox({ origin: 'twice' }))
+    expect(items.map(({ name }) => name).toSorted()).toEqual(['a.md', 'b.md', 'c.md', 'd.md'])
   })
 })

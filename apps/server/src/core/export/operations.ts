@@ -1,11 +1,13 @@
 import { Entry, SourceKept } from '@grenier/api/model'
 import { asc } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
+import { SqlClient } from 'effect/sql'
 import { stringify } from 'yaml'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { sensitivity } from '../sensitive.ts'
+import { instanceRulesText } from '../rules.ts'
 import { listTypes } from '../types/operations.ts'
 
 /** A file of the export: its path from the export's root, and its content. */
@@ -64,9 +66,21 @@ const markdown = (front: { readonly [key: string]: Schema.Json | undefined }, bo
  * beside the parent's own file), archived entries included. What the current caller may not see is
  * left out, as on every way out: entries of sensitive types, and the values of sensitive fields
  * (`[hidden]`); an entry whose parent is left out stands at the root. Media are listed, not
- * copied: their file is under the media folder, at `file`.
+ * copied: their file is under the media folder, at `file`. The rules of the instance, when set,
+ * are `_rules.md`, as the owner wrote them. Everything is read in one snapshot of the database,
+ * so a write during the export never leaves it half before and half after.
  */
 export const markdownFiles = Effect.gen(function* () {
+  const client = yield* SqlClient.SqlClient
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      yield* client`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`
+      return yield* snapshot
+    }),
+  )
+})
+
+const snapshot = Effect.gen(function* () {
   const db = yield* drizzle
   const { hidesType, maskFields } = yield* sensitivity
   const types = yield* listTypes
@@ -111,7 +125,8 @@ export const markdownFiles = Effect.gen(function* () {
         alt: media.alt,
       })
       .from(media)
-      .orderBy(asc(media.position)),
+      // Two attachments at once may share a position: the id decides, the same every night.
+      .orderBy(asc(media.position), asc(media.id)),
   )
 
   /** The folders an entry is filed in, from the root: the slugs of its ancestors it may show. */
@@ -129,6 +144,7 @@ export const markdownFiles = Effect.gen(function* () {
         name: type.name,
         label: type.label,
         sensitive: type.sensitive === true,
+        read_in_parent: type.read_in_parent === true,
         fields: type.fields.map((field) => ({ ...field })),
       },
       `${type.description}\n`,
@@ -189,5 +205,10 @@ export const markdownFiles = Effect.gen(function* () {
       entry.body,
     ),
   }))
-  return [...typeFiles, ...entryFiles].toSorted((left, right) => compare(left.path, right.path))
+  const rules = yield* instanceRulesText
+  const rulesFiles: ReadonlyArray<ExportedFile> =
+    rules === null ? [] : [{ path: '_rules.md', content: rules }]
+  return [...typeFiles, ...rulesFiles, ...entryFiles].toSorted((left, right) =>
+    compare(left.path, right.path),
+  )
 })

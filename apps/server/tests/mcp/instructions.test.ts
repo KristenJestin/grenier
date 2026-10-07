@@ -117,7 +117,7 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
 describe('agents that may write learn how an inbox item becomes entries', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('a key with write gets the paragraph in its instructions and in the description of inbox_take; a read-only key does not', () => {
+  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take, the same for every key, carries it', () => {
     const writer = instructionsFor(types, development, null, true)
     const reader = instructionsFor(types, development, null, false)
     expect(writer).toContain(INBOX_STANDARD)
@@ -128,5 +128,19 @@ describe('agents that may write learn how an inbox item becomes entries', () => 
   test('the rules of the instance come after it, and may add to it', () => {
     const told = instructionsFor(types, development, 'Write in short sentences.', true)
     expect(told.indexOf(INBOX_STANDARD)).toBeLessThan(told.indexOf('Write in short sentences.'))
+  })
+})
+
+describe('long rules give a part of their first paragraph when it alone is too long', () => {
+  test('the opening is cut inside the paragraph, never empty', () => {
+    const first = 'Ask before writing anything private about someone. '.repeat(100)
+    const told = instructionsFor([], development, `${first}\n\n## Style\n\nShort.`, false)
+    const [, opening = ''] = told.split(
+      'read them whole with `instance_rules`, and follow them in every session.\n\n',
+    )
+    const cut = opening.split('\n\nGrenier keeps entries')[0] ?? ''
+    expect(cut.length).toBeGreaterThan(3000)
+    expect(cut.length).toBeLessThanOrEqual(4000)
+    expect(cut.endsWith('…')).toBe(true)
   })
 })
