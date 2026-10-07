@@ -201,25 +201,34 @@ export const addField = Effect.fn('addField')(function* (
 })
 
 /**
- * What a change of a type as a whole says: whether all its entries are sensitive, and whether its
- * entries filed under one of the same type are read in their parent. What it does not give stays.
+ * What a change of a type as a whole says: its label, its description (what tells agents when to
+ * use it), whether all its entries are sensitive, and whether its entries filed under one of the
+ * same type are read in their parent. What it does not give stays.
  */
 export const ChangeTypeInput = Schema.Struct({
   type: Schema.String,
+  label: Schema.optionalKey(TypeDefinition.fields.label),
+  description: Schema.optionalKey(TypeDefinition.fields.description),
   sensitive: Schema.optionalKey(Schema.Boolean),
   read_in_parent: Schema.optionalKey(Schema.Boolean),
 })
 export type ChangeTypeInput = typeof ChangeTypeInput.Type
 
 /**
- * Makes every entry of a type sensitive, or no longer; makes its entries read in their parent, or
- * no longer. Lifting sensitivity shows what was hidden at once, so only the owner may.
+ * Changes the label or the description of a type; makes every entry of it sensitive, or no
+ * longer; makes its entries read in their parent, or no longer. Lifting sensitivity shows what was
+ * hidden at once, so only the owner may.
  */
-export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeInput) {
+export const changeType = Effect.fn('changeType')(function* (
+  given: typeof ChangeTypeInput.Encoded,
+) {
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
   const rights = yield* Rights
+  const input = yield* Schema.decodeUnknownEffect(ChangeTypeInput)(given, STRICT).pipe(
+    Effect.mapError(Refused.fromSchemaError),
+  )
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const type = yield* getType(input.type, 'update')
@@ -233,13 +242,21 @@ export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeIn
       const { sensitive: _, read_in_parent: __, ...rest } = type
       const changed: TypeDefinition = {
         ...rest,
+        label: input.label ?? type.label,
+        description: input.description ?? type.description,
         ...withFlags({ sensitive, read_in_parent: inParent }),
       }
       const changes = changesBetween(snapshotOf(type), snapshotOf(changed))
       if (changes.length === 0) return changed
       yield* db
         .update(types)
-        .set({ sensitive, read_in_parent: inParent, updated: sql`now()` })
+        .set({
+          label: changed.label,
+          description: changed.description,
+          sensitive,
+          read_in_parent: inParent,
+          updated: sql`now()`,
+        })
         .where(eq(types.name, type.name))
       yield* recordEvent(actor, { entryId: null, typeName: type.name }, 'change_type', changes)
       return changed
