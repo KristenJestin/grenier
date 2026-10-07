@@ -1,10 +1,10 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
-import { Effect, Schema } from 'effect'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { Effect, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
-import { findEntry, writeEntry } from '../entries/operations.ts'
+import { findEntry, identityOf, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { mimeOf, storeFile } from '../media/files.ts'
 import { Refused } from '../refused.ts'
@@ -62,7 +62,10 @@ const SUMMARY = {
   id: inbox.id,
   kind: inbox.kind,
   name: inbox.name,
-  size: inbox.size,
+  // A file's size, or the length of a text, in bytes.
+  size: sql<
+    number | null
+  >`CASE WHEN ${inbox.kind} = 'text' THEN octet_length(${inbox.content}) ELSE ${inbox.size} END`,
   mime: inbox.mime,
   origin: inbox.origin,
   received_at: sql<string>`to_char(${inbox.received_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
@@ -140,20 +143,176 @@ export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) 
 
 export const InboxFilter = Schema.Struct({
   status: Schema.optionalKey(Schema.Literals(ITEM_STATUSES)),
+  origin: Schema.optionalKey(Schema.String.annotate({ description: 'This origin exactly.' })),
+  origin_prefix: Schema.optionalKey(
+    Schema.String.annotate({ description: 'The origins that start with this text.' }),
+  ),
+  preview: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description: 'With the first lines of each text, or its URL, to plan before taking.',
+    }),
+  ),
+  limit: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 })).annotate({
+      description: 'How many items, 50 by default, 200 at most.',
+    }),
+  ),
+  cursor: Schema.optionalKey(
+    Schema.String.annotate({ description: 'Where the page before ended: its `next_cursor`.' }),
+  ),
 })
 export type InboxFilter = typeof InboxFilter.Type
 
-/** The items of the inbox: those waiting and those taken, pending first; or those of a status. */
+/** How much of an item a preview shows: its first lines, cut short. */
+const PREVIEW_LINES = 5
+const PREVIEW_LENGTH = 300
+
+/** How many items a page holds unless told. */
+const PAGE = 50
+
+/** An item as a page lists it: small, whatever the size of the inbox. */
+const LISTED = {
+  id: inbox.id,
+  name: inbox.name,
+  origin: inbox.origin,
+  size: SUMMARY.size,
+  status: inbox.status,
+}
+
+const Listed = Schema.Struct({
+  id: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  origin: Schema.String,
+  size: Schema.NullOr(Schema.Number),
+  status: Schema.Literals(ITEM_STATUSES),
+})
+
+const listedRows = rowsOf(
+  Schema.Struct({
+    ...Listed.fields,
+    preview: Schema.NullOr(Schema.String),
+    rank: Schema.Number,
+    at: Schema.String,
+  }),
+)
+
+/** Where a page ended: the place of its last item in the order of the list. */
+const Cursor = Schema.Struct({ rank: Schema.Number, at: Schema.String, id: Schema.String })
+
+const cursorOf = (place: typeof Cursor.Type) =>
+  Buffer.from(JSON.stringify(place)).toString('base64url')
+
+const placeOf = (cursor: string) =>
+  Schema.decodeUnknownEffect(Schema.fromJsonString(Cursor))(
+    Buffer.from(cursor, 'base64url').toString('utf8'),
+  ).pipe(
+    Effect.mapError(
+      () =>
+        new Refused({ message: 'The cursor is not one this list gave: start again without it.' }),
+    ),
+  )
+
+/**
+ * The items of the inbox, a page at a time: those waiting and those taken, pending first, oldest
+ * first; or those of a status; of one origin, or of the origins that start with a prefix. Each is
+ * listed small (id, name, origin, size, status); with `preview`, with the first lines of its text,
+ * or its URL (none for a file that is not text). `next_cursor` gives the next page, if any.
+ */
 export const listInbox = Effect.fn('listInbox')(function* (filter: InboxFilter) {
   const db = yield* drizzle
   const statuses = filter.status === undefined ? ['pending', 'taken'] : [filter.status]
-  return yield* summaries(
+  const limit = filter.limit ?? PAGE
+  const rank = sql<number>`CASE WHEN ${inbox.status} = 'pending' THEN 0 ELSE 1 END`
+  const after = filter.cursor === undefined ? undefined : yield* placeOf(filter.cursor)
+  const found = yield* listedRows(
     db
-      .select(SUMMARY)
+      .select({
+        ...LISTED,
+        preview: sql<
+          string | null
+        >`left(array_to_string((string_to_array(left(${inbox.content}, 2000), E'\\n'))[1:${PREVIEW_LINES}], E'\\n'), ${PREVIEW_LENGTH})`,
+        rank,
+        at: SUMMARY.received_at,
+      })
       .from(inbox)
-      .where(inArray(inbox.status, statuses))
-      .orderBy(desc(sql`${inbox.status} = 'pending'`), asc(inbox.received_at)),
+      .where(
+        and(
+          inArray(inbox.status, statuses),
+          filter.origin === undefined ? undefined : eq(inbox.origin, filter.origin),
+          filter.origin_prefix === undefined
+            ? undefined
+            : sql`starts_with(${inbox.origin}, ${filter.origin_prefix})`,
+          after === undefined
+            ? undefined
+            : sql`(${rank}, ${inbox.received_at}, ${inbox.id}) > (${after.rank}, ${after.at}::timestamptz, ${after.id}::uuid)`,
+        ),
+      )
+      .orderBy(rank, asc(inbox.received_at), asc(inbox.id))
+      .limit(limit + 1),
   )
+  const page = found.slice(0, limit)
+  const last = page.at(-1)
+  return {
+    items: page.map((row) => {
+      const item = Struct.pick(row, ['id', 'name', 'origin', 'size', 'status'])
+      return filter.preview === true ? Object.assign(item, { preview: row.preview }) : item
+    }),
+    next_cursor:
+      found.length > limit && last !== undefined
+        ? cursorOf({ rank: last.rank, at: last.at, id: last.id })
+        : null,
+  }
+})
+
+/** How much of a text an answer gives at once; `inbox_read` gives the rest. */
+const PART = 16_000
+
+/**
+ * An item with the first part of its text, and where the rest starts (`next_offset`, in
+ * characters), or `null` when the text is whole.
+ */
+const withFirstPart = (item: typeof Full.Type) => ({
+  ...item,
+  text: item.text === null ? null : item.text.slice(0, PART),
+  next_offset: item.text !== null && item.text.length > PART ? PART : null,
+})
+
+/** An item with its content, as it is, without taking it. */
+export const peekItem = Effect.fn('peekItem')(function* (id: string) {
+  const db = yield* drizzle
+  const [item] = /^[0-9a-f-]{36}$/i.test(id)
+    ? yield* items(db.select(FULL).from(inbox).where(eq(inbox.id, id)))
+    : []
+  if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
+  return withFirstPart(item)
+})
+
+/**
+ * A part of the text of an item, from `offset` (in characters), `limit` characters at most:
+ * what an answer that gave the first part leaves to read. Any key that may read the inbox may.
+ */
+export const readItem = Effect.fn('readItem')(function* (input: {
+  readonly id: string
+  readonly offset: number
+  readonly limit?: number | undefined
+}) {
+  const db = yield* drizzle
+  const [item] = /^[0-9a-f-]{36}$/i.test(input.id)
+    ? yield* items(db.select(FULL).from(inbox).where(eq(inbox.id, input.id)))
+    : []
+  if (item === undefined)
+    return yield* new Refused({ message: `There is no item \`${input.id}\`.` })
+  if (item.text === null)
+    return yield* new Refused({
+      message: `The item \`${item.id}\` holds no text to read in parts: fetch its file at \`${item.media_url}\`.`,
+    })
+  const end = Math.min(item.text.length, input.offset + Math.min(input.limit ?? PART, PART))
+  return {
+    id: item.id,
+    offset: input.offset,
+    text: item.text.slice(input.offset, end),
+    next_offset: end < item.text.length ? end : null,
+  }
 })
 
 /** The item of that id, locked until the transaction ends; refused when there is none. */
@@ -206,7 +365,41 @@ export const takeItem = Effect.fn('takeItem')(function* (input: { readonly id?: 
         .update(inbox)
         .set({ status: 'taken', taken_by: actor, taken_at: sql`now()` })
         .where(eq(inbox.id, next.id))
-      return { ...next, status: 'taken' as const, taken_by: actor }
+      return withFirstPart({ ...next, status: 'taken', taken_by: actor })
+    }),
+  )
+})
+
+/**
+ * Takes several items at once, in the order given, all or none: one that cannot be taken refuses
+ * them all, with a sentence for each.
+ */
+export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<string>) {
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  const actor = yield* currentActor
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      const found = yield* Effect.forEach(ids, (id) =>
+        lockedItem(id).pipe(
+          Effect.flatMap((item) => {
+            const refused = refusalFor(item, actor)
+            return refused === undefined ? Effect.succeed(item) : Effect.fail(refused)
+          }),
+          Effect.result,
+        ),
+      )
+      const problems = found.flatMap((result) =>
+        Result.isFailure(result) ? [result.failure.message] : [],
+      )
+      if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+      const taken = found.flatMap((result) => (Result.isSuccess(result) ? [result.success.id] : []))
+      yield* db
+        .update(inbox)
+        .set({ status: 'taken', taken_by: actor, taken_at: sql`now()` })
+        .where(inArray(inbox.id, taken))
+      const read = yield* items(db.select(FULL).from(inbox).where(inArray(inbox.id, taken)))
+      return taken.flatMap((id) => read.filter((item) => item.id === id)).map(withFirstPart)
     }),
   )
 })
@@ -255,14 +448,44 @@ export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput)
           const written = already
             ? entry
             : yield* writeEntry({ entry: entry.id, sources: [...kept, cited] })
-          return { id: written.id, slug: written.slug, title: written.title }
+          return yield* identityOf(written)
         }),
       )
       yield* db
         .update(inbox)
         .set({ status: 'processed', closed_by: actor, closed_at: sql`now()` })
         .where(eq(inbox.id, item.id))
-      return { ...item, status: 'processed' as const, entries }
+      return { id: item.id, status: 'processed' as const, entries }
+    }),
+  )
+})
+
+/** An item as it is listed, without its content. */
+const summaryOf = (item: typeof Full.Type) =>
+  Struct.omit(item, ['text', 'url', 'sha256', 'media_url'])
+
+/**
+ * Gives back an item the caller took and cannot finish: it waits again, for any agent. An item
+ * taken stays taken until it is finished, dismissed or given back.
+ */
+export const releaseItem = Effect.fn('releaseItem')(function* (id: string) {
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  const actor = yield* currentActor
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      const item = yield* lockedItem(id)
+      const refused = refusalFor(item, actor)
+      if (refused !== undefined) return yield* refused
+      if (item.status !== 'taken')
+        return yield* new Refused({
+          message: `The item \`${item.id}\` is not taken: nothing to give back.`,
+        })
+      yield* db
+        .update(inbox)
+        .set({ status: 'pending', taken_by: null, taken_at: null })
+        .where(eq(inbox.id, item.id))
+      return { id: item.id, status: 'pending' as const }
     }),
   )
 })
@@ -292,7 +515,7 @@ export const dismissItem = Effect.fn('dismissItem')(function* (input: DismissInp
           closed_at: sql`now()`,
         })
         .where(and(eq(inbox.id, item.id)))
-      return { ...item, status: 'dismissed' as const, reason: input.reason }
+      return { ...summaryOf(item), status: 'dismissed' as const, reason: input.reason }
     }),
   )
 })

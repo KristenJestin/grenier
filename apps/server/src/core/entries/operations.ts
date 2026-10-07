@@ -164,6 +164,21 @@ export const pathOf = Effect.fn('pathOf')(function* (id: string) {
 })
 
 /**
+ * What an answer says of an entry it wrote: who it is, its summary and where it is filed, never
+ * its body, which the caller just sent or may read with `read`.
+ */
+export const identityOf = Effect.fn('identityOf')(function* (entry: {
+  readonly id: string
+  readonly slug: string
+  readonly type: string
+  readonly title: string
+  readonly summary: string
+}) {
+  const { id, slug, type, title, summary } = entry
+  return { id, slug, type, title, summary, path: yield* pathOf(id) }
+})
+
+/**
  * How deep a walk of the tree goes, far beyond any real tree. With the `CYCLE` clause of each
  * walk, it keeps a damaged tree from hanging a read.
  */

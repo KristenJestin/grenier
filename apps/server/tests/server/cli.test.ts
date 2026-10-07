@@ -71,7 +71,7 @@ describe('a folder dropped into the inbox', () => {
     expect(cli('inbox:add', folder, '--origin', 'old-notes')).toBe(
       'Added to the inbox: 2 items, from old-notes.\n',
     )
-    const items = await database.runPromise(listInbox({}))
+    const { items } = await database.runPromise(listInbox({}))
     expect(items.map(({ name, status, origin }) => [name, status, origin]).toSorted()).toEqual([
       ['garden/hedge.md', 'pending', 'old-notes'],
       ['pancakes.md', 'pending', 'old-notes'],

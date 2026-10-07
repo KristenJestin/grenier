@@ -25,6 +25,9 @@ import {
   inboxDismissTool,
   inboxDoneTool,
   inboxListTool,
+  inboxPeekTool,
+  inboxReadTool,
+  inboxReleaseTool,
   inboxTakeTool,
 } from './tools/inbox.ts'
 import { confirmProposalTool } from './tools/confirm-proposal.ts'
@@ -70,6 +73,8 @@ export const GrenierTools = Toolkit.make(
   writeManyTool.tool,
   inboxAddTool.tool,
   inboxListTool.tool,
+  inboxReadTool.tool,
+  inboxReleaseTool.tool,
   inboxDoneTool.tool,
   inboxDismissTool.tool,
 )
@@ -187,6 +192,8 @@ export const GrenierHandlers = GrenierTools.toLayer(
       write_many: handlerOf(writeManyTool),
       inbox_add: handlerOf(inboxAddTool),
       inbox_list: handlerOf(inboxListTool),
+      inbox_read: handlerOf(inboxReadTool),
+      inbox_release: handlerOf(inboxReleaseTool),
       inbox_done: handlerOf(inboxDoneTool),
       inbox_dismiss: handlerOf(inboxDismissTool),
     }
@@ -205,37 +212,42 @@ const DiagnosticsHandlers = DiagnosticsTools.toLayer(
 )
 
 /**
- * `inbox_take`, beside the toolkit: its answer may hold an image the agent sees, which a tool of
- * the toolkit, answered as JSON, cannot give.
+ * `inbox_take` and `inbox_peek`, beside the toolkit: their answer may hold an image the agent
+ * sees, which a tool of the toolkit, answered as JSON, cannot give.
  */
 const InboxTake = Layer.effectDiscard(
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer
     const services = yield* Effect.context<Database>()
-    const handle = handlerFor(services, yield* Rights)(inboxTakeTool)
-    const { name, description, input } = inboxTakeTool
-    yield* server.addTool({
-      tool: new McpSchema.Tool({ name, description, inputSchema: toToolInputSchema(input) }),
-      annotations: Context.empty(),
-      handle: (parameters) =>
-        handle(parameters).pipe(
-          Effect.flatMap((answer) => Effect.provide(takenContent(answer), services)),
-          Effect.catchIf(Schema.is(Refused), ({ message }) =>
-            Effect.succeed(
-              new McpSchema.CallToolResult({
-                isError: true,
-                content: [{ type: 'text', text: message }],
-              }),
+    const handlerOf = handlerFor(services, yield* Rights)
+    const add = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>) => {
+      const handle = handlerOf(tool)
+      const { name, description, input } = tool
+      return server.addTool({
+        tool: new McpSchema.Tool({ name, description, inputSchema: toToolInputSchema(input) }),
+        annotations: Context.empty(),
+        handle: (parameters) =>
+          handle(parameters).pipe(
+            Effect.flatMap((answer) => Effect.provide(takenContent(answer), services)),
+            Effect.catchIf(Schema.is(Refused), ({ message }) =>
+              Effect.succeed(
+                new McpSchema.CallToolResult({
+                  isError: true,
+                  content: [{ type: 'text', text: message }],
+                }),
+              ),
             ),
+            Effect.orDie,
           ),
-          Effect.orDie,
-        ),
-    })
+      })
+    }
+    yield* add(inboxTakeTool)
+    yield* add(inboxPeekTool)
   }),
 )
 
 /**
- * Every Grenier tool on an MCP server: the toolkit, and `inbox_take`; and the tools of diagnostics
+ * Every Grenier tool on an MCP server: the toolkit, `inbox_take` and `inbox_peek`; and the tools of diagnostics
  * when they are on (otherwise they do not exist, and a call to one is refused). The server keeps
  * the last call of each tool for itself alone.
  */
@@ -256,4 +268,8 @@ export const GrenierServer = Layer.unwrap(
 )
 
 /** The names of every tool, as an agent lists them, diagnostics off. */
-export const TOOL_NAMES = [...Object.keys(GrenierTools.tools), inboxTakeTool.name]
+export const TOOL_NAMES = [
+  ...Object.keys(GrenierTools.tools),
+  inboxTakeTool.name,
+  inboxPeekTool.name,
+]
