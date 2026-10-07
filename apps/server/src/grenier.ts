@@ -158,8 +158,12 @@ const media = HttpRouter.add('GET', '/media/:hash', (request) =>
         'cache-control': 'private, max-age=31536000, immutable',
         etag: `"${hash}"`,
         'x-content-type-options': 'nosniff',
-        // A page kept as HTML is shown as a document, never run in the origin of Grenier.
-        'content-security-policy': 'sandbox',
+        // A page kept as HTML is shown as a document, never run in the origin of Grenier; an SVG,
+        // which may carry script too, loads nothing either but its own styles.
+        'content-security-policy':
+          found.success.mime === 'image/svg+xml'
+            ? "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+            : 'sandbox',
       },
     })
   }),

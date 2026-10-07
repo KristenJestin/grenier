@@ -8,6 +8,7 @@ import { ConfigProvider, Effect, Predicate } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { getPinned, isPrivateAddress } from '../../src/core/media/files.ts'
+import { addToInbox, takeItem } from '../../src/core/inbox/index.ts'
 import { attachMedia, describeMedia, HostResolver, readMedia } from '../../src/core/media/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { search } from '../../src/core/search/index.ts'
@@ -354,5 +355,67 @@ describe('the dimensions of an image', () => {
     await run(writeEntry({ type: 'thing', title: 'Frame' }))
     const { media } = await run(attachMedia({ entry: 'frame', data: PIXEL }).pipe(withMedia()))
     expect(media).toMatchObject({ width: 1, height: 1 })
+  })
+})
+
+describe('an SVG image', () => {
+  const PLAN =
+    '<?xml version="1.0"?>\n<!-- a garden plan -->\n<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>\n'
+
+  test('is kept with its type, read from its content', async () => {
+    await run(writeEntry({ type: 'thing', title: 'Garden plan' }))
+    const { media } = await run(
+      withMedia()(attachMedia({ entry: 'garden-plan', data: base64(PLAN), alt: 'The beds' })),
+    )
+    expect(media).toMatchObject({ kind: 'image', mime: 'image/svg+xml' })
+    expect((await run(withMedia()(readMedia(media.sha256)))).mime).toBe('image/svg+xml')
+  })
+
+  test('a file that only claims to be SVG, with another root, is refused', async () => {
+    expect(
+      await run(
+        withMedia()(
+          refusalOf(
+            attachMedia({
+              entry: 'garden-plan',
+              data: base64('<?xml version="1.0"?><plan><svg/></plan>'),
+              mime: 'image/svg+xml',
+            }),
+          ),
+        ),
+      ),
+    ).toMatch(/^The file is `application\/xml`, which Grenier does not keep/)
+  })
+})
+
+describe('the file of an inbox item, attached to an entry', () => {
+  test('an image dropped into the inbox, taken, then attached with item appears on the entry, searchable by its description', async () => {
+    await run(writeEntry({ type: 'thing', title: 'Shed door' }))
+    const attached = await run(
+      withMedia()(
+        Effect.gen(function* () {
+          const item = yield* addToInbox({ kind: 'file', name: 'door.png', data: PIXEL })
+          yield* takeItem({ id: item.id })
+          const once = yield* attachMedia({ entry: 'shed-door', item: item.id, alt: 'Rusty hinge' })
+          // The same file attached again to the same entry is the same medium.
+          const twice = yield* attachMedia({ entry: 'shed-door', item: item.id })
+          return { once, twice }
+        }),
+      ),
+    )
+    expect(attached.twice.media.id).toBe(attached.once.media.id)
+    expect((await run(readEntry('shed-door'))).media).toMatchObject([
+      { kind: 'image', mime: 'image/png', alt: 'Rusty hinge' },
+    ])
+    const bytes = (await run(withMedia()(readMedia(attached.once.media.sha256)))).bytes
+    expect(Buffer.from(bytes).toString('base64')).toBe(PIXEL)
+    expect((await run(search('hinge'))).map(({ slug }) => slug)).toContain('shed-door')
+  })
+
+  test('an item the caller has not taken is refused', async () => {
+    const item = await run(withMedia()(addToInbox({ kind: 'file', name: 'gate.png', data: PIXEL })))
+    expect(
+      await run(withMedia()(refusalOf(attachMedia({ entry: 'shed-door', item: item.id })))),
+    ).toBe(`Take the item \`${item.id}\` before attaching its file.`)
   })
 })

@@ -4,6 +4,7 @@ export {
   dismissItem,
   DismissInput,
   finishItem,
+  itemFile,
   fileInInbox,
   FinishInput,
   InboxFilter,
