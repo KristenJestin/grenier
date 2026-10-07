@@ -188,6 +188,49 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
     expect(entry.fields).toEqual({ served_with: gravy.id })
   })
 
+  test('two entries naming each other in fields, in any order, are both written', async () => {
+    await run(
+      writeEntries([
+        { type: 'dish', title: 'Pie', fields: { served_with: 'custard' } },
+        { type: 'dish', title: 'Custard', fields: { served_with: 'pie' } },
+      ]),
+    )
+    const { entry: pie } = await run(readEntry('pie'))
+    const { entry: custard } = await run(readEntry('custard'))
+    expect([pie.fields, custard.fields]).toEqual([
+      { served_with: custard.id },
+      { served_with: pie.id },
+    ])
+  })
+
+  test('a decision and the one replacing it, each naming the other, are both written', async () => {
+    await run(
+      writeEntries([
+        { type: 'dish', title: 'Old stew', superseded_by: 'new-stew' },
+        { type: 'dish', title: 'New stew', fields: { served_with: 'old-stew' } },
+      ]),
+    )
+    const { entry: old } = await run(readEntry('old-stew'))
+    const { entry: replacing } = await run(readEntry('new-stew'))
+    expect(old.superseded_by).toBe(replacing.id)
+    expect(replacing.fields).toEqual({ served_with: old.id })
+  })
+
+  test('a parent named by a slug the batch gives to no new entry is refused', async () => {
+    await run(writeEntry({ type: 'note', title: 'Projects' }))
+    const refusal = await run(
+      Effect.flip(
+        writeEntries([
+          { type: 'note', title: 'Projects' },
+          { type: 'note', title: 'Plan', parent: 'projects' },
+        ]),
+      ),
+    )
+    expect(refusal.message).toBe(
+      'Entry 2 (`Plan`): The field `parent` names `projects`, which this batch does not give to `Projects`: that entry takes the slug `projects-2`.',
+    )
+  })
+
   test('a cycle refused', async () => {
     const refusal = await run(
       Effect.flip(

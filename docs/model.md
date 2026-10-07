@@ -33,7 +33,10 @@ Several entries can be written in one call (`write_many`, 100 at most), in one t
 by the rules of a single write; their bodies may cite one another with `[[slug]]` as if all
 existed, and they may name one another as `parent`, as `superseded_by` or in a field of kind
 `entry`: each is written after the entries of the batch it names (a project before its notes), and
-parents that loop within the batch are refused in one sentence. References are checked against the slugs the batch leaves: a reference to a slug the
+parents that loop within the batch are refused in one sentence. Two entries that name each other
+otherwise (`superseded_by`, a field) are written first without the reference that closes the
+loop, then with it, once both exist. A reference to the slug a new entry of the batch would have
+taken, had it been free, is refused, as in a body: it names the entry that already has it. References are checked against the slugs the batch leaves: a reference to a slug the
 batch renames away is refused, and so is one to the slug a new title would take when that slug is
 used already (the refusal names the slug the entry takes instead). One refused entry refuses the
 whole batch, naming each refused entry with its sentences.

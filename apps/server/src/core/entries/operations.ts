@@ -743,6 +743,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         ) {
           if (reference === null) return null
           if (existing !== undefined && reference === stored) return reference
+          // A slug a new entry of the batch would have had, had it been free, names the old one.
+          const other = displaced.get(reference)
+          if (other !== undefined) {
+            problems.push(
+              `The field \`${field}\` names \`${reference}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+            )
+            return null
+          }
           const id = yield* visibleIdOf(reference)
           if (id !== undefined) return id
           problems.push(
@@ -1002,6 +1010,34 @@ export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: stri
   )
 })
 
+/** The keys of an entry of a batch whose reference waits for the second write. */
+const deferredOf = (
+  deferred: ReadonlyArray<{ readonly index: number; readonly key: string }>,
+  index: number,
+) => deferred.filter((each) => each.index === index).map(({ key }) => key)
+
+/** A write without the references that wait for the second write: absent, as if not given. */
+const withoutKeys = (input: WriteEntryInput, keys: ReadonlyArray<string>): WriteEntryInput => {
+  if (keys.length === 0) return input
+  const fields = Object.fromEntries(
+    Object.entries(input.fields ?? {}).filter(([name]) => !keys.includes(name)),
+  )
+  if (!keys.includes('superseded_by')) return { ...input, fields }
+  const { superseded_by: _, ...rest } = input
+  return { ...rest, fields }
+}
+
+/** The second write of an entry of a batch: the references that waited for the first one. */
+const deferredWrite = (id: string, input: WriteEntryInput, keys: ReadonlyArray<string>) => {
+  const fields = Object.fromEntries(
+    keys.filter((key) => key !== 'superseded_by').map((key) => [key, input.fields?.[key] ?? null]),
+  )
+  const write: WriteEntryInput = { entry: id, fields }
+  return keys.includes('superseded_by') && input.superseded_by !== undefined
+    ? { ...write, superseded_by: input.superseded_by }
+    : write
+}
+
 /** How many entries one batch writes at most. */
 const BATCH_LIMIT = 100
 
@@ -1054,7 +1090,8 @@ const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEn
     renamed.delete(slug)
     displaced.delete(slug)
   }
-  return { planned, order: yield* orderOf(planned, ends), known: { coming, renamed, displaced } }
+  const { order, deferred } = yield* orderOf(planned, ends)
+  return { planned, order, deferred, known: { coming, renamed, displaced } }
 })
 
 /** The slug an entry of a batch will have, and its type, when the write says them. */
@@ -1085,11 +1122,17 @@ const orderOf = Effect.fn('orderOf')(function* (
     Effect.gen(function* () {
       const name = ends[index]?.type
       const type = name === undefined ? undefined : yield* findType(name)
-      const fields = (type?.fields ?? [])
-        .filter(({ kind }) => kind === 'entry')
-        .map((field) => input.fields?.[field.name])
-        .filter(Predicate.isString)
-      return [...inBatch(input.superseded_by), ...fields.flatMap(inBatch)]
+      // Each reference to another entry of the batch, with the key it is given under.
+      const fields = (type?.fields ?? []).flatMap((field) => {
+        const value = input.fields?.[field.name]
+        return field.kind === 'entry' && Predicate.isString(value)
+          ? inBatch(value).map((target) => ({ target, key: field.name }))
+          : []
+      })
+      return [
+        ...inBatch(input.superseded_by).map((target) => ({ target, key: 'superseded_by' })),
+        ...fields,
+      ]
     }),
   )
 
@@ -1118,18 +1161,25 @@ const orderOf = Effect.fn('orderOf')(function* (
   }
 
   const order: Array<number> = []
+  // The references that close a loop (`superseded_by` or a field, never a parent): written once
+  // every entry of the batch exists.
+  const deferred: Array<{ readonly index: number; readonly key: string }> = []
   const placed = new Set<number>()
   const visiting = new Set<number>()
   const place = (index: number) => {
     if (placed.has(index) || visiting.has(index)) return
     visiting.add(index)
-    for (const before of [...(parentOf[index] ?? []), ...(othersOf[index] ?? [])]) place(before)
+    for (const parent of parentOf[index] ?? []) place(parent)
+    for (const { target, key } of othersOf[index] ?? []) {
+      if (visiting.has(target)) deferred.push({ index, key })
+      else place(target)
+    }
     visiting.delete(index)
     placed.add(index)
     order.push(index)
   }
   for (const index of planned.keys()) place(index)
-  return order
+  return { order, deferred }
 })
 
 /**
@@ -1149,11 +1199,12 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
   return yield* refusingContention(
     client.withTransaction(
       Effect.gen(function* () {
-        const { planned, order, known } = yield* planBatch(batch)
+        const { planned, order, deferred, known } = yield* planBatch(batch)
         // A refusal is kept as a value, so that every entry of the batch is checked; each entry
-        // after those of the batch it names, then answered in the order given.
+        // after those of the batch it names, then answered in the order given. A reference that
+        // closes a loop waits for a second write, once every entry exists.
         const answers = yield* Effect.forEach(order, (index) =>
-          writeEntry(planned[index] ?? {}, known).pipe(
+          writeEntry(withoutKeys(planned[index] ?? {}, deferredOf(deferred, index)), known).pipe(
             Effect.catchIf(Schema.is(Refused), Effect.succeed),
             Effect.map((result) => [index, result] as const),
           ),
@@ -1166,7 +1217,20 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
           isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],
         )
         if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
-        const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+        const first = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+        const written = yield* Effect.forEach(first, (entry, index) => {
+          const keys = deferredOf(deferred, index)
+          if (keys.length === 0) return Effect.succeed(entry)
+          return writeEntry(deferredWrite(entry.id, planned[index] ?? {}, keys), known).pipe(
+            Effect.catchIf(Schema.is(Refused), (refused) =>
+              Effect.fail(
+                new Refused({
+                  message: `${labelOf(batch[index] ?? {}, index)}: ${refused.message}`,
+                }),
+              ),
+            ),
+          )
+        })
         // The references to entries written later in the batch are linked now that all exist.
         yield* Effect.forEach(written, (entry) => keepReferences(entry.id, entry.body))
         return written
