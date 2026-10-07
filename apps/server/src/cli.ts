@@ -16,6 +16,8 @@
  *   bun src/cli.ts findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
  *   bun src/cli.ts findings:show <number>                 (with its occurrences, as Markdown)
  *   bun src/cli.ts findings:export [--kind …] [--place …] [--severity …]   (Markdown on stdout)
+ *   bun src/cli.ts rules:set <file>                       (the rules every agent is given)
+ *   bun src/cli.ts rules:show
  *   bun src/cli.ts export:markdown <folder> [--include-sensitive] [--remote <url>]
  *                                  [--deploy-key <file>]  (commits to the folder's git repository)
  *
@@ -31,6 +33,7 @@ import { Actor } from './core/events/index.ts'
 import { FindingFilter, findingsWithOccurrences } from './core/findings/index.ts'
 import { addToInbox } from './core/inbox/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
+import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@grenier/api/schema'
@@ -50,6 +53,8 @@ const USAGE = `Usage:
   findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
   findings:show <number>
   findings:export [--kind <kind>] [--place <place>] [--severity <severity>]
+  rules:set <file>
+  rules:show
   export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]`
 
 const { positionals, values } = parseArgs({
@@ -255,6 +260,16 @@ const command = Effect.gen(function* () {
     case 'findings:export': {
       const found = yield* findingsWithOccurrences(yield* findingFilter)
       return ['# Findings of Grenier', ...found.map(markdownOf)].join('\n\n')
+    }
+    case 'rules:set': {
+      const file = positionals[1]
+      if (file === undefined) return yield* Effect.fail({ message: USAGE })
+      yield* asOwner(setInstanceRules(readFileSync(file, 'utf8')))
+      return 'The rules of this instance are set.'
+    }
+    case 'rules:show': {
+      const rules = yield* instanceRulesText
+      return rules === null ? 'This instance has no rules.' : rules.replace(/\n$/, '')
     }
     case 'export:markdown': {
       const folder = positionals[1]

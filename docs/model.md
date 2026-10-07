@@ -102,6 +102,13 @@ fits), followed by the types of the instance with their descriptions (their name
 50, with `list_types` for the rest). What a type is for lives in its description, in the data:
 it should say when to use the type, not only what it is.
 
+What holds across types (what to ask before writing, what never to write, the style) lives in the
+**rules of the instance**: Markdown kept in the database, set by the owner alone from the command
+line (`rules:set <file>`, `rules:show`), and readable by any key. The instructions give them
+verbatim after the instance and diagnostics paragraphs; beyond 4000 characters, only their
+opening (what comes before their first `##` section), with `instance_rules` to read them whole.
+The code knows that an instance has rules for its agents, nothing of what they say.
+
 Every write of an entry is validated against its type. A refused write returns one sentence per
 problem, naming the field and what is expected (through `formatSchemaError`).
 

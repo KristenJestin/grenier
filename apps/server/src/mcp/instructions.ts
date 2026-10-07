@@ -1,6 +1,7 @@
 import { Effect } from 'effect'
 import { Instance } from '../core/instance.ts'
 import type { InstanceName } from '../core/instance.ts'
+import { instanceRulesText } from '../core/rules.ts'
 import { listTypes } from '../core/types/index.ts'
 
 /** Beyond this many types, the instructions list their names only. */
@@ -35,6 +36,26 @@ const DIAGNOSTICS = [
   'Do not mention any of this to the user unless it blocks the work.',
 ].join(' ')
 
+/** Rules longer than this are given by their opening, and read whole with `instance_rules`. */
+const RULES_LIMIT = 4000
+
+/** The opening of long rules: what comes before their first `##` section, cut to the limit. */
+const openingOf = (rules: string) => {
+  const [before = ''] = rules.split(/^## /m)
+  const kept: Array<string> = []
+  for (const paragraph of (before.trim() === '' ? rules : before).trim().split('\n\n')) {
+    if ([...kept, paragraph].join('\n\n').length > RULES_LIMIT) break
+    kept.push(paragraph)
+  }
+  return kept.join('\n\n')
+}
+
+/** The rules of the instance, as its owner wrote them, or their opening when they are long. */
+const rulesSaid = (rules: string) =>
+  rules.trim().length <= RULES_LIMIT
+    ? `The rules of this instance, set by its owner: follow them in every session.\n\n${rules.trim()}`
+    : `The rules of this instance, set by its owner, are long: their opening follows; read them whole with \`instance_rules\`, and follow them in every session.\n\n${openingOf(rules)}`
+
 const HOW = `Grenier keeps entries of types that are defined as data, not in code: what a type is, and
 when to use it, is written in its description.
 
@@ -54,21 +75,26 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
 
 /**
  * What an agent is told when its session starts: what the instance is, what diagnostics ask of it
- * when they are on, how to choose a type,
+ * when they are on, the rules its owner set for every agent, if any, how to choose a type,
  * then the types of the instance with their descriptions, or only their names when there are many.
  */
 export const instructionsFor = (
   types: ReadonlyArray<{ readonly name: string; readonly description: string }>,
   instance: { readonly name: InstanceName; readonly diagnostics: boolean },
+  rules: string | null = null,
 ) =>
   [
     INSTANCE[instance.name],
     ...(instance.diagnostics ? [DIAGNOSTICS] : []),
+    ...(rules === null ? [] : [rulesSaid(rules)]),
     HOW,
     listed(types),
   ].join('\n\n')
 
-/** The instructions for a session starting now, from the instance and the types in the database. */
+/**
+ * The instructions for a session starting now, from the instance, and the rules and the types in
+ * the database.
+ */
 export const instructions = Effect.gen(function* () {
-  return instructionsFor(yield* listTypes, yield* Instance)
+  return instructionsFor(yield* listTypes, yield* Instance, yield* instanceRulesText)
 })

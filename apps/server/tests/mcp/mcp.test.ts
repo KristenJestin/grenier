@@ -53,6 +53,7 @@ describe('the server answers over stdio', () => {
       'inbox_done',
       'inbox_list',
       'inbox_take',
+      'instance_rules',
       'link',
       'list_proposals',
       'list_types',
