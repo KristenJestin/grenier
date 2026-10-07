@@ -23,6 +23,7 @@ beforeAll(() =>
           { name: 'serial', kind: 'text' },
           { name: 'warranty_until', kind: 'date' },
           { name: 'price', kind: 'money', sensitive: true },
+          { name: 'bought_with', kind: 'entry' },
         ],
         read_in_parent: true,
       })
@@ -87,6 +88,26 @@ describe('the parts of an object are read in its page', () => {
       'main-disk': true,
       'graphics-card': true,
       'setup-notes': false,
+    })
+  })
+})
+
+describe('a part naming another entry', () => {
+  test('comes with the title of that entry, for a reader to show', async () => {
+    await run(writeEntry({ type: 'note', title: 'Shop receipt' }))
+    await run(
+      writeEntry({
+        type: 'item',
+        title: 'Spare fan',
+        parent: 'desk-computer',
+        fields: { bought_with: 'shop-receipt' },
+      }),
+    )
+    const { children } = await run(readEntry('desk-computer'))
+    const receipt = (await run(readEntry('shop-receipt'))).entry.id
+    expect(children.find(({ slug }) => slug === 'spare-fan')).toMatchObject({
+      fields: { bought_with: receipt },
+      titles: { [receipt]: 'Shop receipt' },
     })
   })
 })

@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
+import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
@@ -60,6 +61,19 @@ export const referencesOf = Effect.fn('referencesOf')(function* (body: string) {
 })
 
 /**
+ * Locks slugs as references name them, in one order, until the transaction ends: a write that
+ * cites a slug, the creation or the rename of the entry that has it, and the resolution of what
+ * waits for it go one after the other, so none of them reads what another has half written.
+ */
+export const lockReferences = Effect.fn('lockReferences')(function* (slugs: ReadonlyArray<string>) {
+  const client = yield* SqlClient.SqlClient
+  yield* Effect.forEach(
+    [...new Set(slugs)].toSorted(),
+    (slug) => client`SELECT pg_advisory_xact_lock(hashtext(${`grenier.reference ${slug}`}))`,
+  )
+})
+
+/**
  * Keeps the references of a body: each to an entry that exists as a link `mentions`, each other one
  * as a pending reference, until an entry takes its slug. They are looked up whatever the caller
  * may see: what is stored does not depend on who wrote last, only what is answered does. The slugs
@@ -72,6 +86,7 @@ export const keepReferences = Effect.fn('keepReferences')(function* (
   coming: ReadonlySet<string> = new Set(),
 ) {
   const db = yield* drizzle
+  yield* lockReferences(referencesIn(body))
   const resolved = yield* Effect.forEach(referencesIn(body), (reference) =>
     Effect.map(entryReferenced(reference, false), (found) => ({
       reference,
@@ -108,6 +123,7 @@ export const resolvePending = Effect.fn('resolvePending')(function* (
 ) {
   const db = yield* drizzle
   const names = [entry.slug, ...entry.aliases]
+  yield* lockReferences(names)
   const found = yield* waiting(
     db
       .select()

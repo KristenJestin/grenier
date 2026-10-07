@@ -54,12 +54,50 @@ pub fn intent_of_link(url: &str) -> Intent {
         Some(target) => match target.split_once('#') {
             Some((entry, heading)) if !heading.is_empty() => Intent::OpenAt {
                 entry: entry.to_string().into(),
-                heading: heading.to_string().into(),
+                heading: decoded(heading).into(),
             },
             Some((entry, _)) => Intent::Open(entry.to_string().into()),
             None => Intent::Open(target.to_string().into()),
         },
     }
+}
+
+/// A heading as a link carries it: every byte but letters, digits and `-_.~` as `%XX`.
+fn encoded(heading: &str) -> String {
+    heading
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
+
+/// A heading back from a link: each `%XX` as its byte.
+fn decoded(heading: &str) -> String {
+    let bytes = heading.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let hex = bytes
+            .get(at + 1..at + 3)
+            .and_then(|pair| std::str::from_utf8(pair).ok())
+            .and_then(|pair| u8::from_str_radix(pair, 16).ok());
+        match (bytes[at], hex) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                at += 3;
+            }
+            (byte, _) => {
+                out.push(byte);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// A Markdown body with each reference turned into a link to the entry `entry_of` says it names,
@@ -99,11 +137,14 @@ pub fn with_entry_links(body: &str, entry_of: impl Fn(&str) -> Option<(String, S
                 let (slug, heading) = target
                     .split_once('#')
                     .map_or((target, None), |(slug, heading)| (slug, Some(heading)));
+                // As the server reads it: `[[ plum-tart ]]` names `plum-tart`.
+                let slug = slug.trim();
                 match entry_of(slug) {
                     Some((id, title)) => {
                         let title = text.map_or(title, str::to_string);
+                        // Encoded, so a heading with spaces stays one link target.
                         let anchor = heading
-                            .map(|heading| format!("#{heading}"))
+                            .map(|heading| format!("#{}", encoded(heading.trim())))
                             .unwrap_or_default();
                         out.push_str(&format!("[{title}]({ENTRY_LINK}{id}{anchor})"));
                     }
@@ -157,6 +198,27 @@ mod tests {
             ),
             "[the tart](grenier://01a1-plum), [Plum tart](grenier://01a1-plum#method), \
              [how](grenier://01a1-plum#method)."
+        );
+    }
+
+    #[test]
+    fn a_heading_with_spaces_goes_through_the_link_whole() {
+        let linked = with_entry_links("[[plum-tart#Late pruning]].", known);
+        assert_eq!(linked, "[Plum tart](grenier://01a1-plum#Late%20pruning).");
+        assert_eq!(
+            intent_of_link("grenier://01a1-plum#Late%20pruning"),
+            Intent::OpenAt {
+                entry: "01a1-plum".into(),
+                heading: "Late pruning".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_reference_with_spaces_inside_its_brackets_names_its_slug() {
+        assert_eq!(
+            with_entry_links("See [[ plum-tart ]].", known),
+            "See [Plum tart](grenier://01a1-plum)."
         );
     }
 

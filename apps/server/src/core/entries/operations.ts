@@ -13,7 +13,7 @@ import { hiddenIn, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
-import { keepReferences, referencesOf, resolvePending } from '../links/pending.ts'
+import { keepReferences, lockReferences, referencesOf, resolvePending } from '../links/pending.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
@@ -46,6 +46,7 @@ const ancestors = rowsOf(
   Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
 )
 const typedSlugs = rowsOf(Schema.Struct({ slug: Schema.String, type: Schema.String }))
+const rowsBodies = rowsOf(Schema.Struct({ slug: Schema.String, body: Schema.String }))
 const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
 const { entries: table } = tables
@@ -274,10 +275,44 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
       .orderBy(asc(table.title)),
   )
   // A part of this entry comes with its fields, as the caller may see them on its own page.
+  const parts = all.filter((child) => child.in_parent && !hiddenTypes.includes(child.type))
+  // The entries the parts name in their fields, by id, for a reader to show their titles.
+  const naming = (yield* findType(entry.type))?.fields.filter(({ kind }) => kind === 'entry') ?? []
+  const namedIds = parts.flatMap(({ fields }) =>
+    naming.map(({ name }) => fields[name]).filter(Predicate.isString),
+  )
+  const hidden = yield* hiddenIn(namedIds)
+  const titles = Object.fromEntries(
+    namedIds.length === 0
+      ? []
+      : (yield* cited(
+          db
+            .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
+            .from(table)
+            .where(inArray(table.id, namedIds)),
+        ))
+          .filter(({ id }) => !hidden.has(id))
+          .map(({ id, title }) => [id, title] as const),
+  )
   const shown: Array<Child> = []
   for (const { fields, ...child } of all) {
     if (hiddenTypes.includes(child.type)) continue
-    shown.push(child.in_parent ? { ...child, fields: maskFields(child.type, fields) } : child)
+    if (!child.in_parent) {
+      shown.push(child)
+      continue
+    }
+    const seen = Object.fromEntries(
+      Object.entries(maskFields(child.type, fields)).map(([name, value]) => [
+        name,
+        withoutHidden(value, hidden),
+      ]),
+    )
+    const own = Object.fromEntries(
+      Object.values(seen)
+        .filter(Predicate.isString)
+        .flatMap((value) => (titles[value] === undefined ? [] : [[value, titles[value]]])),
+    )
+    shown.push({ ...child, fields: seen, titles: own })
   }
   const citing = yield* cited(
     db
@@ -379,7 +414,10 @@ const freeSlugOf = Effect.fn('freeSlugOf')(function* (
 
 const events = rowsOf(Schema.Struct({ id: Schema.Number }))
 
-/** Whether an entry was updated or archived since it was created. */
+/**
+ * Whether an entry was updated or archived since it was created, by a writer of its own: a body
+ * rewritten by a rename it cites, or a description of its media, is not a change of the entry.
+ */
 const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: string) {
   const db = yield* drizzle
   const found = yield* events(
@@ -387,12 +425,25 @@ const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: stri
       .select({ id: tables.events.id })
       .from(tables.events)
       .where(
-        and(eq(tables.events.entry_id, id), inArray(tables.events.action, ['update', 'archive'])),
+        and(
+          eq(tables.events.entry_id, id),
+          inArray(tables.events.action, ['update', 'archive']),
+          // The description of a medium describes the medium, not the entry.
+          sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${tables.events.changes}) AS c(change)
+            WHERE c.change ->> 'field' NOT LIKE 'media.%')`,
+        ),
       )
       .limit(1),
   )
   return found.length > 0
 })
+
+/** How many times `find` is found in `text`, a match starting at every place it may. */
+const matchesOf = (text: string, find: string) => {
+  let count = 0
+  for (let at = text.indexOf(find); at !== -1; at = text.indexOf(find, at + 1)) count += 1
+  return count
+}
 
 /**
  * A body with its edits applied in order, each `find` replaced where it matches the body as the
@@ -406,7 +457,8 @@ const editsOf = (
   let edited = body
   for (const [index, { find, replace }] of edits.entries()) {
     const edit = `The edit ${index + 1} (\`${find}\`)`
-    const count = find === '' ? 0 : edited.split(find).length - 1
+    // Every match, overlapping ones too: `aa` matches `aaa` twice.
+    const count = find === '' ? 0 : matchesOf(edited, find)
     if (count === 1) edited = edited.replace(find, () => replace)
     else if (count === 0) problems.push(`${edit} matches nothing in the body.`)
     else
@@ -564,6 +616,26 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (input.entry !== undefined && Predicate.isString(input.parent)) {
           yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
+        // Before any row lock too: the slugs the body names, before and after, and the entry's
+        // own when it is renamed. A rename takes them first as well, so a write that cites the
+        // renamed slug and the rename never wait for each other in a circle.
+        if (input.body !== undefined || input.edits !== undefined || input.slug !== undefined) {
+          const [stored] =
+            input.entry === undefined
+              ? []
+              : yield* rowsBodies(
+                  db
+                    .select({ slug: table.slug, body: table.body })
+                    .from(table)
+                    .where(named(input.entry)),
+                )
+          yield* lockReferences([
+            ...referencesIn(stored?.body ?? ''),
+            ...referencesIn(input.body ?? ''),
+            ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
+            ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
+          ])
+        }
         // The types first, then the entry, in the order a change of a type takes them: two writes
         // never wait for each other in a circle.
         const current =
@@ -660,7 +732,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
-        if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
+        if (edits !== undefined && append === true) {
+          problems.push('Give `edits` or `append`, not both: write the edits, then append.')
+        } else if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
           problems.push(
             'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',
           )
@@ -722,6 +796,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         ) {
           if (reference === null) return null
           if (existing !== undefined && reference === stored) return reference
+          // A slug a new entry of the batch would have had, had it been free, names the old one.
+          const other = displaced.get(reference)
+          if (other !== undefined) {
+            problems.push(
+              `The field \`${field}\` names \`${reference}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+            )
+            return null
+          }
           const id = yield* visibleIdOf(reference)
           if (id !== undefined) return id
           problems.push(
@@ -806,7 +888,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const renamed = existing !== undefined && existing.slug !== decoded.success.slug
         // Before the slug changes, which locks this entry against new links to it: an edit that
         // links one of these entries to this one could then never finish.
-        if (renamed) yield* mentioningOf(existing.id)
+        if (renamed) {
+          // The old slug and the new one: a write citing either waits for the rename, or the
+          // rename for it, so its body is rewritten, or it waits for an entry with that slug.
+          yield* lockReferences([existing.slug, decoded.success.slug])
+          yield* mentioningOf(existing.id)
+        }
         const entry = renamed
           ? {
               ...decoded.success,
@@ -889,7 +976,9 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           existing === undefined ? 'create' : 'update',
           changes,
         )
-        yield* keepReferences(id, entry.body, coming)
+        // A body left as it was keeps its links: its references only change with it.
+        if (existing === undefined || existing.body !== entry.body)
+          yield* keepReferences(id, entry.body, coming)
         if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
         // A new slug or alias is what references written before may wait for.
         if (
@@ -942,7 +1031,7 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
         .update(table)
         .set({ body, updated: sql`now()` })
         .where(eq(table.id, source.id))
-      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'rewrite', [
         { field: 'body', before: source.body, after: body },
       ])
     }),
@@ -973,6 +1062,34 @@ export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: stri
     }),
   )
 })
+
+/** The keys of an entry of a batch whose reference waits for the second write. */
+const deferredOf = (
+  deferred: ReadonlyArray<{ readonly index: number; readonly key: string }>,
+  index: number,
+) => deferred.filter((each) => each.index === index).map(({ key }) => key)
+
+/** A write without the references that wait for the second write: absent, as if not given. */
+const withoutKeys = (input: WriteEntryInput, keys: ReadonlyArray<string>): WriteEntryInput => {
+  if (keys.length === 0) return input
+  const fields = Object.fromEntries(
+    Object.entries(input.fields ?? {}).filter(([name]) => !keys.includes(name)),
+  )
+  if (!keys.includes('superseded_by')) return { ...input, fields }
+  const { superseded_by: _, ...rest } = input
+  return { ...rest, fields }
+}
+
+/** The second write of an entry of a batch: the references that waited for the first one. */
+const deferredWrite = (id: string, input: WriteEntryInput, keys: ReadonlyArray<string>) => {
+  const fields = Object.fromEntries(
+    keys.filter((key) => key !== 'superseded_by').map((key) => [key, input.fields?.[key] ?? null]),
+  )
+  const write: WriteEntryInput = { entry: id, fields }
+  return keys.includes('superseded_by') && input.superseded_by !== undefined
+    ? { ...write, superseded_by: input.superseded_by }
+    : write
+}
 
 /** How many entries one batch writes at most. */
 const BATCH_LIMIT = 100
@@ -1026,7 +1143,8 @@ const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEn
     renamed.delete(slug)
     displaced.delete(slug)
   }
-  return { planned, order: yield* orderOf(planned, ends), known: { coming, renamed, displaced } }
+  const { order, deferred } = yield* orderOf(planned, ends)
+  return { planned, order, deferred, known: { coming, renamed, displaced } }
 })
 
 /** The slug an entry of a batch will have, and its type, when the write says them. */
@@ -1057,11 +1175,17 @@ const orderOf = Effect.fn('orderOf')(function* (
     Effect.gen(function* () {
       const name = ends[index]?.type
       const type = name === undefined ? undefined : yield* findType(name)
-      const fields = (type?.fields ?? [])
-        .filter(({ kind }) => kind === 'entry')
-        .map((field) => input.fields?.[field.name])
-        .filter(Predicate.isString)
-      return [...inBatch(input.superseded_by), ...fields.flatMap(inBatch)]
+      // Each reference to another entry of the batch, with the key it is given under.
+      const fields = (type?.fields ?? []).flatMap((field) => {
+        const value = input.fields?.[field.name]
+        return field.kind === 'entry' && Predicate.isString(value)
+          ? inBatch(value).map((target) => ({ target, key: field.name }))
+          : []
+      })
+      return [
+        ...inBatch(input.superseded_by).map((target) => ({ target, key: 'superseded_by' })),
+        ...fields,
+      ]
     }),
   )
 
@@ -1090,18 +1214,25 @@ const orderOf = Effect.fn('orderOf')(function* (
   }
 
   const order: Array<number> = []
+  // The references that close a loop (`superseded_by` or a field, never a parent): written once
+  // every entry of the batch exists.
+  const deferred: Array<{ readonly index: number; readonly key: string }> = []
   const placed = new Set<number>()
   const visiting = new Set<number>()
   const place = (index: number) => {
     if (placed.has(index) || visiting.has(index)) return
     visiting.add(index)
-    for (const before of [...(parentOf[index] ?? []), ...(othersOf[index] ?? [])]) place(before)
+    for (const parent of parentOf[index] ?? []) place(parent)
+    for (const { target, key } of othersOf[index] ?? []) {
+      if (visiting.has(target)) deferred.push({ index, key })
+      else place(target)
+    }
     visiting.delete(index)
     placed.add(index)
     order.push(index)
   }
   for (const index of planned.keys()) place(index)
-  return order
+  return { order, deferred }
 })
 
 /**
@@ -1121,11 +1252,12 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
   return yield* refusingContention(
     client.withTransaction(
       Effect.gen(function* () {
-        const { planned, order, known } = yield* planBatch(batch)
+        const { planned, order, deferred, known } = yield* planBatch(batch)
         // A refusal is kept as a value, so that every entry of the batch is checked; each entry
-        // after those of the batch it names, then answered in the order given.
+        // after those of the batch it names, then answered in the order given. A reference that
+        // closes a loop waits for a second write, once every entry exists.
         const answers = yield* Effect.forEach(order, (index) =>
-          writeEntry(planned[index] ?? {}, known).pipe(
+          writeEntry(withoutKeys(planned[index] ?? {}, deferredOf(deferred, index)), known).pipe(
             Effect.catchIf(Schema.is(Refused), Effect.succeed),
             Effect.map((result) => [index, result] as const),
           ),
@@ -1138,7 +1270,20 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
           isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],
         )
         if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
-        const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+        const first = results.flatMap((result) => (isRefused(result) ? [] : [result]))
+        const written = yield* Effect.forEach(first, (entry, index) => {
+          const keys = deferredOf(deferred, index)
+          if (keys.length === 0) return Effect.succeed(entry)
+          return writeEntry(deferredWrite(entry.id, planned[index] ?? {}, keys), known).pipe(
+            Effect.catchIf(Schema.is(Refused), (refused) =>
+              Effect.fail(
+                new Refused({
+                  message: `${labelOf(batch[index] ?? {}, index)}: ${refused.message}`,
+                }),
+              ),
+            ),
+          )
+        })
         // The references to entries written later in the batch are linked now that all exist.
         yield* Effect.forEach(written, (entry) => keepReferences(entry.id, entry.body))
         return written

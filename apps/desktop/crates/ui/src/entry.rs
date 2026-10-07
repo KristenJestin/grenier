@@ -840,7 +840,25 @@ fn parts_table(
                                 .child("—")
                                 .into_any_element()
                         },
-                        |value| value_of(value, *kind, read, on_intent, cx),
+                        |value| {
+                            // An entry a part names: by the title the server gave with the part.
+                            match (kind, value.as_str().and_then(|id| part.titles.get(id))) {
+                                (Some(FieldDefinitionKind::Entry), Some(title)) => reference(
+                                    SharedString::from(format!(
+                                        "part-{}-{}",
+                                        part.id,
+                                        value.as_str().unwrap_or_default()
+                                    )),
+                                    title.clone(),
+                                    opener(
+                                        on_intent,
+                                        value.as_str().unwrap_or_default().to_string(),
+                                    ),
+                                    cx,
+                                ),
+                                _ => value_of(value, *kind, read, on_intent, cx),
+                            }
+                        },
                     ))
                     .into_any_element()
             })

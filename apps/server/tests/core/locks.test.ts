@@ -3,8 +3,16 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
-import { addToInbox, finishItem, takeItem } from '../../src/core/inbox/index.ts'
-import { link } from '../../src/core/links/index.ts'
+import {
+  addToInbox,
+  finishItem,
+  peekItem,
+  readItem,
+  takeItem,
+  takeItems,
+} from '../../src/core/inbox/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
+import { link, pendingOf } from '../../src/core/links/index.ts'
 import { confirmProposal, defineType, proposeTypeDeletion } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
@@ -34,7 +42,7 @@ beforeAll(() =>
 )
 
 describe('concurrent writes never lose a change', () => {
-  test('an entry renamed while a body that cites it is edited keeps the edit and the new name', async () => {
+  test('an entry renamed while a body that cites it is edited keeps the edit, named consistently', async () => {
     await run(writeEntry({ type: 'note', title: 'Apple', slug: 'apple' }))
     const citing = await run(writeEntry({ type: 'note', title: 'Orchard', body: 'See [[apple]].' }))
     const ended = await run(
@@ -44,7 +52,15 @@ describe('concurrent writes never lose a change', () => {
       ]),
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
-    expect((await run(readEntry('orchard'))).entry.body).toBe('See [[pear]], twice.')
+    // The edit is never lost. Written first, it is rewritten by the rename; written after, its
+    // reference to the old slug waits for an entry with that slug.
+    const orchard = await run(readEntry('orchard'))
+    if (orchard.entry.body === 'See [[pear]], twice.')
+      expect(orchard.links.map(({ slug }) => slug)).toEqual(['pear'])
+    else {
+      expect(orchard.entry.body).toBe('See [[apple]], twice.')
+      expect(await run(pendingOf(orchard.entry.id))).toEqual(['apple'])
+    }
   })
 
   test('a type deleted while an entry of it is created is refused, and the entry keeps a live type', async () => {
@@ -146,5 +162,80 @@ describe('a link fulfills names a period of the form its date comes back by', ()
     expect(await fulfills('', 'pay_by')).toBe('written')
     const { links } = await run(readEntry('payment'))
     expect(links.find(({ field }) => field === 'pay_by')).toMatchObject({ period: '2026-11-30' })
+  })
+})
+
+describe('references and renames at the same moment', () => {
+  const holdingSlug = (slug: string) =>
+    execute(`SELECT pg_advisory_xact_lock(hashtext('grenier.reference ' || $1))`, slug)
+
+  test('an entry created while another one cites it is linked, never left pending', async () => {
+    const ended = await run(
+      whileLocked(holdingSlug('quince-tree'), [
+        Effect.asVoid(writeEntry({ type: 'note', title: 'Quince tree' })),
+        Effect.asVoid(writeEntry({ type: 'note', title: 'Grafts', body: 'From [[quince-tree]].' })),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    const { links } = await run(readEntry('grafts'))
+    expect(links.map(({ slug }) => slug)).toEqual(['quince-tree'])
+    expect(await run(pendingOf((await run(readEntry('grafts'))).entry.id))).toEqual([])
+  })
+
+  test('a body written while the entry it cites is renamed is linked and named consistently', async () => {
+    await run(writeEntry({ type: 'note', title: 'Medlar', slug: 'medlar' }))
+    const ended = await run(
+      whileLocked(holdingSlug('medlar'), [
+        Effect.asVoid(writeEntry({ entry: 'medlar', slug: 'medlar-tree' })),
+        Effect.asVoid(writeEntry({ type: 'note', title: 'Jelly', body: 'Of [[medlar]].' })),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    const jelly = await run(readEntry('jelly'))
+    const linked = jelly.links.map(({ slug }) => slug)
+    // Either the body follows the rename and links the entry, or it waits for `medlar`.
+    if (jelly.entry.body === 'Of [[medlar-tree]].') expect(linked).toEqual(['medlar-tree'])
+    else {
+      expect(jelly.entry.body).toBe('Of [[medlar]].')
+      expect(linked).toEqual([])
+      expect(await run(pendingOf(jelly.entry.id))).toEqual(['medlar'])
+    }
+  })
+})
+
+describe('several inbox items taken at once', () => {
+  test('two agents taking the same items in two orders never wait for each other in a circle', async () => {
+    const [a, b] = await run(
+      Effect.forEach(['Mow.', 'Rake.'], (text) =>
+        Effect.map(addToInbox({ kind: 'text', text }), ({ id }) => id),
+      ),
+    )
+    const as = (actor: string) => Effect.provideService(Actor, actor)
+    const ended = await run(
+      whileLocked(execute('SELECT 1 FROM inbox WHERE id = $1::uuid FOR UPDATE', a ?? ''), [
+        as('agent-one')(Effect.asVoid(takeItems([a ?? '', b ?? '']))),
+        as('agent-two')(Effect.asVoid(takeItems([b ?? '', a ?? '']))),
+      ]),
+    )
+    const outcomes = ended.map(outcomeOf)
+    expect(outcomes.filter((outcome) => outcome === 'written')).toHaveLength(1)
+    expect(outcomes.find((outcome) => outcome !== 'written')).toMatch(/is taken by `agent-/)
+  })
+
+  test('an item named twice is refused', async () => {
+    const id = await run(
+      Effect.map(addToInbox({ kind: 'text', text: 'Sweep.' }), (item) => item.id),
+    )
+    const refused = await run(Effect.flip(takeItems([id, id])))
+    expect(refused.message).toBe(`Give each item once: \`${id}\` comes twice.`)
+  })
+
+  test('a long text is cut between characters, never inside one', async () => {
+    const text = `${'a'.repeat(15_999)}😀b`
+    const id = await run(Effect.map(addToInbox({ kind: 'text', text }), (item) => item.id))
+    const first = await run(peekItem(id))
+    expect(first.text?.endsWith('😀')).toBe(true)
+    const rest = await run(readItem({ id, offset: first.next_offset ?? 0 }))
+    expect(`${first.text}${rest.text}`).toBe(text)
   })
 })

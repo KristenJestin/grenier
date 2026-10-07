@@ -11,6 +11,7 @@ export {
   findingsWithOccurrences,
   listFindings,
   mergeFindings,
+  mergedInto,
   recordDefect,
   reportFinding,
   SEVERITIES,

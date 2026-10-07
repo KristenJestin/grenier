@@ -144,3 +144,11 @@ describe('long rules give a part of their first paragraph when it alone is too l
     expect(cut.endsWith('…')).toBe(true)
   })
 })
+
+describe('diagnostics tell how a report joins an open finding', () => {
+  test('the instructions name same_as and new', () => {
+    const told = instructionsFor([], { name: 'development', diagnostics: true })
+    expect(told).toContain('`same_as: <number>`')
+    expect(told).toContain('`new: true`')
+  })
+})

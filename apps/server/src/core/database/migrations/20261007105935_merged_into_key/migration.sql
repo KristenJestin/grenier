@@ -1,0 +1,1 @@
+ALTER TABLE "findings" ADD CONSTRAINT "findings_merged_into_fkey" FOREIGN KEY ("merged_into") REFERENCES "findings"("number");

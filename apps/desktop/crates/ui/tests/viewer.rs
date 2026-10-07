@@ -159,3 +159,13 @@ fn a_slash_typed_in_the_search_field_stays_in_it(cx: &mut TestAppContext) {
     let typed = viewer.read_with(cx, |viewer, cx| viewer.search_text(cx));
     assert_eq!(typed.as_ref(), "a/b");
 }
+
+#[gpui_kit::test]
+fn a_slash_from_the_entry_pane_goes_to_the_search_field(cx: &mut TestAppContext) {
+    let (viewer, cx, _) = viewer(cx);
+    cx.update(|window, cx| viewer.update(cx, |viewer, cx| viewer.focus_pane(window, cx)));
+    cx.simulate_keystrokes("/");
+    cx.simulate_input("rake");
+    let typed = viewer.read_with(cx, |viewer, cx| viewer.search_text(cx));
+    assert_eq!(typed.as_ref(), "rake");
+}

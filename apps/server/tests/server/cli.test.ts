@@ -230,6 +230,7 @@ describe('the lead agent merges two findings of one problem', () => {
     expect(cli('findings:merge', '1', '2')).toBe('The finding 2 is merged into 1.\n')
     expect(cli('findings:list').trim().split('\n')).toHaveLength(before - 1)
     expect(cli('findings:show', '1').match(/^### Occurrence/gm)).toHaveLength(3)
+    expect(cli('findings:show', '2')).toBe('The finding 2 is merged into 1: `findings:show 1`.\n')
   })
 })
 
@@ -259,5 +260,13 @@ describe('two drops of one folder at the same moment', () => {
     await Promise.all([drop(), drop()])
     const { items } = await database.runPromise(listInbox({ origin: 'twice' }))
     expect(items.map(({ name }) => name).toSorted()).toEqual(['a.md', 'b.md', 'c.md', 'd.md'])
+  })
+})
+
+describe('links fulfills stored before their period was checked', () => {
+  test('links:periods says when every period has the form of its date', () => {
+    expect(cli('links:periods')).toBe(
+      'Every link fulfills names a period of the form its date comes back by.\n',
+    )
   })
 })

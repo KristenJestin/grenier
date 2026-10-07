@@ -7,6 +7,7 @@ import {
   listFindings,
   maskedCall,
   mergeFindings,
+  mergedInto,
   recordDefect,
   reportFinding,
   titleSimilarity,
@@ -378,5 +379,53 @@ describe('the server output never carries the values of a failed write', () => {
     expect(JSON.parse(line)).toMatchObject({ class: 'EffectDrizzleQueryError', place: 'write' })
     expect(line).toContain('insert into')
     expect(line).not.toContain('7-3-9')
+  })
+})
+
+describe('reports and merges keep findings apart where they differ', () => {
+  const at = (place: string, title: string) => ({
+    ...report(title),
+    kind: 'slow' as const,
+    place,
+  })
+
+  test('same_as naming a finding of another kind or place is refused', async () => {
+    const first = recordedOf(await run(reportFinding(at('search', 'Search takes seconds'))))
+    const refused = await run(
+      Effect.flip(
+        reportFinding(at('briefing', 'Briefing takes seconds'), undefined, 'agent', {
+          same_as: first.finding.number,
+        }),
+      ),
+    )
+    expect(refused.message).toBe(
+      `The finding ${first.finding.number} is of another kind or place: report this one with \`new: true\`.`,
+    )
+  })
+
+  test('a merge into itself, of a merged finding, or into one is refused', async () => {
+    const one = recordedOf(await run(reportFinding(at('upcoming', 'Upcoming takes seconds'))))
+    const two = recordedOf(
+      await run(
+        reportFinding(at('upcoming', 'The window of dates is slow'), undefined, 'agent', {
+          new: true,
+        }),
+      ),
+    )
+    const three = recordedOf(
+      await run(
+        reportFinding(at('upcoming', 'Deadlines come late'), undefined, 'agent', { new: true }),
+      ),
+    )
+    const [a, b, c] = [one.finding.number, two.finding.number, three.finding.number]
+    const refusal = (into: number, from: number) =>
+      run(Effect.flip(mergeFindings(into, from))).then(({ message }) => message)
+    expect(await refusal(a, a)).toBe(`A finding cannot be merged into itself: ${a}.`)
+    await run(mergeFindings(a, b))
+    expect(await refusal(a, b)).toBe(`The finding ${b} is merged into ${a} already.`)
+    expect(await refusal(b, c)).toBe(
+      `The finding ${b} is merged into ${a}: merge into ${a} instead.`,
+    )
+    expect(await run(mergedInto(b))).toBe(a)
   })
 })
