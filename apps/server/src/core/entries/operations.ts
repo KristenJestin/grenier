@@ -20,7 +20,6 @@ import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
 import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@grenier/api/model'
 import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
-import { findSourceItem } from '../sources/operations.ts'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { refusingContention } from './contention.ts'
 import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
@@ -835,7 +834,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           }
         }
 
-        // The entries a source names, by id; a URL that is a web address; a registry item it holds.
+        // The entries a source names, by id; a URL that is a web address; an item the inbox holds.
         const sources: Array<SourceKept> = []
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
@@ -855,14 +854,13 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             problems.push(
               `The source ${at} must be an http or https URL: \`${source.url}\` is not.`,
             )
-          } else if (
-            'item' in source &&
-            !(source.source === INBOX
-              ? yield* inboxHolds(source.item)
-              : (yield* findSourceItem(source.source, source.item)) !== undefined)
-          ) {
+          } else if ('item' in source && source.source !== INBOX) {
             problems.push(
-              `The source ${at} names the item \`${source.item}\` of \`${source.source}\`, which the registry does not hold.`,
+              `The source ${at} names an item of \`${source.source}\`: an item is cited from the inbox only, as \`{ "source": "inbox", "item": "<id>" }\`.`,
+            )
+          } else if ('item' in source && !(yield* inboxHolds(source.item))) {
+            problems.push(
+              `The source ${at} names the item \`${source.item}\`, which the inbox does not hold.`,
             )
           } else sources.push(source)
         }

@@ -104,7 +104,7 @@ export const entries = pgTable(
       setweight(to_tsvector(search_language, tags::text || ' ' || summary), 'B') ||
       setweight(to_tsvector(search_language, body || ' ' || media_text), 'C')`,
     ),
-    // Where the entry comes from: entries by id, URLs, external identifiers, registry items.
+    // Where the entry comes from: entries by id, URLs, external identifiers, inbox items.
     sources: jsonb()
       .notNull()
       .default(sql`'[]'`),
@@ -190,29 +190,6 @@ export const links = pgTable(
       foreignColumns: [entries.id],
     }),
     index('links_target_id').on(table.target_id),
-  ],
-)
-
-/**
- * What an import read: each item by its source and its identifier at the source, the entry it
- * gave, and a hash of its content, so a second import processes only what changed.
- */
-export const sources = pgTable(
-  'sources',
-  {
-    source: text().notNull(),
-    identifier: text().notNull(),
-    entry_id: uuid().notNull(),
-    hash: text().notNull(),
-    imported_at: timestamp(at).notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ name: 'sources_pkey', columns: [table.source, table.identifier] }),
-    foreignKey({
-      name: 'sources_entry_id_fkey',
-      columns: [table.entry_id],
-      foreignColumns: [entries.id],
-    }),
   ],
 )
 

@@ -11,7 +11,7 @@ export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
 const About = { note: Schema.optionalKey(Schema.String) }
 
-/** A URL source, an external identifier, or an item of the source registry. */
+/** A URL source, an external identifier, or an item of the inbox. */
 const Elsewhere = [
   Schema.Struct({ url: Schema.String, ...About }).annotate({ identifier: 'SourceUrl' }),
   Schema.Struct({
@@ -26,8 +26,8 @@ const Elsewhere = [
 
 /**
  * Where an entry comes from, as a write gives it: another entry (by slug or id), a URL, an
- * external identifier with an optional label, or an item of the source registry; each may say
- * a short note.
+ * external identifier with an optional label, or an item of the inbox (`source` is `inbox`);
+ * each may say a short note.
  */
 export const SourceGiven = Schema.Union([
   Schema.Struct({ entry: Schema.String, ...About }),

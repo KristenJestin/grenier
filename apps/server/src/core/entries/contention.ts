@@ -1,18 +1,10 @@
-import { EffectDrizzleQueryError } from 'drizzle-orm/effect-core'
-import { Cause, Effect, Result } from 'effect'
+import { Effect } from 'effect'
 import { SqlError } from 'effect/sql'
+import { sqlErrorOf } from '../database/sql-error.ts'
 import { Refused } from '../refused.ts'
 
 const TRY_AGAIN =
   'Another write changed the same entries or types at the same moment: try the write again.'
-
-/** The SQL error behind an error, whether it comes from Effect SQL or through Drizzle. */
-const sqlErrorOf = <E>(error: E) => {
-  if (SqlError.isSqlError(error)) return error
-  if (!(error instanceof EffectDrizzleQueryError) || !Cause.isCause(error.cause)) return undefined
-  const found = Cause.findError(error.cause)
-  return Result.isSuccess(found) && SqlError.isSqlError(found.success) ? found.success : undefined
-}
 
 /** Whether PostgreSQL gave up a write because another one held what it needed. */
 const contended = <E>(error: E) => {
