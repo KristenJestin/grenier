@@ -125,6 +125,17 @@ describe('agents that may write learn how an inbox item becomes entries', () => 
     expect(inboxTakeTool.description).toContain(INBOX_STANDARD)
   })
 
+  test('it says to complete what an item brought before, never to take it as done', () => {
+    expect(INBOX_STANDARD).toContain('`earlier`')
+    expect(INBOX_STANDARD).toContain('Never assume')
+    expect(instructionsFor(types, development, null, true)).toContain(
+      'Never assume the entries are complete because they exist.',
+    )
+    expect(inboxTakeTool.description).toContain(
+      'Never assume the entries are complete because they exist.',
+    )
+  })
+
   test('the rules of the instance come after it, and may add to it', () => {
     const told = instructionsFor(types, development, 'Write in short sentences.', true)
     expect(told.indexOf(INBOX_STANDARD)).toBeLessThan(told.indexOf('Write in short sentences.'))
