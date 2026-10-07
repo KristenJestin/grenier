@@ -149,6 +149,59 @@ describe('an agent works through MCP calls only', () => {
     expect(await mcp().call('read', { entry: 'shed' })).toMatchObject({ result: { links: [] } })
   })
 
+  test('a typed and repeated entry field, and a link with a note and dates, through MCP calls', async () => {
+    await mcp().call('define_type', {
+      name: 'company',
+      label: 'Company',
+      description: 'A company.',
+      fields: [],
+    })
+    await mcp().call('define_type', {
+      name: 'colleague',
+      label: 'Colleague',
+      description: 'Someone met at work.',
+      fields: [{ name: 'employers', kind: 'entry', types: ['company'], many: true }],
+    })
+    await mcp().call('write', { type: 'company', title: 'Bright Mill' })
+    await mcp().call('write', { type: 'company', title: 'Slate Yard' })
+    expect(
+      await mcp().call('write', {
+        type: 'colleague',
+        title: 'Noa Wren',
+        fields: { employers: ['slate-yard', 'shed'] },
+      }),
+    ).toMatchObject({
+      error:
+        'The field `fields.employers.1` must name an entry of type `company`: `shed` is of type `project`.',
+    })
+    await mcp().call('write', {
+      type: 'colleague',
+      title: 'Noa Wren',
+      fields: { employers: ['slate-yard', 'bright-mill'] },
+    })
+    expect(
+      await mcp().call('link', {
+        source: 'noa-wren',
+        target: 'bright-mill',
+        relation: 'works_at',
+        note: 'comptable',
+        valid_from: '2024-01-01',
+      }),
+    ).toMatchObject({ result: { note: 'comptable', valid_from: '2024-01-01', valid_until: null } })
+    expect(await mcp().call('read', { entry: 'bright-mill' })).toMatchObject({
+      result: {
+        backlinks: [
+          { relation: 'works_at', slug: 'noa-wren', note: 'comptable', valid_from: '2024-01-01' },
+        ],
+      },
+    })
+    const { result } = await mcp().call('read', { entry: 'noa-wren' })
+    expect(result).toMatchObject({
+      titles: expect.objectContaining({}),
+      links: [{ relation: 'works_at', note: 'comptable' }],
+    })
+  })
+
   test('a write answers with the entry but not its body, which may be long', async () => {
     const written = await mcp().call('write', {
       type: 'note',
@@ -247,6 +300,33 @@ describe('dates come to the agent', () => {
           name: 'link',
           inputSchema: expect.objectContaining({
             properties: expect.objectContaining({ field: expect.anything() }),
+          }),
+        }),
+      ]),
+    })
+  })
+
+  test('the tools say how to type and repeat a field, and what a link may say of itself', async () => {
+    const { result } = await mcp().request('tools/list', {})
+    const text = JSON.stringify(result)
+    for (const said of ['`types`', '`many`', '`note`', '`valid_from`', '`valid_until`'])
+      expect(text).toContain(said)
+    expect(result).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'link',
+          inputSchema: expect.objectContaining({
+            properties: expect.objectContaining({
+              note: expect.anything(),
+              valid_from: expect.anything(),
+              valid_until: expect.anything(),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          name: 'unlink',
+          inputSchema: expect.objectContaining({
+            properties: expect.not.objectContaining({ note: expect.anything() }),
           }),
         }),
       ]),
