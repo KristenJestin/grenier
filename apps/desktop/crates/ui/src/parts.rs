@@ -14,7 +14,7 @@ use gpui_kit::{
 use gpui_kit::prelude::FluentBuilder as _;
 
 use crate::motion::{enter, hoverable};
-use crate::theme::{self, space, text, width};
+use crate::theme::{self, font, space, text, width};
 
 /// The column a page reads in.
 pub fn page() -> Div {
@@ -79,6 +79,7 @@ pub fn layout(
 pub fn title(title: impl Into<SharedString>) -> Div {
     div()
         .mt(space::M)
+        .font_family(font::HEADING)
         .text_size(text::TITLE)
         .line_height(relative(1.15))
         .font_weight(FontWeight::BOLD)
@@ -103,6 +104,7 @@ pub fn heading(title: impl Into<SharedString>, count: Option<usize>, cx: &App) -
         .items_baseline()
         .child(
             div()
+                .font_family(font::HEADING)
                 .text_size(text::HEADING)
                 .font_weight(FontWeight::BOLD)
                 .child(title.into()),

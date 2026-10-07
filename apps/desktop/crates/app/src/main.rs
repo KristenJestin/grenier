@@ -9,6 +9,7 @@ fn main() {
         .with_assets(ui::assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
+            ui::theme::load_fonts(cx);
             ui::viewer::init(cx);
             let dark = matches!(
                 cx.window_appearance(),

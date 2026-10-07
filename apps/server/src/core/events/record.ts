@@ -25,6 +25,8 @@ export const changesBetween = (before: Snapshot, after: Snapshot): ReadonlyArray
 export type Action =
   | 'create'
   | 'update'
+  // A body rewritten by the rename of an entry it cites, not by a writer of its own.
+  | 'rewrite'
   | 'archive'
   | 'link'
   | 'unlink'

@@ -1,9 +1,18 @@
-import { Effect } from 'effect'
+import { HIDDEN } from '@grenier/api/model'
+import { asc, eq } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import { Effect, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { drizzle } from '../database/client.ts'
+import { rowsOf } from '../database/rows.ts'
+import * as tables from '../database/schema.ts'
 import { findEntry } from '../entries/operations.ts'
+import { DateText } from '../entries/values.ts'
+import type { FieldValues } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { sensitivity } from '../sensitive.ts'
 import { ruleOf } from '../time/occurrences.ts'
 import { findType } from '../types/operations.ts'
 import { incoming, MENTIONS, outgoing } from './store.ts'
@@ -18,7 +27,8 @@ const PERIOD = /^\d{4}(-\d{2}(-\d{2})?|-W\d{2})?$/
 
 /** A link `fulfills` closes the occurrence of one period, which it names; no other link has one. */
 const checkPeriod = Effect.fnUntraced(function* (relation: string, period: string) {
-  if (relation === 'fulfills' && !PERIOD.test(period)) {
+  // A single deadline may be closed without a period: its form is checked with the field.
+  if (relation === 'fulfills' && period !== '' && !PERIOD.test(period)) {
     return yield* new Refused({
       message:
         'A link `fulfills` needs a period: `2026` for a yearly date, `2026-10` monthly, `2026-W41` weekly, or the date itself.',
@@ -27,6 +37,43 @@ const checkPeriod = Effect.fnUntraced(function* (relation: string, period: strin
   if (relation !== 'fulfills' && period !== '') {
     return yield* new Refused({ message: 'Only a link `fulfills` takes a period.' })
   }
+})
+
+/** The form of the period of each recurrence, and how it is said. */
+const FORMS = {
+  yearly: { form: /^\d{4}$/, every: 'every year', example: '2026' },
+  monthly: { form: /^\d{4}-\d{2}$/, every: 'every month', example: '2026-10' },
+  weekly: { form: /^\d{4}-W\d{2}$/, every: 'every week', example: '2026-W41' },
+} as const
+
+/**
+ * The period a link `fulfills` closes, in the form its date comes back by: `2026` for a yearly
+ * date, `2026-10` monthly, `2026-W41` weekly; a single deadline takes no period, or its date,
+ * which it is kept as. A period of another form would close nothing, and is refused.
+ */
+const periodClosed = Effect.fnUntraced(function* (
+  target: { readonly slug: string; readonly type: string; readonly fields: FieldValues },
+  field: string,
+  period: string,
+) {
+  const definition = (yield* findType(target.type))?.fields.find(({ name }) => name === field)
+  const rule = definition === undefined ? undefined : ruleOf(definition)
+  if (rule === undefined) return period
+  const at = `The field \`${field}\` of \`${target.slug}\``
+  if (rule.every === 'once') {
+    const date = target.fields[field]
+    const shown = Predicate.isString(date) && date !== HIDDEN ? date : undefined
+    if (period === '' && shown !== undefined) return shown
+    if (period !== '' && period === date) return period
+    return yield* new Refused({
+      message: `${at} is a single deadline: a link \`fulfills\` names no period, or its date${shown === undefined ? '' : ` \`${shown}\``}.`,
+    })
+  }
+  const { form, every, example } = FORMS[rule.every]
+  if (form.test(period)) return period
+  return yield* new Refused({
+    message: `${at} comes back ${every}: a link \`fulfills\` names its period as \`${example}\`.`,
+  })
 })
 
 const listed = (names: ReadonlyArray<string>) =>
@@ -82,10 +129,64 @@ const checkRelation = Effect.fnUntraced(function* (relation: string) {
 })
 
 /**
- * Links two entries with a relation; linking them again with the same relation changes nothing.
- * A link `fulfills` names the date field and the period of the occurrence it closes (`inspection`,
- * `2026`); the field may be left out when the target has a single deadline or recurring date.
- * Returns the field the link closes, `''` for any other relation.
+ * What a link says of itself, as `link` is given it: a short note (a role, such as `accountant`)
+ * and the dates it held between. A key left out stays as it is; `null` removes it.
+ */
+export type LinkAbout = {
+  readonly note?: string | null | undefined
+  readonly valid_from?: string | null | undefined
+  readonly valid_until?: string | null | undefined
+}
+
+/** How many characters the note of a link holds at most. */
+const NOTE_LIMIT = 200
+
+const About = Schema.Struct({
+  note: Schema.NullOr(Schema.String),
+  valid_from: Schema.NullOr(Schema.String),
+  valid_until: Schema.NullOr(Schema.String),
+})
+type About = typeof About.Type
+const abouts = rowsOf(About)
+
+const NOTHING: About = { note: null, valid_from: null, valid_until: null }
+
+const isDate = Schema.is(DateText)
+
+/** Refuses a note too long, or a date that is not one. */
+const checkAbout = Effect.fnUntraced(function* (about: LinkAbout) {
+  const problems = [
+    ...(about.note !== undefined && about.note !== null && about.note.length > NOTE_LIMIT
+      ? [
+          `The note of a link holds ${NOTE_LIMIT} characters at most: this one holds ${about.note.length}.`,
+        ]
+      : []),
+    ...(['valid_from', 'valid_until'] as const).flatMap((key) => {
+      const value = about[key]
+      return value === undefined || value === null || isDate(value)
+        ? []
+        : [`The field \`${key}\` must be a date such as \`2026-10-05\`.`]
+    }),
+  ]
+  if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+})
+
+/**
+ * How the event log names the end of a link: the target's id, or with what the link says of
+ * itself, `{ entry, note, valid_from, valid_until }`, each said only when it is set.
+ */
+const endOf = (target: string, about: About): Schema.Json => {
+  const said = Object.fromEntries(Object.entries(about).filter(([, value]) => value !== null))
+  return Object.keys(said).length === 0 ? target : { entry: target, ...said }
+}
+
+/**
+ * Links two entries with a relation. Linking them again with the same relation (and, for
+ * `fulfills`, the same field and period) changes only what the link says of itself, its note and
+ * its dates, in one event; when that is unchanged, nothing. A link `fulfills` names the date field
+ * and the period of the occurrence it closes (`inspection`, `2026`); the field may be left out
+ * when the target has a single deadline or recurring date. Returns the field the link closes
+ * (`''` for any other relation), its note and its dates.
  */
 export const link = Effect.fn('link')(function* (
   sourceReference: string,
@@ -93,25 +194,67 @@ export const link = Effect.fn('link')(function* (
   relation: string,
   period = '',
   field = '',
+  about: LinkAbout = {},
 ) {
   const sql = yield* SqlClient.SqlClient
   const actor = yield* currentActor
   yield* checkRelation(relation)
   yield* checkPeriod(relation, period)
+  yield* checkAbout(about)
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
       const closed = yield* fieldClosed(relation, target, field)
-      const inserted = yield* sql`INSERT INTO links (source_id, target_id, relation, period, field)
-        VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${period}, ${closed})
-        ON CONFLICT DO NOTHING RETURNING relation`
-      if (inserted.length > 0) {
-        yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
-          { field: fieldOf(relation, period, closed), before: null, after: target.id },
-        ])
+      const kept = relation === 'fulfills' ? yield* periodClosed(target, closed, period) : period
+      const stored = sql`SELECT note, valid_from::text AS valid_from,
+          valid_until::text AS valid_until
+        FROM links WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+          AND relation = ${relation} AND period = ${kept} AND field = ${closed} FOR UPDATE`
+      const name = fieldOf(relation, kept, closed)
+      /** What the link says once this write is applied to what it said. */
+      const merged = (held: About) => ({
+        note: about.note === undefined ? held.note : about.note,
+        valid_from: about.valid_from === undefined ? held.valid_from : about.valid_from,
+        valid_until: about.valid_until === undefined ? held.valid_until : about.valid_until,
+      })
+      const checked = Effect.fnUntraced(function* (said: About) {
+        if (said.valid_from !== null && said.valid_until !== null)
+          if (said.valid_until < said.valid_from)
+            return yield* new Refused({
+              message: 'The field `valid_until` cannot be before `valid_from`.',
+            })
+        return said
+      })
+      let [held] = yield* abouts(stored)
+      if (held === undefined) {
+        const said = yield* checked(merged(NOTHING))
+        const inserted = yield* sql`INSERT INTO links (source_id, target_id, relation, period,
+            field, note, valid_from, valid_until)
+          VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${kept}, ${closed},
+            ${said.note}, ${said.valid_from}::date, ${said.valid_until}::date)
+          ON CONFLICT DO NOTHING RETURNING relation`
+        if (inserted.length > 0) {
+          yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
+            { field: name, before: null, after: endOf(target.id, said) },
+          ])
+          return { field: closed, ...said }
+        }
+        // Linked by another write at the same moment: this one applies to what that one wrote.
+        ;[held] = yield* abouts(stored)
       }
-      return { field: closed }
+      const before = held ?? NOTHING
+      const after = yield* checked(merged(before))
+      const answer = { field: closed, ...after }
+      if (JSON.stringify(after) === JSON.stringify(before)) return answer
+      yield* sql`UPDATE links SET note = ${after.note}, valid_from = ${after.valid_from}::date,
+          valid_until = ${after.valid_until}::date
+        WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+          AND relation = ${relation} AND period = ${kept} AND field = ${closed}`
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
+        { field: name, before: endOf(target.id, before), after: endOf(target.id, after) },
+      ])
+      return answer
     }),
   )
 })
@@ -151,12 +294,81 @@ export const unlink = Effect.fn('unlink')(function* (
   )
 })
 
-/** The links that leave an entry. */
+/** The links that leave an entry, but those to an entry the caller may not see. */
 export const linksOf = Effect.fn('linksOf')(function* (reference: string) {
-  return yield* outgoing((yield* findEntry(reference)).id)
+  const { hiddenTypes } = yield* sensitivity
+  return yield* outgoing((yield* findEntry(reference)).id, hiddenTypes)
 })
 
-/** The links that reach an entry, with the relation and the source's title. */
+/**
+ * The links that reach an entry, with the relation and the source's title, but those from an
+ * entry the caller may not see.
+ */
 export const backlinksOf = Effect.fn('backlinksOf')(function* (reference: string) {
-  return yield* incoming((yield* findEntry(reference)).id)
+  const { hiddenTypes } = yield* sensitivity
+  return yield* incoming((yield* findEntry(reference)).id, hiddenTypes)
+})
+
+const fulfilling = rowsOf(
+  Schema.Struct({
+    source: Schema.String,
+    target: Schema.String,
+    type: Schema.String,
+    fields: Schema.Record(Schema.String, Schema.Json),
+    field: Schema.String,
+    period: Schema.String,
+  }),
+)
+
+/**
+ * The links \`fulfills\` stored before their period was checked, whose period has not the form
+ * their date comes back by: they close nothing, and the date stays announced. For the owner to
+ * correct, as the form expected says.
+ */
+export const misfiledPeriods = Effect.gen(function* () {
+  const db = yield* drizzle
+  const citing = alias(tables.entries, 'citing')
+  const closed = alias(tables.entries, 'closed')
+  const found = yield* fulfilling(
+    db
+      .select({
+        source: citing.slug,
+        target: closed.slug,
+        type: closed.type,
+        fields: closed.fields,
+        field: tables.links.field,
+        period: tables.links.period,
+      })
+      .from(tables.links)
+      .innerJoin(citing, eq(citing.id, tables.links.source_id))
+      .innerJoin(closed, eq(closed.id, tables.links.target_id))
+      .where(eq(tables.links.relation, 'fulfills'))
+      .orderBy(asc(citing.slug), asc(closed.slug)),
+  )
+  const checked = yield* Effect.forEach(found, (stored) =>
+    Effect.gen(function* () {
+      const definition = (yield* findType(stored.type))?.fields.find(
+        ({ name }) => name === stored.field,
+      )
+      const rule = definition === undefined ? undefined : ruleOf(definition)
+      if (rule === undefined) return []
+      const date = stored.fields[stored.field]
+      const expected =
+        rule.every === 'once'
+          ? Predicate.isString(date)
+            ? date
+            : 'its date'
+          : FORMS[rule.every].example
+      const fits =
+        rule.every === 'once' ? stored.period === date : FORMS[rule.every].form.test(stored.period)
+      return fits ? [] : [{ ...stored, expected }]
+    }),
+  )
+  return checked.flat().map((misfiled) => ({
+    source: misfiled.source,
+    target: misfiled.target,
+    field: misfiled.field,
+    period: misfiled.period,
+    expected: misfiled.expected,
+  }))
 })

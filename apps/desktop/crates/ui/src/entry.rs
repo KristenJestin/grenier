@@ -1,10 +1,14 @@
 //! The open entry: where it sits, what it is, its fields, its body, and what it is tied to; and
 //! beside it, the contents of the page, which follow the reading and jump to a section.
 
+use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
-use api::{EntryRead, FieldDefinitionKind, Medium, Source, TypeDefinition};
+use api::{
+    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, Link, Medium, Source,
+    TypeDefinition,
+};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
@@ -24,7 +28,7 @@ use crate::parts::{
     Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, title, warning_chip,
 };
 use crate::status;
-use crate::theme::{self, space, text, width};
+use crate::theme::{self, font, space, text, width};
 
 /// What the server shows in place of a value the key may not see.
 pub const HIDDEN: &str = "[hidden]";
@@ -44,20 +48,24 @@ pub struct EntryScreen {
     on_intent: OnIntent,
     scroll: ScrollHandle,
     shown: usize,
+    jump: Option<SharedString>,
 }
 
 impl EntryScreen {
+    /// The screen; `jump` names a heading of the body to glide to once the page is laid out.
     pub fn new(
         load: Load<EntryData>,
         on_intent: OnIntent,
         scroll: ScrollHandle,
         shown: usize,
+        jump: Option<SharedString>,
     ) -> Self {
         Self {
             load,
             on_intent,
             scroll,
             shown,
+            jump,
         }
     }
 }
@@ -84,7 +92,15 @@ impl RenderOnce for EntryScreen {
                 ))
                 .into_any_element(),
             Load::Ready(data) => {
-                return ready(data, &self.on_intent, &self.scroll, self.shown, window, cx);
+                return ready(
+                    data,
+                    &self.on_intent,
+                    &self.scroll,
+                    self.shown,
+                    self.jump,
+                    window,
+                    cx,
+                );
             }
         };
         layout(window, &self.scroll, self.shown, article, None).into_any_element()
@@ -147,6 +163,7 @@ fn ready(
     on_intent: &OnIntent,
     scroll: &ScrollHandle,
     shown: usize,
+    jump: Option<SharedString>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -156,8 +173,8 @@ fn ready(
     } = data;
     let entry = &read.entry;
     let mut article = Article::default();
-    if !read.path.is_empty() {
-        article.push(crumbs(&read.path, on_intent, window, cx));
+    if !read.ancestors.is_empty() {
+        article.push(crumbs(&read.ancestors, on_intent, window, cx));
     }
     article.push(title(entry.title.clone()));
     if !entry.summary.is_empty() {
@@ -190,7 +207,14 @@ fn ready(
         article.anchored("Champs", 2, fields);
     }
     body(&mut article, entry.id.clone(), &entry.body, &read, cx);
-    children(&mut article, &read, on_intent, window, cx);
+    children(
+        &mut article,
+        &read,
+        type_definition.as_ref(),
+        on_intent,
+        window,
+        cx,
+    );
     links(&mut article, &read, on_intent, window, cx);
     sources(&mut article, &entry.sources, on_intent, window, cx);
     media(&mut article, &read.media, cx);
@@ -238,6 +262,27 @@ fn ready(
     let marked: Vec<usize> = article.anchors.iter().map(|(index, _)| *index).collect();
     let viewport = scroll.clone();
     let known = places.read(cx).clone();
+    // Once laid out, the page glides to the heading a reference named, once.
+    if let Some(heading) = jump
+        && let Some(index) = article
+            .anchors
+            .iter()
+            .position(|(_, anchor)| anchor_of(&anchor.label) == anchor_of(&heading))
+        && let Some(place) = known.get(index).copied()
+    {
+        let jumped = window.use_keyed_state(
+            SharedString::from(format!("jumped-{}-{shown}", entry.id)),
+            cx,
+            |_, _| false,
+        );
+        if !*jumped.read(cx) {
+            jumped.update(cx, |jumped, _| *jumped = true);
+            let scroll = scroll.clone();
+            window.defer(cx, move |window, cx| {
+                glide(scroll, place - space::L, window, cx)
+            });
+        }
+    }
     let page = page()
         .on_children_prepainted(move |bounds, _, cx| {
             let origin = viewport.bounds().top() + viewport.offset().y;
@@ -265,20 +310,39 @@ fn ready(
     .into_any_element()
 }
 
-/// Where the entry sits: each ancestor opens.
-fn crumbs(path: &[String], on_intent: &OnIntent, window: &mut Window, cx: &mut App) -> Div {
+/// A heading as a reference names it: `## Late pruning` as `late-pruning`.
+fn anchor_of(heading: &str) -> String {
+    heading
+        .to_lowercase()
+        .split(|letter: char| !letter.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Where the entry sits: each ancestor opens, by its id; one the key may not see stays still.
+fn crumbs(
+    ancestors: &[EntryReadAncestorsItem],
+    on_intent: &OnIntent,
+    window: &mut Window,
+    cx: &mut App,
+) -> Div {
     let theme = cx.theme();
     let (muted, foreground) = (theme.muted_foreground, theme.foreground);
     let mut row = h_flex()
         .gap(space::XS)
         .text_size(text::SMALL)
         .text_color(muted);
-    for (depth, ancestor) in path.iter().enumerate() {
+    for (depth, ancestor) in ancestors.iter().enumerate() {
         if depth > 0 {
             row = row.child(Icon::new(IconName::ChevronRight).xsmall());
         }
-        let on_intent = on_intent.clone();
-        let ancestor = ancestor.clone();
+        let title = ancestor.title.clone();
+        let Some(id) = ancestor.id.clone() else {
+            row = row.child(div().child(title));
+            continue;
+        };
+        let open = opener(on_intent, id);
         row = row.child(hoverable(
             ElementId::named_usize("crumb", depth),
             window,
@@ -287,10 +351,9 @@ fn crumbs(path: &[String], on_intent: &OnIntent, window: &mut Window, cx: &mut A
                 element
                     .text_color(mix(muted, foreground, hover.0))
                     .cursor_pointer()
-                    .on_click(move |_, window, cx| {
-                        on_intent(Intent::OpenAncestor(depth), window, cx)
-                    })
-                    .child(ancestor)
+                    .debug_selector(|| format!("crumb-{depth}"))
+                    .on_click(open)
+                    .child(title)
             },
         ));
     }
@@ -378,7 +441,11 @@ fn fields(
                             .child(div().flex_1().min_w_0().child(value_of(
                                 &values[&name],
                                 kind,
-                                read,
+                                &Shown {
+                                    scope: format!("field-{name}"),
+                                    titles: &read.titles,
+                                    read,
+                                },
                                 on_intent,
                                 cx,
                             )))
@@ -420,6 +487,7 @@ fn fields(
                 .bg(mix(card_bg, over, hover.0))
                 .font_weight(FontWeight::MEDIUM)
                 .cursor_pointer()
+                .debug_selector(|| "fields-header".into())
                 .on_click(move |_, _, cx| {
                     open_state.update(cx, |open, cx| {
                         *open = !*open;
@@ -484,11 +552,32 @@ fn reference(
         .into_any_element()
 }
 
-/// A value as its kind reads best: a hidden value as hidden, dates in words, links that open.
+/// Where a value is shown: the scope its elements are named in, and the titles of the entries it
+/// may name, by id.
+struct Shown<'a> {
+    scope: String,
+    titles: &'a HashMap<String, String>,
+    read: &'a EntryRead,
+}
+
+/// The title of the entry an id names: as the server gave it with the value, else as a link of
+/// the entry names it, else the id itself.
+pub fn title_of(id: &str, titles: &HashMap<String, String>, read: &EntryRead) -> String {
+    titles.get(id).cloned().unwrap_or_else(|| {
+        read.links
+            .iter()
+            .chain(&read.backlinks)
+            .find(|link| link.id == id || link.slug == id)
+            .map_or_else(|| id.to_string(), |link| link.title.clone())
+    })
+}
+
+/// A value as its kind reads best: a hidden value as hidden, dates in words, links that open; a
+/// list as its values in their order, each by its kind (each entry a link to it).
 fn value_of(
     value: &Value,
     kind: Option<FieldDefinitionKind>,
-    read: &EntryRead,
+    shown: &Shown,
     on_intent: &OnIntent,
     cx: &App,
 ) -> AnyElement {
@@ -500,6 +589,34 @@ fn value_of(
             .child(Icon::new(IconName::EyeOff).xsmall())
             .child("••••••")
             .child("masqué")
+            .into_any_element();
+    }
+    if let Value::Array(items) = value {
+        let last = items.len().saturating_sub(1);
+        // Labels stand apart by themselves; any other value is followed by a comma.
+        let comma = kind != Some(FieldDefinitionKind::Enum);
+        return h_flex()
+            .flex_wrap()
+            .gap_x(px(6.))
+            .gap_y(px(4.))
+            .children(items.iter().enumerate().map(|(index, item)| {
+                let one = value_of(
+                    item,
+                    kind,
+                    &Shown {
+                        scope: format!("{}-{index}", shown.scope),
+                        titles: shown.titles,
+                        read: shown.read,
+                    },
+                    on_intent,
+                    cx,
+                );
+                if comma && index < last {
+                    h_flex().child(one).child(",").into_any_element()
+                } else {
+                    one
+                }
+            }))
             .into_any_element();
     }
     let text_value = match value {
@@ -528,22 +645,19 @@ fn value_of(
             .into_any_element(),
         Some(FieldDefinitionKind::Url) => h_flex()
             .child(reference(
-                SharedString::from(format!("field-url-{text_value}")),
+                SharedString::from(format!("{}-url-{text_value}", shown.scope)),
                 without_scheme(&text_value),
                 browser(on_intent, text_value.clone()),
                 cx,
             ))
             .into_any_element(),
         Some(FieldDefinitionKind::Entry) => {
-            let title = read
-                .links
-                .iter()
-                .chain(&read.backlinks)
-                .find(|link| link.id == text_value || link.slug == text_value)
-                .map_or_else(|| text_value.clone(), |link| link.title.clone());
+            let title = title_of(&text_value, shown.titles, shown.read);
+            let selector = format!("{}-entry", shown.scope);
             h_flex()
+                .debug_selector(|| selector)
                 .child(reference(
-                    SharedString::from(format!("field-entry-{text_value}")),
+                    SharedString::from(format!("{}-entry-{text_value}", shown.scope)),
                     title,
                     opener(on_intent, text_value),
                     cx,
@@ -609,12 +723,13 @@ pub fn parts_of(body: &str) -> Vec<(Option<(u8, String)>, String)> {
 /// The body, from Markdown, part by part, with `[[slug]]` references as links that open the
 /// entry, titled when the entry is among its links.
 fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &App) {
-    let titled = with_entry_links(body, |slug| {
-        read.links
+    // What the server says each reference names: an alias as well as a slug; nothing yet for a
+    // reference that waits for its entry.
+    let titled = with_entry_links(body, |reference| {
+        read.references
             .iter()
-            .chain(&read.backlinks)
-            .find(|link| link.slug == slug)
-            .map(|link| link.title.clone())
+            .find(|known| known.reference == reference)
+            .and_then(|known| Some((known.id.clone()?, known.title.clone()?)))
     });
     for (index, (title_of_part, text)) in parts_of(&titled).into_iter().enumerate() {
         let prose = (!text.trim().is_empty()).then(|| {
@@ -633,6 +748,7 @@ fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &Ap
                     div()
                         .mt(space::XXL)
                         .mb(space::M)
+                        .font_family(font::HEADING)
                         .text_size(text::SUBHEADING)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(label.clone())
@@ -644,10 +760,12 @@ fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &Ap
     }
 }
 
-/// The entries filed under this one; those the key may not see, as one quiet card.
+/// The entries filed under this one: its parts as a table of their fields, the others as cards,
+/// and those the key may not see as one quiet card.
 fn children(
     article: &mut Article,
     read: &EntryRead,
+    type_definition: Option<&TypeDefinition>,
     on_intent: &OnIntent,
     window: &mut Window,
     cx: &mut App,
@@ -656,8 +774,9 @@ fn children(
     if read.children.is_empty() && hidden == 0 {
         return;
     }
-    let mut list: Vec<AnyElement> = read
-        .children
+    let (parts, others): (Vec<&Child>, Vec<&Child>) =
+        read.children.iter().partition(|child| child.in_parent);
+    let mut list: Vec<AnyElement> = others
         .iter()
         .map(|child| {
             card(
@@ -692,16 +811,169 @@ fn children(
             .into_any_element(),
         );
     }
+    let table = (!parts.is_empty())
+        .then(|| parts_table(&parts, read, type_definition, on_intent, window, cx));
     article.anchored(
         "Contient",
         2,
         v_flex()
             .child(heading("Contient", Some(read.children.len() + hidden), cx))
-            .child(cards(list)),
+            .children(table)
+            .when(!list.is_empty(), |section| section.child(cards(list))),
     );
 }
 
-/// The links of the entry, both ways: each card says how it relates.
+/// The parts of the entry as a table: a row each, which opens it, its title, then a column for
+/// each field of the type that one of them fills, in the order of the type, each value shown as on
+/// the part's own page.
+fn parts_table(
+    parts: &[&Child],
+    read: &EntryRead,
+    type_definition: Option<&TypeDefinition>,
+    on_intent: &OnIntent,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let filled = |name: &String| parts.iter().any(|part| part.fields.contains_key(name));
+    let mut columns: Vec<(String, Option<FieldDefinitionKind>)> = type_definition
+        .map(|definition| {
+            definition
+                .fields
+                .iter()
+                .filter(|field| filled(&field.name))
+                .map(|field| (field.name.clone(), Some(field.kind)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut rest: Vec<String> = parts
+        .iter()
+        .flat_map(|part| part.fields.keys())
+        .filter(|name| !columns.iter().any(|(known, _)| known == *name))
+        .cloned()
+        .collect();
+    rest.sort();
+    rest.dedup();
+    columns.extend(rest.into_iter().map(|name| (name, None)));
+
+    let theme = cx.theme();
+    let (card_bg, over, border, soft, muted, radius) = (
+        theme.secondary,
+        theme.accent,
+        theme.border,
+        theme.table_row_border,
+        theme.muted_foreground,
+        theme.radius_lg,
+    );
+    let primary = theme.primary;
+    let cell = || div().flex_1().min_w_0();
+    let header = h_flex()
+        .gap(space::L)
+        .px(space::L)
+        .py(space::S)
+        .border_b_1()
+        .border_color(soft)
+        .text_size(text::SMALL)
+        .text_color(muted)
+        .child(cell().child("Nom"))
+        .children(
+            columns
+                .iter()
+                .map(|(name, _)| cell().truncate().child(label_of(name))),
+        );
+    let count = parts.len();
+    let rows = parts.iter().enumerate().map(|(index, part)| {
+        let values: Vec<AnyElement> = columns
+            .iter()
+            .map(|(name, kind)| {
+                cell()
+                    .child(part.fields.get(name).map_or_else(
+                        || {
+                            div()
+                                .text_color(theme::faint(cx))
+                                .child("—")
+                                .into_any_element()
+                        },
+                        |value| {
+                            // An entry a part names: by the title the server gave with the part.
+                            value_of(
+                                value,
+                                *kind,
+                                &Shown {
+                                    scope: format!("part-{}-{name}", part.id),
+                                    titles: &part.titles,
+                                    read,
+                                },
+                                on_intent,
+                                cx,
+                            )
+                        },
+                    ))
+                    .into_any_element()
+            })
+            .collect();
+        let title = part.title.clone();
+        let open = opener(on_intent, part.slug.clone());
+        let selector = format!("part-{}", part.slug);
+        hoverable(
+            SharedString::from(format!("part-{}", part.id)),
+            window,
+            cx,
+            move |element, hover| {
+                element
+                    .flex()
+                    .items_start()
+                    .gap(space::L)
+                    .px(space::L)
+                    .py(px(11.))
+                    .when(index + 1 < count, |row| row.border_b_1().border_color(soft))
+                    .bg(mix(card_bg, over, hover.0))
+                    .cursor_pointer()
+                    .debug_selector(|| selector)
+                    .on_click(open)
+                    .child(
+                        cell()
+                            .font_weight(FontWeight::MEDIUM)
+                            .underline()
+                            .text_decoration_1()
+                            .text_decoration_color(primary)
+                            .child(title),
+                    )
+                    .children(values)
+            },
+        )
+    });
+    v_flex()
+        .mt(space::M)
+        .mb(space::M)
+        .rounded(radius)
+        .border_1()
+        .border_color(border)
+        .bg(card_bg)
+        .overflow_hidden()
+        .child(header)
+        .children(rows)
+        .into_any_element()
+}
+
+/// What a link says of itself, in a line: its note, then the dates it held between, such as
+/// `comptable · depuis le 1 janv. 2024`; nothing when it says nothing.
+pub fn link_detail(link: &Link) -> Option<String> {
+    let dates = match (&link.valid_from, &link.valid_until) {
+        (Some(from), Some(until)) => Some(format!(
+            "du {} au {}",
+            date_in_words(from),
+            date_in_words(until)
+        )),
+        (Some(from), None) => Some(format!("depuis le {}", date_in_words(from))),
+        (None, Some(until)) => Some(format!("jusqu'au {}", date_in_words(until))),
+        (None, None) => None,
+    };
+    let said: Vec<String> = link.note.iter().cloned().chain(dates).collect();
+    (!said.is_empty()).then(|| said.join(" · "))
+}
+
+/// The links of the entry, both ways: each card says how it relates, and what the link says of
+/// itself.
 fn links(
     article: &mut Article,
     read: &EntryRead,
@@ -730,7 +1002,7 @@ fn links(
                         IconName::ArrowLeft
                     }),
                     title: link.title.clone().into(),
-                    detail: None,
+                    detail: link_detail(link).map(Into::into),
                     relation: Some(relation.into()),
                 },
                 opener(on_intent, link.slug.clone()),
@@ -1032,7 +1304,40 @@ fn glide(scroll: ScrollHandle, place: Pixels, window: &mut Window, cx: &mut App)
 
 #[cfg(test)]
 mod tests {
-    use super::parts_of;
+    use super::{link_detail, parts_of};
+    use api::Link;
+
+    fn link(note: Option<&str>, from: Option<&str>, until: Option<&str>) -> Link {
+        Link {
+            relation: "works_at".into(),
+            period: None,
+            field: None,
+            note: note.map(Into::into),
+            valid_from: from.map(Into::into),
+            valid_until: until.map(Into::into),
+            id: "atelier".into(),
+            slug: "atelier".into(),
+            title: "Atelier".into(),
+        }
+    }
+
+    #[test]
+    fn a_link_says_its_note_and_its_dates_in_one_line() {
+        let said = |note, from, until| link_detail(&link(note, from, until));
+        assert_eq!(
+            said(Some("comptable"), Some("2024-01-01"), None).as_deref(),
+            Some("comptable · depuis le 1 janv. 2024")
+        );
+        assert_eq!(
+            said(None, Some("2024-01-01"), Some("2025-06-30")).as_deref(),
+            Some("du 1 janv. 2024 au 30 juin 2025")
+        );
+        assert_eq!(
+            said(Some("processeur"), None, Some("2025-06-30")).as_deref(),
+            Some("processeur · jusqu'au 30 juin 2025")
+        );
+        assert_eq!(said(None, None, None), None);
+    }
 
     #[test]
     fn a_body_is_cut_at_its_headings_but_not_in_code() {

@@ -2,7 +2,15 @@ import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
-import { backlinksOf, link, linksOf, unlink } from '../../src/core/links/index.ts'
+import { execute } from '../../src/core/database/contention.ts'
+import {
+  backlinksOf,
+  link,
+  linksOf,
+  misfiledPeriods,
+  pendingOf,
+  unlink,
+} from '../../src/core/links/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -57,10 +65,9 @@ describe('body references are kept as links', () => {
     expect((await run(readEntry('script'))).entry.body).toBe(body.replace('[[target]]', '[[aim]]'))
   })
 
-  test('a body referencing a missing slug is refused with a sentence naming that slug', async () => {
-    expect(await run(refusalOf(note('Dangling', 'See [[ghost]].')))).toBe(
-      'The field `body` refers to `ghost`, which is not the slug of any entry.',
-    )
+  test('a body referencing a missing slug is kept, the reference waiting for its entry', async () => {
+    await run(note('Dangling', 'See [[ghost]].'))
+    expect(await run(pendingOf((await run(readEntry('dangling'))).entry.id))).toEqual(['ghost'])
   })
 })
 
@@ -136,5 +143,41 @@ describe('links never change the tree', () => {
     await run(unlink('filed', 'elsewhere', 'related'))
     expect((await run(readEntry('filed'))).entry.parent_id).toBe(before)
     expect((await run(readEntry('elsewhere'))).entry.parent_id).toBeNull()
+  })
+})
+
+describe('links fulfills stored before their period was checked', () => {
+  test('are listed with the form expected, since they close nothing', async () => {
+    await run(
+      Effect.gen(function* () {
+        yield* defineType({
+          name: 'bill',
+          label: 'Bill',
+          description: 'A bill.',
+          fields: [{ name: 'due_on', kind: 'date', recurs: { every: 'monthly', notice: 'P7D' } }],
+        })
+        const bill = yield* writeEntry({
+          type: 'bill',
+          title: 'Gas bill',
+          fields: { due_on: '2026-01-10' },
+        })
+        const paid = yield* writeEntry({ type: 'note', title: 'Gas paid' })
+        // As a link of the time before the check: a yearly period on a monthly date.
+        yield* execute(
+          "INSERT INTO links (source_id, target_id, relation, period, field) VALUES ($1::uuid, $2::uuid, 'fulfills', '2026', 'due_on')",
+          paid.id,
+          bill.id,
+        )
+      }),
+    )
+    expect(await run(misfiledPeriods)).toEqual([
+      {
+        source: 'gas-paid',
+        target: 'gas-bill',
+        field: 'due_on',
+        period: '2026',
+        expected: '2026-10',
+      },
+    ])
   })
 })

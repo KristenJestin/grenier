@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { instructionsFor } from '../../src/mcp/instructions.ts'
+import { INBOX_STANDARD, instructionsFor } from '../../src/mcp/instructions.ts'
+import { inboxTakeTool } from '../../src/mcp/tools/inbox.ts'
 
 const development = { name: 'development', diagnostics: false } as const
 const production = { name: 'production', diagnostics: false } as const
@@ -110,5 +111,44 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
     const instructions = instructionsFor(types, development)
     expect(instructions).not.toContain('Diagnostics')
     expect(instructions).not.toContain('grenier_report')
+  })
+})
+
+describe('agents that may write learn how an inbox item becomes entries', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+
+  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take, the same for every key, carries it', () => {
+    const writer = instructionsFor(types, development, null, true)
+    const reader = instructionsFor(types, development, null, false)
+    expect(writer).toContain(INBOX_STANDARD)
+    expect(reader).not.toContain(INBOX_STANDARD)
+    expect(inboxTakeTool.description).toContain(INBOX_STANDARD)
+  })
+
+  test('the rules of the instance come after it, and may add to it', () => {
+    const told = instructionsFor(types, development, 'Write in short sentences.', true)
+    expect(told.indexOf(INBOX_STANDARD)).toBeLessThan(told.indexOf('Write in short sentences.'))
+  })
+})
+
+describe('long rules give a part of their first paragraph when it alone is too long', () => {
+  test('the opening is cut inside the paragraph, never empty', () => {
+    const first = 'Ask before writing anything private about someone. '.repeat(100)
+    const told = instructionsFor([], development, `${first}\n\n## Style\n\nShort.`, false)
+    const [, opening = ''] = told.split(
+      'read them whole with `instance_rules`, and follow them in every session.\n\n',
+    )
+    const cut = opening.split('\n\nGrenier keeps entries')[0] ?? ''
+    expect(cut.length).toBeGreaterThan(3000)
+    expect(cut.length).toBeLessThanOrEqual(4000)
+    expect(cut.endsWith('…')).toBe(true)
+  })
+})
+
+describe('diagnostics tell how a report joins an open finding', () => {
+  test('the instructions name same_as and new', () => {
+    const told = instructionsFor([], { name: 'development', diagnostics: true })
+    expect(told).toContain('`same_as: <number>`')
+    expect(told).toContain('`new: true`')
   })
 })

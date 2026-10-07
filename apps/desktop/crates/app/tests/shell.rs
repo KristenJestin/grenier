@@ -7,9 +7,12 @@ use std::thread;
 
 use app::client::{Client, Key};
 use app::shell::Shell;
-use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, Modifiers, TestAppContext, VisualTestContext};
 use serde_json::{Value, json};
-use ui::intent::Intent;
+use std::time::Duration;
+
+use gpui_kit::px;
+use ui::intent::{FollowLink, Intent};
 use ui::load::{Load, Problem};
 use ui::viewer::{Pane, Viewer};
 
@@ -22,8 +25,8 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
             "updated": "2026-10-01T08:00:00.000Z", "valid_from": null, "valid_until": null,
             "superseded_by": null, "archived_at": null
         },
-        "path": [], "links": [], "media": [], "backlinks": [], "children": [],
-        "hidden_children": 0, "cited_by": []
+        "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
+        "hidden_children": 0, "cited_by": [], "titles": {}
     })
 }
 
@@ -36,14 +39,76 @@ fn serve(listener: TcpListener) {
             BufReader::new(&stream).read_line(&mut line).ok();
             let path = line.split(' ').nth(1).unwrap_or("").to_string();
             let (status, body) = match path.as_str() {
-                "/api/types" => ("200 OK", json!({ "types": [] })),
+                "/api/types" => (
+                    "200 OK",
+                    json!({ "types": [{
+                        "name": "item", "label": "Item", "description": "Something owned, or a part of it.",
+                        "read_in_parent": true,
+                        "fields": [
+                            { "name": "serial", "kind": "text" },
+                            { "name": "price", "kind": "money", "sensitive": true }
+                        ]
+                    }, {
+                        "name": "person", "label": "Person", "description": "Someone known.",
+                        "fields": [{ "name": "visits", "kind": "entry", "many": true }]
+                    }]}),
+                ),
                 "/api/entries" => (
                     "200 OK",
                     json!({ "entries": [
-                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null },
-                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen" }
+                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null, "in_parent": false },
+                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen", "in_parent": false },
+                        { "id": "computer", "slug": "computer", "type": "item", "title": "Computer", "parent_id": null, "in_parent": false },
+                        { "id": "main-disk", "slug": "main-disk", "type": "item", "title": "Main disk", "parent_id": "computer", "in_parent": true },
+                        { "id": "fan", "slug": "fan", "type": "item", "title": "Fan", "parent_id": "computer", "in_parent": true },
+                        { "id": "screen", "slug": "screen", "type": "item", "title": "Screen", "parent_id": null, "in_parent": false },
+                        { "id": "stand", "slug": "stand", "type": "item", "title": "Stand", "parent_id": "screen", "in_parent": true },
+                        { "id": "attic", "slug": "attic", "type": "note", "title": "Attic", "parent_id": null, "in_parent": false },
+                        { "id": "letters", "slug": "letters", "type": "note", "title": "Letters", "parent_id": "old-trunk", "in_parent": false }
                     ]}),
                 ),
+                "/api/entries/computer" => {
+                    let mut computer = entry("computer", "Computer", None, "");
+                    computer["entry"]["type"] = json!("item");
+                    computer["children"] = json!([
+                        { "id": "fan", "slug": "fan", "type": "item", "title": "Fan", "summary": "", "in_parent": true, "fields": {} },
+                        { "id": "main-disk", "slug": "main-disk", "type": "item", "title": "Main disk", "summary": "", "in_parent": true,
+                          "fields": { "serial": "SN-0001", "price": "[hidden]" } }
+                    ]);
+                    ("200 OK", computer)
+                }
+                "/api/entries/main-disk" => (
+                    "200 OK",
+                    entry("main-disk", "Main disk", Some("computer"), ""),
+                ),
+                "/api/entries/attic" => ("200 OK", entry("attic", "Attic", None, "")),
+                "/api/entries/neighbour" => {
+                    let mut neighbour = entry("neighbour", "Neighbour", None, "");
+                    neighbour["entry"]["type"] = json!("person");
+                    neighbour["entry"]["fields"] = json!({ "visits": ["kitchen", "attic"] });
+                    neighbour["titles"] = json!({ "kitchen": "Kitchen", "attic": "Attic" });
+                    neighbour["links"] = json!([{
+                        "relation": "works_at", "period": null, "field": null, "note": "gardener",
+                        "valid_from": "2024-01-01", "valid_until": null,
+                        "id": "kitchen", "slug": "kitchen", "title": "Kitchen"
+                    }]);
+                    ("200 OK", neighbour)
+                }
+                "/api/entries/letters" => {
+                    // Filed under a trunk that is archived, so absent from the tree.
+                    let mut letters = entry("letters", "Letters", Some("old-trunk"), "");
+                    letters["path"] = json!(["Attic", "Old trunk"]);
+                    letters["ancestors"] = json!([
+                        { "id": "attic", "title": "Attic" },
+                        { "id": "old-trunk", "title": "Old trunk" }
+                    ]);
+                    ("200 OK", letters)
+                }
+                "/api/entries/orchard" => {
+                    let filler = "A line about the trees, to make the page long.\n\n".repeat(80);
+                    let body = format!("{filler}## Pruning\n\nIn late winter.\n\n{filler}");
+                    ("200 OK", entry("orchard", "Orchard", None, &body))
+                }
                 "/api/entries/kitchen" => ("200 OK", entry("kitchen", "Kitchen", None, "")),
                 "/api/entries/plum-tart" => (
                     "200 OK",
@@ -148,4 +213,117 @@ fn a_server_that_stops_answering_shows_it_and_recovers_on_retry(cx: &mut TestApp
         viewer.tree_state(),
         Load::Ready(())
     )));
+}
+
+#[gpui_kit::test]
+fn the_parts_of_an_object_are_a_table_in_its_page_not_branches_of_the_tree(
+    cx: &mut TestAppContext,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    // The parts are not branches: the computer and the screen are not even folders.
+    let tree: Vec<(String, usize)> = viewer.read_with(cx, |viewer, _| {
+        viewer
+            .nodes()
+            .iter()
+            .map(|node| (node.id.to_string(), node.children.len()))
+            .collect()
+    });
+    assert_eq!(
+        tree,
+        vec![
+            ("kitchen".to_string(), 1),
+            ("computer".to_string(), 0),
+            ("screen".to_string(), 0),
+            ("attic".to_string(), 0),
+            ("letters".to_string(), 0)
+        ]
+    );
+    ask(&viewer, Intent::Open("computer".into()), cx);
+    cx.run_until_parked();
+    let row = cx
+        .debug_bounds("part-main-disk")
+        .expect("the main disk is a row of the table");
+    cx.simulate_click(row.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("main-disk"));
+}
+
+#[gpui_kit::test]
+fn a_crumb_opens_its_ancestor_even_when_one_between_is_archived(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    ask(&viewer, Intent::Open("letters".into()), cx);
+    cx.run_until_parked();
+    let crumb = cx
+        .debug_bounds("crumb-0")
+        .expect("the first crumb is drawn");
+    cx.simulate_click(crumb.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("attic"));
+}
+
+#[gpui_kit::test]
+fn a_reference_to_a_heading_opens_the_entry_at_that_heading(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    // As from a link of a body, where the viewer hears it.
+    cx.update(|window, cx| viewer.update(cx, |viewer, cx| viewer.focus_tree(window, cx)));
+    cx.dispatch_action(FollowLink {
+        url: "grenier://orchard#pruning".into(),
+    });
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("orchard"));
+    // Drawn, measured, then glided to.
+    for _ in 0..3 {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_secs(1));
+        cx.run_until_parked();
+    }
+    let offset = viewer.read_with(cx, |viewer, _| viewer.scroll().offset().y);
+    assert!(
+        offset < px(-200.),
+        "the page is scrolled to the heading: {offset:?}"
+    );
+}
+
+#[gpui_kit::test]
+fn each_value_of_a_repeated_entry_field_opens_its_entry(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    ask(&viewer, Intent::Open("neighbour".into()), cx);
+    settle(cx);
+    let header = cx
+        .debug_bounds("fields-header")
+        .expect("the fields are drawn, folded");
+    cx.simulate_click(header.center(), Modifiers::none());
+    settle(cx);
+    let second = cx
+        .debug_bounds("field-visits-1-entry")
+        .expect("the second value is drawn, as a link");
+    cx.simulate_click(second.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("attic"));
+}
+
+/// Lets the page play its motion to the end: a spring moves one frame at each drawing.
+fn settle(cx: &mut VisualTestContext) {
+    for _ in 0..120 {
+        cx.update(|window, _| window.refresh());
+        cx.executor().advance_clock(Duration::from_millis(16));
+        cx.run_until_parked();
+    }
 }

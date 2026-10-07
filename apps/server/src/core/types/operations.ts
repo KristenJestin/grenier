@@ -25,13 +25,20 @@ const Row = Schema.Struct({
   description: Schema.String,
   fields: Schema.Array(FieldDefinition),
   sensitive: Schema.Boolean,
+  read_in_parent: Schema.Boolean,
 })
 
 const rows = rowsOf(Row)
 
-/** A type as it is read: `sensitive` is said only of a type that is. */
-const typeOf = ({ sensitive, ...type }: typeof Row.Type): TypeDefinition =>
-  sensitive ? { ...type, sensitive } : type
+/** A type as it is read: `sensitive` and `read_in_parent` are said only when they hold. */
+const typeOf = ({ sensitive, read_in_parent, ...type }: typeof Row.Type): TypeDefinition => ({
+  ...type,
+  ...withFlags({ sensitive, read_in_parent }),
+})
+
+/** The flags of a type that hold, and only those. */
+const withFlags = (flags: { readonly sensitive: boolean; readonly read_in_parent: boolean }) =>
+  Object.fromEntries(Object.entries(flags).filter(([, value]) => value))
 const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
 const { types } = tables
@@ -42,6 +49,7 @@ const COLUMNS = {
   description: types.description,
   fields: types.fields,
   sensitive: types.sensitive,
+  read_in_parent: types.read_in_parent,
 }
 
 /** What the event log keeps of a type: its label, its description and each field definition. */
@@ -49,12 +57,14 @@ export const snapshotOf = ({
   label,
   description,
   sensitive,
+  read_in_parent,
   fields,
 }: TypeDefinition): Snapshot => ({
   label,
   description,
-  // A type that is not sensitive records nothing, as before the flag existed.
+  // A flag that does not hold records nothing, as before the flag existed.
   sensitive: sensitive === true ? true : null,
+  read_in_parent: read_in_parent === true ? true : null,
   ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
 })
 
@@ -79,6 +89,28 @@ export const getType = Effect.fn('getType')(function* (name: string, lock?: 'upd
   if (type === undefined)
     return yield* new Refused({ message: `The type \`${name}\` does not exist.` })
   return type
+})
+
+/** The names of the types that exist, deleted and merged ones aside. */
+const liveNames = Effect.gen(function* () {
+  const db = yield* drizzle
+  return (yield* names(
+    db.select({ name: types.name }).from(types).where(isNull(types.deleted_at)),
+  )).map(({ name }) => name)
+})
+
+/**
+ * Refuses the fields of a type whose `types` name a type that does not exist; the type itself
+ * counts as one, so a type may accept its own entries.
+ */
+export const checkAcceptedTypes = Effect.fn('checkAcceptedTypes')(function* (type: TypeDefinition) {
+  const known = [...(yield* liveNames), type.name]
+  const problems = type.fields.flatMap((field, index) =>
+    (field.types ?? [])
+      .filter((name) => !known.includes(name))
+      .map((name) => `The field \`fields.${index}.types\` names \`${name}\`, which is not a type.`),
+  )
+  if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
 })
 
 /** Every type, by name. */
@@ -108,12 +140,14 @@ export const defineType = Effect.fn('defineType')(function* (input: typeof TypeD
       if (existing.includes(type.name)) {
         return yield* new Refused({ message: `The type \`${type.name}\` already exists.` })
       }
+      yield* checkAcceptedTypes(type)
       yield* db.insert(types).values({
         name: type.name,
         label: type.label,
         description: type.description,
         fields: type.fields,
         sensitive: type.sensitive === true,
+        read_in_parent: type.read_in_parent === true,
       })
       yield* recordEvent(
         actor,
@@ -150,6 +184,7 @@ export const addField = Effect.fn('addField')(function* (
         })
       }
       const extended = yield* decodeType({ ...type, fields: [...type.fields, input] })
+      yield* checkAcceptedTypes(extended)
       yield* db
         .update(types)
         .set({ fields: extended.fields, updated: sql`now()` })
@@ -165,13 +200,20 @@ export const addField = Effect.fn('addField')(function* (
   )
 })
 
-/** What a change of a type as a whole says: today, whether all its entries are sensitive. */
-export const ChangeTypeInput = Schema.Struct({ type: Schema.String, sensitive: Schema.Boolean })
+/**
+ * What a change of a type as a whole says: whether all its entries are sensitive, and whether its
+ * entries filed under one of the same type are read in their parent. What it does not give stays.
+ */
+export const ChangeTypeInput = Schema.Struct({
+  type: Schema.String,
+  sensitive: Schema.optionalKey(Schema.Boolean),
+  read_in_parent: Schema.optionalKey(Schema.Boolean),
+})
 export type ChangeTypeInput = typeof ChangeTypeInput.Type
 
 /**
- * Makes every entry of a type sensitive, or no longer. Lifting it shows what was hidden at once,
- * so only the owner may.
+ * Makes every entry of a type sensitive, or no longer; makes its entries read in their parent, or
+ * no longer. Lifting sensitivity shows what was hidden at once, so only the owner may.
  */
 export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeInput) {
   const client = yield* SqlClient.SqlClient
@@ -181,18 +223,23 @@ export const changeType = Effect.fn('changeType')(function* (input: ChangeTypeIn
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const type = yield* getType(input.type, 'update')
-      if (type.sensitive === true && !input.sensitive && !rights.includes('owner')) {
+      const sensitive = input.sensitive ?? type.sensitive === true
+      const inParent = input.read_in_parent ?? type.read_in_parent === true
+      if (type.sensitive === true && !sensitive && !rights.includes('owner')) {
         return yield* new Refused({
           message: `Only the owner of Grenier may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
         })
       }
-      const { sensitive: _, ...rest } = type
-      const changed: TypeDefinition = input.sensitive ? { ...rest, sensitive: true } : rest
+      const { sensitive: _, read_in_parent: __, ...rest } = type
+      const changed: TypeDefinition = {
+        ...rest,
+        ...withFlags({ sensitive, read_in_parent: inParent }),
+      }
       const changes = changesBetween(snapshotOf(type), snapshotOf(changed))
       if (changes.length === 0) return changed
       yield* db
         .update(types)
-        .set({ sensitive: input.sensitive, updated: sql`now()` })
+        .set({ sensitive, read_in_parent: inParent, updated: sql`now()` })
         .where(eq(types.name, type.name))
       yield* recordEvent(actor, { entryId: null, typeName: type.name }, 'change_type', changes)
       return changed

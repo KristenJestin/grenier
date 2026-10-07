@@ -19,11 +19,11 @@ bookmark, a folder-like area. All entries share the same base:
 | `parent_id` | where the entry is filed (see "The tree") |
 | `fields` | the values of the type's fields, validated against the type |
 | `provenance` | per field: `extracted` (read from a source), `inferred` (deduced by an agent) or `ambiguous` (sources disagree) |
-| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the source registry (`{ "source": "notes", "item": "<identifier>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
+| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `verified` | false until the owner has reviewed the entry; only the owner sets it to true, and a write that changes the entry by a writer without the `owner` right sets it back to false (recorded in the event like any changed field) |
-| `created`, `updated` | when Grenier learned it and last changed it |
+| `created`, `updated` | when the entry came to be (the time of the write that created it, or the date a migrated note gives) and when Grenier last changed it (the time of the last write) |
 | `valid_from`, `valid_until`, `superseded_by` | when it was true in the world, and what replaced it |
 | `archived_at` | set when the entry is archived: it stays in place and leaves the default views |
 
@@ -31,7 +31,12 @@ An entry is never deleted by an agent; it is archived.
 
 Several entries can be written in one call (`write_many`, 100 at most), in one transaction, each
 by the rules of a single write; their bodies may cite one another with `[[slug]]` as if all
-existed. References are checked against the slugs the batch leaves: a reference to a slug the
+existed, and they may name one another as `parent`, as `superseded_by` or in a field of kind
+`entry`: each is written after the entries of the batch it names (a project before its notes), and
+parents that loop within the batch are refused in one sentence. Two entries that name each other
+otherwise (`superseded_by`, a field) are written first without the reference that closes the
+loop, then with it, once both exist. A reference to the slug a new entry of the batch would have
+taken, had it been free, is refused, as in a body: it names the entry that already has it. References are checked against the slugs the batch leaves: a reference to a slug the
 batch renames away is refused, and so is one to the slug a new title would take when that slug is
 used already (the refusal names the slug the entry takes instead). One refused entry refuses the
 whole batch, naming each refused entry with its sentences.
@@ -39,9 +44,19 @@ whole batch, naming each refused entry with its sentences.
 The values of the field kinds, as they are written and read: `date` as `2026-10-05`,
 `datetime` as `2026-10-05T14:30:00Z` (with an offset), `duration` as an ISO 8601 duration,
 `money` as an amount and an ISO 4217 currency (`12.50 EUR`), `url` as an `http` or `https`
-URL, and `entry` as the slug or id of an existing entry, kept as its id. A write names the
+URL, and `entry` as the slug or id of an existing entry, kept as its id (of one of the field's
+`types`, when it names them). A field that is `many` takes a list of such values, kept in the
+order given: `["Welsh", "Basque"]`, or for an `entry` field, several entries by slug or id, each
+kept as its id; `read` gives the titles of the entries the fields name, by id, in `titles`. A
+write names the
 parent (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
-`fields` and `provenance` are merged key by key, and `null` removes a key.
+`fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
+the `body` given is added at the end of the current body: a body too long for one call (a
+journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
+sees a whole number of parts. With `edits: [{ find, replace }]`, a few words of the body change in
+place: each `find` must match the body, as the edits before it left it, exactly once, or the
+write is refused naming each edit that matches twice or never; all apply in one write and one
+event, so an agent never retypes a long body to change a word.
 
 ## Types are data
 
@@ -65,26 +80,41 @@ A **type** has a name, a label, a description and a list of field definitions:
 
 Field kinds: `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `duration`, `enum`,
 `money`, `url`, `entry` (a reference to another entry). A field may be `required`, may list
-allowed `values`, and may be `sensitive`. A whole type may be `sensitive` too (a diary, health
+allowed `values`, and may be `sensitive`. A field of kind `entry` may name the `types` its entries
+are of (`{ "name": "employer", "kind": "entry", "types": ["organization"] }`): a write that names
+an entry of another type is refused with a sentence naming the field and the types it accepts. Any
+field may be `many: true` (the sellers of a part, the languages someone speaks): its value is then
+a list of values of its kind, each checked as one value, in the order given and without repeats
+(two names of one entry, its slug and its id, are one value), and `required` means at least one. A whole type may be `sensitive` too (a diary, health
 records), at its definition or later with `change_type`; a field becomes sensitive at its
 definition, with `add_field`, or later with `change_field`. Any writer may make a field or a type
 sensitive; only the owner makes it no longer sensitive, from the command line (`field:sensitive`,
 `type:sensitive … --off`), since that shows its values at once. A value copied out before (a
-backup, an export) stays where it went.
+backup, an export) stays where it went. The history is the exception, on purpose: a value recorded
+while its field or type was sensitive stays hidden there after the sensitivity is lifted, since a
+field is hidden in the history if it was sensitive in any version.
 
 **Sensitive data is shown only to a key with the right `sensitive`.** For any other key, the
 server holds the rule on every way out: the value of a sensitive field is replaced by the marker
-`[hidden]` wherever an entry is read, its history shows the change with both values hidden (a
-field sensitive in any version of any type the entry has had stays hidden there, so a rename or a
+`[hidden]` wherever an entry is read (a list as a whole), its history shows the change with both values hidden (a
+field sensitive in any version of any type the entry has had stays hidden there, and so does a
+field that a rename or a merge made the same field as a sensitive one, so a rename, a merge or a
 change of type does not show its past values), a search does not match it, and the occurrences of
 a date field that is sensitive are left out of `upcoming`, `heads_up` and `briefing`, since their
 date, their order or their count in a window would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
-its occurrences are left out. Such a key may not write a sensitive field
+its occurrences are left out. Its id is never given either: as the parent, the successor or the
+value of a field of a visible entry (`null`, or `[hidden]` for a field), in the tree, nor in a
+history; a reference to it waits like a reference to a slug no entry has, in `references`, in
+`pending_references` and in the answer of a write, so nothing tells the two apart. What is stored
+does not depend on who writes: a reference to it is kept as a link even when such a key rewrites
+the body that holds it. Such a key may not write a sensitive field
 nor an entry of a sensitive type, nor change the type of an entry that holds a sensitive value,
 nor change a sensitive field or any field of a sensitive type; to its writes, an entry it may not
-see does not exist. Only the owner moves an entry to a type where a sensitive value it holds, or
+see does not exist, and neither do its media. A reference a write or a change of a field leaves as
+it is stored (a parent, `superseded_by`, a source, a field naming an entry) is kept unchecked, so
+such a key still updates a visible entry that points to a hidden one. Only the owner moves an entry to a type where a sensitive value it holds, or
 the entry itself, would no longer be sensitive. A refusal never quotes a stored value. Sensitive data
 is never sent to an external service, and an export leaves it out unless asked to include it.
 
@@ -92,7 +122,11 @@ A type's name is unique and in lowercase kebab-case (`bank-account`); its descri
 required. Field names are unique within a type and in snake_case (`monthly_cost`). `values` is
 required on an `enum` field and refused on any other kind. Only a `date` field may carry `due:
 { notice }` or `recurs: { every: yearly | monthly | weekly, notice }`, the notice being an ISO
-8601 duration. A definition with an unknown key is refused.
+8601 duration. `types` is allowed only on an `entry` field, and each name must be a type that
+exists (or the type being defined, which may accept its own entries); a type named in the `types`
+of another type's field is neither deleted nor merged away until that field stops naming it. A
+field that is `many` may not carry `due` or `recurs`, which follow one date. A definition with an
+unknown key is refused.
 
 ### How agents learn an instance
 
@@ -101,6 +135,20 @@ code, on how to choose a type (from its description, searching before creating, 
 fits), followed by the types of the instance with their descriptions (their names only beyond
 50, with `list_types` for the rest). What a type is for lives in its description, in the data:
 it should say when to use the type, not only what it is.
+
+A key that may write is also told, in its instructions and in the description of `inbox_take`, a
+generic standard for turning an inbox item into entries: the type from the content, one entry per
+subject, fields filled only from what the item says, every fact kept, nothing added without its
+source, a dated text kept in its time, `edits` rather than a retyped body, the item's language,
+and sensitive values left out when the key may not write them. The rules of the instance come
+after it and may add to it.
+
+What holds across types (what to ask before writing, what never to write, the style) lives in the
+**rules of the instance**: Markdown kept in the database, set by the owner alone from the command
+line (`rules:set <file>`, `rules:show`), and readable by any key. The instructions give them
+verbatim after the instance and diagnostics paragraphs; beyond 4000 characters, only their
+opening (what comes before their first `##` section), with `instance_rules` to read them whole.
+The code knows that an instance has rules for its agents, nothing of what they say.
 
 Every write of an entry is validated against its type. A refused write returns one sentence per
 problem, naming the field and what is expected (through `formatSchemaError`).
@@ -116,8 +164,14 @@ problem, naming the field and what is expected (through `formatSchemaError`).
 Every change of a type is recorded in the event log like any other write.
 
 How the server does it: `change_field` makes a field required (or optional), changes its kind (a
-field that stops being a date loses its `due` and `recurs`), renames it (its values and their
-provenance move with it) or changes its allowed values. It checks every entry of the type, archived
+field that stops being a date loses its `due` and `recurs`, one that stops being an entry its
+`types`), renames it (its values and their provenance move with it) or changes its allowed values.
+It changes the `types` an entry field accepts (`null` accepts any): the stored values are kept as
+they are, and those that name an entry of a type no longer accepted are listed in its answer
+(`mismatched`), entry by entry, without the value; a write that leaves such a value as it is stored
+keeps it. It makes a field `many`, each stored value becoming a list of one, or single again, a list
+of one becoming its value, refused while an entry holds several values, naming each; a `mapping`
+then applies to each value of a list. It checks every entry of the type, archived
 ones included, and refuses while one would become invalid, naming each (never its value); a `default` fills the
 entries that lack a field made required, a `mapping` turns old values into new ones, and every
 entry repaired gets an `update` event. `dry_run` answers what would happen and writes nothing. A
@@ -139,22 +193,48 @@ entries by domain.
 
 The nightly Markdown export follows the parents to rebuild a folder hierarchy.
 
+An object made of parts (a computer and its disks) is one entry per part, filed under the whole.
+A type that says `read_in_parent` (set with `define_type` or `change_type`, false by default)
+has its entries filed under an entry of the same type read in their parent: the parent's `read`
+gives each such child its fields (sensitive ones hidden as on the child's own page), and the tree
+marks it `in_parent`, so a client shows the parts in the parent's page rather than as branches.
+Each part stays an entry of its own, found by search with its history, sources and media.
+
 ## Links
 
 Links are separate from filing. A link has a source entry, a target entry and a free relation
-name (`about`, `supersedes`, `done_by`, `related`…). `[[slug]]` references in a body are parsed
+name (`about`, `supersedes`, `done_by`, `works_at`, `related`…). A link may also say a `note`, a
+short text of 200 characters at most (the role the relation does not say: `accountant` for
+`works_at`, `graphics card` for `bought_from`), and the dates it held between, `valid_from` and
+`valid_until` (`2024-01-01`; the end is not before the start). `link` sets them; linking again the
+same source, target and relation (and, for `fulfills`, field and period) changes only them, in one
+event, a key left out staying as it is and `null` removing it, and nothing when they are unchanged.
+`read` gives them on links and backlinks, and the export writes them; `unlink` removes the link
+with them. A field of kind `entry` says what an entry is (its employer, its sellers); a link says
+how two entries relate over time, with a role and dates: the same person may work at several
+organizations, one after the other. `[[slug]]` references in a body are parsed
 at every write and kept as links:
 
 - backlinks come for free;
-- a link to a slug that does not exist is refused;
+- a reference to a slug no entry has yet is accepted and kept as a **pending reference**, until an
+  entry takes that slug (created, renamed to it, or given it as an alias): its pending references
+  then become links, each recorded in the history of the entry that wrote it. The answer of a
+  write lists the pending references it left, so a typo shows at once; `pending_references` (MCP
+  and `GET /api/pending-references`) lists them all, with the entries that cite each. A reference
+  to an alias links to the entry that has it. To a key without the right `sensitive`, a reference
+  to an entry it may not see waits like any other;
 - renaming a slug rewrites the references in every body that points to it.
 
 A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link
 points to the slug either way. The references of a body are kept as links of relation
-`mentions`, replaced at every write of the body; `mentions` is not used for explicit links.
+`mentions`, replaced at every write of the body, and carry no note and no dates; `mentions` is not
+used for explicit links.
 Relation names are snake_case (`done_by`). Linking and unlinking are recorded in the event log
-on the source entry (`links.<relation>`), and a rewrite of a body after a rename is recorded as
-a change of that body. Links never change the tree.
+on the source entry (`links.<relation>`: the target's id, or `{ entry, note, valid_from,
+valid_until }` when the link says more), and a rewrite of a body after a rename is recorded as a
+change of that body. To a key without the right `sensitive`, a link to or from an entry it may not
+see is left out with what it says, and its changes in a history show both values hidden. Links
+never change the tree.
 
 ## Media
 
@@ -162,13 +242,20 @@ A medium is a file attached to an entry: an image, a video, a copy of a web page
 on the server's disk, stored by content hash; the database keeps its record (kind, MIME type,
 size, hash, dimensions or duration, source URL, alternative text). Media never go into git.
 
-How the server does it: a file comes as base64 (20 MB at most) or as an http(s) URL the server
+How the server does it: a file comes as base64 (20 MB at most), as the file of an inbox item the
+caller has taken or just processed (`item`, so an agent never sends it again; or, when the
+item is done, `inbox_done` with `{ "entry": "<slug>", "attach": { "alt": "…" } }` among its
+entries), or as an http(s) URL the server
 fetches (200 MB, 30 seconds, every redirect checked, never a private address unless
 `MEDIA_ALLOW_PRIVATE=true`; the connection goes to the very address that was checked, so a
 name that resolves elsewhere a moment later cannot lead it to the private network). Its type is read from its content, never from what the caller
-declares; images, videos, sounds, PDF and HTML are kept, anything else is refused. It is written
-once under `MEDIA_DIR`, at a path made of its SHA-256, however many entries it is attached to,
-and served at `/media/<sha256>` to a valid key. The alternative text is searched with the entry
+declares; images (SVG included: an XML document whose root is `svg`), videos, sounds, PDF and
+HTML are kept, anything else is refused. It is written once under `MEDIA_DIR`, at a path made of
+its SHA-256, however many entries it is attached to, and the same file attached twice to one
+entry is one medium. It is served at `/media/<sha256>` to a valid key, with `nosniff` and a
+content security policy that runs nothing: `sandbox` for every file, and for an SVG, which may
+carry script, also `default-src 'none'; style-src 'unsafe-inline'`, so it loads nothing but its
+own styles. The alternative text is searched with the entry
 (it is part of the body's weight). Width, height and duration are not measured yet.
 
 ## Events
@@ -177,7 +264,8 @@ Every write is recorded: when, by which key (which agent on which machine), on w
 type, which field, the value before and after. The history of any value can be read back.
 
 Each write is one event, recorded in the transaction of the write: its actor (a write without
-one is refused), its action (`create`, `update`, `archive`, `define`, `add_field`) and the list
+one is refused), its action (`create`, `update`, `rewrite` when a rename rewrote a body that
+cites it, `archive`, `define`, `add_field`…) and the list
 of the fields it changed, each with its value before and after. Fields are named as in a
 refusal: `title`, `parent_id`, `body`, `fields.provider`, `provenance.provider`. A write that
 changes nothing records nothing. The history of one field lists its changes after the
@@ -195,21 +283,41 @@ image the agent sees, its longest side 1568 pixels at most; any other file is gi
 address, `/media/<hash>`, fetched only when needed, served to a key with `write` while the
 item is pending or taken, and afterwards only through the entries that hold it); it then marks the item processed with those
 entries, each of which cites the item in its `sources` (`{ "source": "inbox", "item": "<id>" }`).
+Before taking, an agent may plan a batch: the list comes a page at a time (50 items unless told,
+`next_cursor` for the next), filtered by status and by origin (exact or by prefix), each item
+small (id, name, origin, size, status) and, on request, with the first lines of its text (five
+lines, 300 characters at most); `inbox_peek` reads an item without taking it, and `inbox_take`
+takes several items at once, all or none. A long text comes in parts: an answer gives the first
+16,000 characters and `next_offset`, and `inbox_read` the rest, from that offset. An agent that
+cannot finish an item gives it back with `inbox_release`: it waits again; otherwise an item taken
+stays taken until it is done or dismissed. Once processed, an item is read through the entries
+it gave: its text is served (`inbox_peek`, `inbox_read`, a preview) only to a key with the right
+`sensitive`, as its file is served only through those entries, since what it held may now be an
+entry of a sensitive type, or a sensitive field. Answers that follow a write
+(`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
+summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no
-mechanical re-import. The owner drops a folder into the inbox, one item per file, with
-`inbox:add <folder>`. The Markdown importer stays, to try the model on a collection; it is not
-the way content enters.
+mechanical re-import. A collection (a folder of notes, a whole wiki) is brought in the same way:
+the owner drops its folder into the inbox with `inbox:add <folder> [--origin <name>]`, one item
+per file. Sub-folders are walked, and each item keeps the file's path from the folder as its
+name, so an agent can rebuild the tree; hidden files and folders (`.gitkeep`, `.obsidian/`) are
+skipped, and what is skipped or refused is listed at the end. `--dry-run` says what would be
+added; a file the inbox holds already (same content, same path, same origin, whatever became of
+it) is not added again unless `--again`. The folder must be on the server's machine: for the
+container, copy it in first (`docker compose cp <folder> grenier:/tmp/<name>`), then run
+`docker compose exec grenier bun src/cli.ts inbox:add /tmp/<name> --origin <name>`.
 
 ## Sources
 
-The source registry records what an import read and which entries it produced, with each item's
-identifier at the source (for example the identifier of a post). A second import of the same
-source processes only what is new, and an item is never imported twice.
+An entry made from an inbox item cites it as `{ "source": "inbox", "item": "<id>" }`:
+`inbox_done` adds that source to each entry it names, and a write may give it too, for an item
+the inbox holds. No other item is cited this way: a source outside Grenier is a URL or an
+external identifier.
 
-Each item is recorded by its source name and its identifier at the source (for a folder of
-notes, the relative path of the file), with the entry it gave and a hash of its content: an
-unchanged item is skipped, a changed one updates the entry it gave. An import may give an entry
-its `created` and `updated` times, and only when it creates the entry.
+A write may give an entry its `created` time when it creates the entry, or later as long as the
+entry has not been updated since (a draft written first, so that others could refer to it, still
+takes its real date; the change is recorded in its history); `updated` is then the time of the
+write, unless the write gives it too when it creates the entry.
 
 ## Time
 
@@ -234,7 +342,9 @@ every year, month or week from its value (a day the month does not have, such as
 the 31st, falls on the month's last day); both may be set. The period of an occurrence is
 `2026` (yearly), `2026-10` (monthly), `2026-W41` (ISO week) or, for a single deadline, its date;
 a link `fulfills` carries that period and the name of the date field it closes, and only such a
-link has them. The field may be left out when the target's type has a single deadline or
+link has them. A period of another form than the field's recurrence would close nothing and is
+refused, naming the form expected; a single deadline is closed with no period (its date is kept as
+the period) or with its date. The field may be left out when the target's type has a single deadline or
 recurring date: it is then inferred and kept on the link, so the link stays right if the type
 gains another date later. A link `fulfills` without a field to a target with several such dates
 is refused with the list of them, and so is a field that is not a deadline or a recurring date
@@ -284,11 +394,23 @@ do, what happened, what it expected, the steps), and what the server adds (the i
 version and commit, the key, the time, and the tool call the report names, its arguments masked
 as for a key without the right `sensitive` and cut to 300 characters). A report is one more
 occurrence of the finding of the same kind and place whose title shares at least half of its
-words (lowercased, without punctuation or common English words); otherwise it is a new finding.
+words (lowercased, without punctuation or common English words). When none does but findings of
+that kind and place are open, an agent's report is not recorded yet: the answer names them, and
+the agent reports again with `same_as: <number>` (one more occurrence of it) or `new: true` (a
+finding of its own), since two agents describe one problem in different words, and only they can
+tell two problems of one tool apart. `grenier_reports` filters by place and kind, to check before
+reporting. The owner merges two findings of one problem with `findings:merge <into> <from>`: the
+occurrences move, and the merged finding is closed.
 
-An unexpected failure of the server (a defect, never a refusal), in a tool or a route, becomes an
+An unexpected failure of the server (a defect, never a refusal), in a tool or a route, is first
+written to the server's standard error, in every instance and whether diagnostics are on or not:
+one line of JSON with the time, the class, the message and the stack, the tool or route, and the
+key's name, never the arguments of the call. That output stays on the machine (the container's
+log) and is never sent anywhere; a message of the database may quote a stored value there, which
+is accepted for the machine's own logs. With diagnostics on, it also becomes an
 occurrence of a `bug` at that tool or route by itself: in production, only the tag or class of
-the error (`SqlError`, `TypeError`), the place and a fixed sentence, since a message, a stack or
+the error (`SqlError`, `TypeError`, the class of any object, else `a string` or `a value`), the
+place and a fixed sentence, since a message, a stack or
 a statement could carry the owner's data; elsewhere, its message as the title and its stack. Findings are not
 the owner's data, and are not entries; the owner reads them in full from the command line
 (`findings:list`, `findings:show`, `findings:export`), never through MCP or a client.

@@ -1,17 +1,21 @@
 import { HIDDEN } from '@grenier/api/model'
 import { Cause, Effect, Schema } from 'effect'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'
 import {
   findingsWithOccurrences,
   listFindings,
   maskedCall,
+  mergeFindings,
+  mergedInto,
   recordDefect,
   reportFinding,
   titleSimilarity,
 } from '../../src/core/findings/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
 import { Instance } from '../../src/core/instance.ts'
 import { defineType } from '../../src/core/types/index.ts'
+import { renameTable } from '../../src/core/testing.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
@@ -25,6 +29,12 @@ const report = (title: string, extra: { kind?: 'bug' | 'slow'; place?: string } 
   happened: 'The date was refused.',
   expected: 'The date to be kept.',
 })
+
+/** A report that was recorded, not answered with the open findings of its place. */
+const recordedOf = (answer: Effect.Success<ReturnType<typeof reportFinding>>) => {
+  if (answer.finding === undefined) throw new Error('the report was not recorded')
+  return { finding: answer.finding, new: answer.new }
+}
 
 const onDiagnostics = {
   name: 'development',
@@ -49,8 +59,8 @@ describe('titles are compared by their words', () => {
 
 describe('a report becomes a finding, or one more occurrence of it', () => {
   test('a report creates a finding with its first occurrence', async () => {
-    const { finding, new: created } = await run(
-      reportFinding(report('The write tool refuses a valid date')),
+    const { finding, new: created } = recordedOf(
+      await run(reportFinding(report('The write tool refuses a valid date'))),
     )
     expect(created).toBe(true)
     expect(finding).toMatchObject({
@@ -65,8 +75,8 @@ describe('a report becomes a finding, or one more occurrence of it', () => {
   })
 
   test('a similar title, of the same kind and place, adds an occurrence and keeps the worst severity', async () => {
-    const { finding, new: created } = await run(
-      reportFinding({ ...report('Write tool refuses valid date!'), severity: 'blocks' }),
+    const { finding, new: created } = recordedOf(
+      await run(reportFinding({ ...report('Write tool refuses valid date!'), severity: 'blocks' })),
     )
     expect(created).toBe(false)
     expect(finding).toMatchObject({ number: 1, occurrences: 2, severity: 'blocks' })
@@ -87,8 +97,14 @@ describe('a report becomes a finding, or one more occurrence of it', () => {
     expect(slow).toMatchObject({ new: true, finding: { number: 3 } })
   })
 
-  test('a title less than half similar is another finding', async () => {
-    const other = await run(reportFinding(report('Archived children vanish from the tree')))
+  test('a title less than half similar, at the same kind and place, is another finding once the reporter says so', async () => {
+    const asked = await run(reportFinding(report('Archived children vanish from the tree')))
+    expect(asked).toMatchObject({ same_place: [{ number: 1 }] })
+    const other = await run(
+      reportFinding(report('Archived children vanish from the tree'), undefined, 'agent', {
+        new: true,
+      }),
+    )
     expect(other).toMatchObject({ new: true, finding: { number: 4 } })
   })
 
@@ -189,6 +205,24 @@ describe('the call a finding is about is kept masked', () => {
     expect(unknown).not.toContain('1234')
   })
 
+  test('nothing of a link to or from an entry of a sensitive type appears, its note included', async () => {
+    await run(writeEntry({ type: 'diary-page', title: 'A windy day' }))
+    const linked = await run(
+      maskedCall({
+        source: 'office-safe',
+        target: 'a-windy-day',
+        relation: 'written_in',
+        note: 'velvet hours',
+      }),
+    )
+    expect(linked).not.toContain('velvet')
+    expect(linked).not.toContain('windy')
+    const plain = await run(
+      maskedCall({ source: 'office-safe', target: 'office-safe', relation: 'near', note: 'shelf' }),
+    )
+    expect(plain).toContain('shelf')
+  })
+
   test('the arguments are cut to a few hundred characters', async () => {
     const long = await run(maskedCall({ type: 'safe', title: 'Long', body: 'x'.repeat(5000) }))
     expect(long.length).toBeLessThanOrEqual(300)
@@ -196,10 +230,15 @@ describe('the call a finding is about is kept masked', () => {
 
   test('a report about a call keeps its tool and its masked arguments', async () => {
     await run(
-      reportFinding(report('The safe refuses its combination', { place: 'write' }), {
-        tool: 'write',
-        arguments: { type: 'safe', title: 'Office safe', fields: { combination: '7-3-9' } },
-      }),
+      reportFinding(
+        report('The safe refuses its combination', { place: 'write' }),
+        {
+          tool: 'write',
+          arguments: { type: 'safe', title: 'Office safe', fields: { combination: '7-3-9' } },
+        },
+        'agent',
+        { new: true },
+      ),
     )
     const all = await run(findingsWithOccurrences({}))
     const text = JSON.stringify(all)
@@ -213,7 +252,7 @@ describe('the call a finding is about is kept masked', () => {
 class SqlError extends Schema.TaggedError<SqlError>()('SqlError', { message: Schema.String }) {}
 
 describe('an unexpected error keeps nothing of the data in production', () => {
-  const defect = (name: 'production' | 'local', cause: Cause.Cause<never>, place: string) =>
+  const defect = <E>(name: 'production' | 'local', cause: Cause.Cause<E>, place: string) =>
     run(
       Effect.andThen(
         recordDefect(place, cause, { tool: place, arguments: { title: 'Plum tart' } }),
@@ -239,9 +278,172 @@ describe('an unexpected error keeps nothing of the data in production', () => {
     expect(tagged?.occurrences[0]).toMatchObject({ call_tool: 'search', call_arguments: null })
   })
 
+  test('in production, a defect that is no Error is named by its class or its kind, not unknown', async () => {
+    class Jammed {
+      readonly part = 'gearbox'
+    }
+    const [classed] = await defect('production', Cause.die(new Jammed()), 'upcoming')
+    expect(classed?.finding.title).toBe('Unexpected error: Jammed')
+    const [plain] = await defect('production', Cause.die('the 7-3-9 of the safe'), 'briefing')
+    expect(plain?.finding.title).toBe('Unexpected error: a string')
+    // The defect, not a failure the same cause carries beside it.
+    const [mixed] = await defect(
+      'production',
+      Cause.combine(Cause.fail({ code: 7 }), Cause.die(new RangeError('out'))),
+      'link',
+    )
+    expect(mixed?.finding.title).toBe('Unexpected error: RangeError')
+    expect(JSON.stringify([classed, plain, mixed])).not.toContain('7-3-9')
+  })
+
   test('elsewhere, the message and the stack, cut short', async () => {
     const [local] = await defect('local', Cause.die(new TypeError('cannot read x')), 'history')
     expect(local?.finding.title).toBe('Unexpected error: cannot read x')
     expect(local?.occurrences[0]?.happened).toContain('TypeError')
+  })
+})
+
+describe('the same problem reported by two agents is one finding', () => {
+  const inbox = (title: string) => ({
+    ...report(title),
+    kind: 'tool_error' as const,
+    place: 'inbox_list',
+  })
+  const as = (actor: string) => Effect.provideService(Actor, actor)
+
+  test('two reports of the same kind and place by two keys end as one finding with two occurrences, the second answer naming the first', async () => {
+    const first = await run(as('agent-one')(reportFinding(inbox('inbox_list answers too much'))))
+    expect(first).toMatchObject({ new: true })
+    const number = 'finding' in first ? first.finding.number : 0
+    const asked = await run(as('agent-two')(reportFinding(inbox('The list of items is too large'))))
+    expect(asked).toEqual({
+      same_place: [expect.objectContaining({ number, title: 'inbox_list answers too much' })],
+    })
+    const second = await run(
+      as('agent-two')(
+        reportFinding(inbox('The list of items is too large'), undefined, 'agent', {
+          same_as: number,
+        }),
+      ),
+    )
+    expect(second).toMatchObject({ new: false, finding: { number, occurrences: 2 } })
+    const [found] = await run(findingsWithOccurrences({ number }))
+    expect(found?.occurrences.map(({ key_name }) => key_name)).toEqual(['agent-one', 'agent-two'])
+  })
+
+  test('new: true opens another finding of the same kind and place', async () => {
+    const other = await run(
+      as('agent-two')(
+        reportFinding(inbox('inbox_list forgets the origin filter'), undefined, 'agent', {
+          new: true,
+        }),
+      ),
+    )
+    expect(other).toMatchObject({ new: true, finding: { place: 'inbox_list' } })
+  })
+
+  test('the findings are listed by place and kind', async () => {
+    const { findings } = await run(
+      listFindings({ limit: 10, offset: 0 }, { place: 'inbox_list', kind: 'tool_error' }),
+    )
+    expect(findings.map(({ title }) => title)).toEqual([
+      'inbox_list answers too much',
+      'inbox_list forgets the origin filter',
+    ])
+  })
+
+  test('a merge moves the occurrences and closes the merged finding', async () => {
+    const { findings } = await run(listFindings({ limit: 10, offset: 0 }, { place: 'inbox_list' }))
+    const [into, from] = findings.map(({ number }) => number)
+    await run(mergeFindings(into ?? 0, from ?? 0))
+    const [merged] = await run(findingsWithOccurrences({ number: into ?? 0 }))
+    expect(merged?.finding.occurrences).toBe(3)
+    expect(merged?.occurrences).toHaveLength(3)
+    expect(
+      (await run(listFindings({ limit: 10, offset: 0 }, { place: 'inbox_list' }))).findings.map(
+        ({ number }) => number,
+      ),
+    ).toEqual([into])
+  })
+})
+
+describe('the server output never carries the values of a failed write', () => {
+  test('a failed query is logged with its text and class, never its parameters', async () => {
+    await run(defineType({ name: 'locker', label: 'Locker', description: 'A locker.', fields: [] }))
+    await run(renameTable('events', 'events_away'))
+    const cause = await run(
+      // As the server meets it: a failure it did not expect is a defect.
+      Effect.sandbox(
+        Effect.orDie(
+          writeEntry({
+            type: 'locker',
+            title: 'Zebra locker',
+            body: 'The code:\nzebra 7-3-9, then left.',
+          }),
+        ),
+      ).pipe(Effect.flip),
+    ).finally(() => run(renameTable('events_away', 'events')))
+    const written: Array<string> = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      await run(recordDefect('write', cause))
+    } finally {
+      spy.mockRestore()
+    }
+    const [line = ''] = written
+    expect(JSON.parse(line)).toMatchObject({ class: 'EffectDrizzleQueryError', place: 'write' })
+    expect(line).toContain('insert into')
+    expect(line).not.toContain('7-3-9')
+  })
+})
+
+describe('reports and merges keep findings apart where they differ', () => {
+  const at = (place: string, title: string) => ({
+    ...report(title),
+    kind: 'slow' as const,
+    place,
+  })
+
+  test('same_as naming a finding of another kind or place is refused', async () => {
+    const first = recordedOf(await run(reportFinding(at('search', 'Search takes seconds'))))
+    const refused = await run(
+      Effect.flip(
+        reportFinding(at('briefing', 'Briefing takes seconds'), undefined, 'agent', {
+          same_as: first.finding.number,
+        }),
+      ),
+    )
+    expect(refused.message).toBe(
+      `The finding ${first.finding.number} is of another kind or place: report this one with \`new: true\`.`,
+    )
+  })
+
+  test('a merge into itself, of a merged finding, or into one is refused', async () => {
+    const one = recordedOf(await run(reportFinding(at('upcoming', 'Upcoming takes seconds'))))
+    const two = recordedOf(
+      await run(
+        reportFinding(at('upcoming', 'The window of dates is slow'), undefined, 'agent', {
+          new: true,
+        }),
+      ),
+    )
+    const three = recordedOf(
+      await run(
+        reportFinding(at('upcoming', 'Deadlines come late'), undefined, 'agent', { new: true }),
+      ),
+    )
+    const [a, b, c] = [one.finding.number, two.finding.number, three.finding.number]
+    const refusal = (into: number, from: number) =>
+      run(Effect.flip(mergeFindings(into, from))).then(({ message }) => message)
+    expect(await refusal(a, a)).toBe(`A finding cannot be merged into itself: ${a}.`)
+    await run(mergeFindings(a, b))
+    expect(await refusal(a, b)).toBe(`The finding ${b} is merged into ${a} already.`)
+    expect(await refusal(b, c)).toBe(
+      `The finding ${b} is merged into ${a}: merge into ${a} instead.`,
+    )
+    expect(await run(mergedInto(b))).toBe(a)
   })
 })

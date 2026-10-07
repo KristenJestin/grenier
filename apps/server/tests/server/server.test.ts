@@ -544,7 +544,7 @@ describe('the read API', () => {
 })
 
 describe('the API documentation', () => {
-  test('/api/openapi.json is a valid OpenAPI document of the five read routes, behind a bearer key', async () => {
+  test('/api/openapi.json is a valid OpenAPI document of the six read routes, behind a bearer key', async () => {
     const document = await fetch(`${base}/api/openapi.json`).then((response) => response.json())
     expect(await new Validator().validate(document)).toMatchObject({ valid: true })
     const Document = Schema.Struct({
@@ -568,6 +568,7 @@ describe('the API documentation', () => {
       '/api/about',
       '/api/entries',
       '/api/entries/{entry}',
+      '/api/pending-references',
       '/api/search',
       '/api/types',
     ])
@@ -647,6 +648,24 @@ describe('what the server takes and gives back safely', () => {
     const served = await fetch(`${base}${media.url}`, { headers: bearer(writer) })
     expect(served.headers.get('content-type')).toBe('text/html')
     expect(served.headers.get('content-security-policy')).toBe('sandbox')
+  })
+
+  test('an SVG file is served so that nothing in it can run', async () => {
+    const agent = await connect(`${base}/mcp`, bearer(writer))
+    await agent.call('write', { type: 'note', title: 'Saved plan' })
+    const plan = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    ).toString('base64')
+    const attached = await agent.call('attach_media', { entry: 'saved-plan', data: plan })
+    const { media } = Schema.decodeUnknownSync(
+      Schema.Struct({ media: Schema.Struct({ url: Schema.String }) }),
+    )('result' in attached ? attached.result : null)
+    const served = await fetch(`${base}${media.url}`, { headers: bearer(writer) })
+    expect(served.headers.get('content-type')).toBe('image/svg+xml')
+    expect(served.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    )
+    expect(served.headers.get('x-content-type-options')).toBe('nosniff')
   })
 
   test('an MCP request body larger than 32 MB is refused with 413', async () => {

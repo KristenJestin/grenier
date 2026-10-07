@@ -470,9 +470,15 @@ describe('a write does not tell a key without the right that a hidden entry exis
         'The field `superseded_by` must name an existing entry: `quiet-morning` does not exist.',
         'The field `fields.target` must name an existing entry: `quiet-morning` does not exist.',
         'The source `sources.0` names `quiet-morning`, which is not an entry.',
-        'The field `body` refers to `quiet-morning`, which is not the slug of any entry.',
       ].join(' '),
     )
+    // A reference waits, as a reference to a slug no entry has: nothing tells them apart.
+    const probe = await plain(
+      writeEntry({ type: 'pointer', title: 'Probe', body: 'See [[quiet-morning]].' }),
+    )
+    expect((await plain(readEntry(probe.slug))).references).toEqual([
+      { reference: 'quiet-morning', id: null, title: null },
+    ])
   })
 
   test('the slug of a hidden entry is refused without saying that an entry uses it', async () => {
@@ -482,7 +488,7 @@ describe('a write does not tell a key without the right that a hidden entry exis
     expect(refused.message).toBe('The field `slug` cannot be `quiet-morning`: choose another slug.')
     const visible = await refusalOf(writeEntry({ type: 'folder', title: 'Probe', slug: 'papers' }))
     expect(visible.message).toBe(
-      'The field `slug` must be unique: `papers` is already used by another entry.',
+      'An entry with the slug `papers` exists: pass `entry` to update it, or choose another slug.',
     )
   })
 })

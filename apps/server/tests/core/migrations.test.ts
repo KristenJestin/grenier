@@ -190,6 +190,84 @@ describe('the migrations follow the schema', () => {
   })
 })
 
+describe('the source registry is removed', () => {
+  /**
+   * A database one migration behind, with a registry as an import left it holding `rows` items,
+   * migrated again: what `migrate` answers, and whether the table is left.
+   */
+  const removedWith = (rows: number) =>
+    onScratch(
+      Effect.gen(function* () {
+        yield* migrate
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`CREATE TABLE sources (source text NOT NULL, identifier text NOT NULL)`
+        yield* Effect.forEach(
+          Array.from({ length: rows }, (_, index) => `note-${index}.md`),
+          (file) => sql`INSERT INTO sources VALUES ('notes', ${file})`,
+        )
+        yield* sql`ALTER TABLE links DROP COLUMN note, DROP COLUMN valid_from,
+          DROP COLUMN valid_until`
+        yield* sql`DELETE FROM drizzle.__drizzle_migrations
+          WHERE name IN ('20261007111353_remove_source_registry',
+            '20261007115731_link_note_and_dates')`
+        const answer = yield* migrate.pipe(
+          Effect.as('migrated'),
+          Effect.catch((error) => Effect.succeed(error.message)),
+        )
+        const [left] = yield* sql<{
+          table: string | null
+        }>`SELECT to_regclass('sources')::text AS table`
+        return [answer, left?.table ?? null] as const
+      }),
+    )
+
+  test('an empty registry is dropped', async () => {
+    expect(await removedWith(0)).toEqual(['migrated', null])
+  })
+
+  test('a registry that holds items is refused with a sentence, and kept', async () => {
+    expect(await removedWith(2)).toEqual([
+      'The source registry still holds 2 items: Grenier no longer reads it. Export what it holds, empty the table `sources`, then start again.',
+      'sources',
+    ])
+  })
+})
+
+describe('links take a note and dates', () => {
+  test('a database holding 800 links keeps them all, each without a note or dates', async () => {
+    const [before, after] = await onScratch(
+      Effect.gen(function* () {
+        yield* migrate
+        const sql = yield* SqlClient.SqlClient
+        // The database as it stood one migration before, holding links.
+        yield* sql`ALTER TABLE links DROP COLUMN note, DROP COLUMN valid_from,
+          DROP COLUMN valid_until`
+        yield* sql`DELETE FROM drizzle.__drizzle_migrations
+          WHERE name = '20261007115731_link_note_and_dates'`
+        yield* sql`INSERT INTO types (name, label, description, fields)
+          VALUES ('note', 'Note', 'A note.', '[]')`
+        yield* sql`INSERT INTO entries (type, title, slug)
+          SELECT 'note', 'Note ' || n, 'note-' || n FROM generate_series(1, 41) AS n`
+        yield* sql`INSERT INTO links (source_id, target_id, relation)
+          SELECT a.id, b.id, 'related' FROM entries a, entries b
+          WHERE a.id <> b.id LIMIT 800`
+        const count = sql<{ links: number }>`SELECT count(*)::int AS links FROM links`
+        const [kept] = yield* count
+        yield* migrate
+        const [migrated] = yield* sql<{
+          links: number
+          bare: number
+        }>`SELECT count(*)::int AS links,
+          count(*) FILTER (WHERE note IS NULL AND valid_from IS NULL
+            AND valid_until IS NULL)::int AS bare FROM links`
+        return [kept, migrated] as const
+      }),
+    )
+    expect(before).toEqual({ links: 800 })
+    expect(after).toEqual({ links: 800, bare: 800 })
+  })
+})
+
 describe('Drizzle runs on the pool of the core', () => {
   test('no pg driver is installed: Drizzle goes through @effect/sql-pg', () => {
     const lockfile = readFileSync(new URL('../../../../bun.lock', import.meta.url), 'utf8')

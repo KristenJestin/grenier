@@ -18,15 +18,20 @@ FROM base AS dependencies
 RUN bun install --frozen-lockfile --production --omit=peer
 
 FROM oven/bun:1.4.2-slim
+# git and ssh for the nightly Markdown export, which commits and pushes a repository.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
 ARG GRENIER_VERSION=unknown
 ARG GRENIER_COMMIT=unknown
-ENV NODE_ENV=production PORT=3000 MEDIA_DIR=/data/media \
+# Every interface inside the container: compose publishes the port, on 127.0.0.1 unless told.
+ENV NODE_ENV=production GRENIER_HOST=0.0.0.0 PORT=3000 MEDIA_DIR=/data/media \
     GRENIER_VERSION=${GRENIER_VERSION} GRENIER_COMMIT=${GRENIER_COMMIT}
 WORKDIR /app
 COPY --from=dependencies /app ./
 COPY packages/api/src packages/api/src
 COPY apps/server/src apps/server/src
-RUN mkdir -p /data/media && chown bun:bun /data/media
+RUN mkdir -p /data/media /data/export && chown bun:bun /data/media /data/export
 USER bun
 WORKDIR /app/apps/server
 EXPOSE 3000

@@ -11,7 +11,7 @@ export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
 const About = { note: Schema.optionalKey(Schema.String) }
 
-/** A URL source, an external identifier, or an item of the source registry. */
+/** A URL source, an external identifier, or an item of the inbox. */
 const Elsewhere = [
   Schema.Struct({ url: Schema.String, ...About }).annotate({ identifier: 'SourceUrl' }),
   Schema.Struct({
@@ -26,8 +26,8 @@ const Elsewhere = [
 
 /**
  * Where an entry comes from, as a write gives it: another entry (by slug or id), a URL, an
- * external identifier with an optional label, or an item of the source registry; each may say
- * a short note.
+ * external identifier with an optional label, or an item of the inbox (`source` is `inbox`);
+ * each may say a short note.
  */
 export const SourceGiven = Schema.Union([
   Schema.Struct({ entry: Schema.String, ...About }),
@@ -82,6 +82,11 @@ export const Child = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   summary: Schema.String,
+  /** Read in this page as a part of it (its type says `read_in_parent`), with its `fields`. */
+  in_parent: Schema.Boolean,
+  fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
+  /** The titles of the entries its fields of kind `entry` name, by id, as a reader shows them. */
+  titles: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 }).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
@@ -92,6 +97,8 @@ export const TreeEntry = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   parent_id: Schema.NullOr(Schema.String),
+  /** Read in its parent's page rather than listed under it (its type says `read_in_parent`). */
+  in_parent: Schema.Boolean,
 }).annotate({ identifier: 'TreeEntry' })
 export type TreeEntry = typeof TreeEntry.Type
 
@@ -99,8 +106,12 @@ export type TreeEntry = typeof TreeEntry.Type
  * What a write says. With `entry`, the id or slug of an existing entry, it updates that entry:
  * only the keys given change, and `fields` and `provenance` are merged key by key, a `null`
  * removing a key. Without `entry`, it creates one. `parent` and `superseded_by` take an id or a
- * slug. `created` and `updated`, a date or a date and time, are taken only when the entry is
- * created, for an import that keeps when a note was first written. The rules are checked by the write, not by this schema, so that every problem is
+ * slug. `created`, a date or a date and time, keeps when a note was first written: taken when the
+ * entry is created, or on an update while the entry has not changed since its creation. `updated`
+ * is the time of the write, unless the write gives it too when it creates the entry. With `append`, the
+ * `body` given is added at the end of the entry's body: a body too long for one call is written in
+ * parts, each part one write. With `edits`, a few words of the body change in place: each `find`
+ * must match the body exactly once, and the edits apply in order, in one write. The rules are checked by the write, not by this schema, so that every problem is
  * reported at once.
  */
 export const WriteEntryInput = Schema.Struct({
@@ -115,6 +126,10 @@ export const WriteEntryInput = Schema.Struct({
   provenance: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
   sources: Schema.optionalKey(Schema.Array(SourceGiven)),
   body: Schema.optionalKey(Schema.String),
+  append: Schema.optionalKey(Schema.Boolean),
+  edits: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ find: Schema.String, replace: Schema.String })),
+  ),
   summary: Schema.optionalKey(Schema.String),
   verified: Schema.optionalKey(Schema.Boolean),
   valid_from: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -127,12 +142,19 @@ export type WriteEntryInput = typeof WriteEntryInput.Type
 
 /**
  * A link seen from one of its ends: the relation, the period and date field a link `fulfills`
- * closes, and the entry at the other end.
+ * closes, what the link says of itself (a short note, the dates it held between), and the entry
+ * at the other end.
  */
 export const Link = Schema.Struct({
   relation: Schema.String,
   period: Schema.NullOr(Schema.String),
   field: Schema.NullOr(Schema.String),
+  /** A short text on the link, such as a role: `accountant`. */
+  note: Schema.NullOr(Schema.String),
+  /** The day the link started to hold, as `2024-01-01`. */
+  valid_from: Schema.NullOr(Schema.String),
+  /** The last day the link held. */
+  valid_until: Schema.NullOr(Schema.String),
   id: Schema.String,
   slug: Schema.String,
   title: Schema.String,
@@ -163,9 +185,26 @@ export type Medium = typeof Medium.Type
 export const EntryRead = Schema.Struct({
   entry: Entry,
   path: Schema.Array(Schema.String),
+  /**
+   * What each `[[reference]]` of the body names, in order: the entry, or `null` while the reference
+   * waits for an entry with that slug or alias (or names one the key may not see).
+   */
+  references: Schema.Array(
+    Schema.Struct({
+      reference: Schema.String,
+      id: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+    }),
+  ),
+  /** The same ancestors with their ids, from the root: `null` for one the key may not see. */
+  ancestors: Schema.Array(
+    Schema.Struct({ id: Schema.NullOr(Schema.String), title: Schema.String }),
+  ),
   links: Schema.Array(Link),
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),
+  /** The titles of the entries its fields of kind `entry` name, by id, as a reader shows them. */
+  titles: Schema.Record(Schema.String, Schema.String),
   children: Schema.Array(Child),
   hidden_children: Schema.Int,
   cited_by: Schema.Array(

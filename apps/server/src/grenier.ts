@@ -92,7 +92,10 @@ const mcp = HttpRouter.use((router) =>
         // A session keeps the instructions it started with.
         const told =
           session === undefined
-            ? yield* Effect.provideService(instructions, Instance, instance)
+            ? yield* instructions.pipe(
+                Effect.provideService(Instance, instance),
+                Effect.provideService(Rights, verified.success.rights),
+              )
             : ''
         const web = yield* HttpServerRequest.toWeb(request)
         const response = yield* Effect.promise(() =>
@@ -112,8 +115,9 @@ const mcp = HttpRouter.use((router) =>
 
 /**
  * Records an unexpected failure of a request (a defect, which answers 500) as an occurrence of a
- * bug at its route, `GET /api/types`, under the name of the request's key when it has a valid one;
- * only when diagnostics are on. The query string is left out: it may hold what was searched.
+ * bug at its route, `GET /api/types`, under the name of the request's key when it has a valid one:
+ * written to the server's output always, recorded as a finding when diagnostics are on. The query
+ * string is left out: it may hold what was searched.
  */
 export const recordingDefects = <E, R>(
   app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
@@ -121,7 +125,7 @@ export const recordingDefects = <E, R>(
   app.pipe(
     Effect.tapCause((cause) =>
       Effect.gen(function* () {
-        if (!(yield* Instance).diagnostics || !Cause.hasDies(cause)) return
+        if (!Cause.hasDies(cause)) return
         const request = yield* HttpServerRequest.HttpServerRequest
         const verified = yield* verify(request)
         const path = new URL(request.url, 'http://localhost').pathname
@@ -157,8 +161,12 @@ const media = HttpRouter.add('GET', '/media/:hash', (request) =>
         'cache-control': 'private, max-age=31536000, immutable',
         etag: `"${hash}"`,
         'x-content-type-options': 'nosniff',
-        // A page kept as HTML is shown as a document, never run in the origin of Grenier.
-        'content-security-policy': 'sandbox',
+        // A page kept as HTML is shown as a document, never run in the origin of Grenier; an SVG,
+        // which may carry script too, loads nothing either but its own styles.
+        'content-security-policy':
+          found.success.mime === 'image/svg+xml'
+            ? "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+            : 'sandbox',
       },
     })
   }),

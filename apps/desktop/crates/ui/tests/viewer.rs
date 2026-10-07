@@ -7,7 +7,8 @@ use gpui_kit::component::Root;
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use ui::intent::{FollowLink, Intent};
 use ui::load::Load;
-use ui::viewer::{TreeNode, Viewer};
+use ui::search::SearchData;
+use ui::viewer::{Pane, TreeNode, Viewer};
 
 fn node(id: &str, children: Vec<TreeNode>) -> TreeNode {
     TreeNode {
@@ -123,4 +124,48 @@ fn back_and_forward_have_their_keys(cx: &mut TestAppContext) {
     let (_, cx, intents) = viewer(cx);
     cx.simulate_keystrokes("alt-left alt-right");
     assert_eq!(*intents.borrow(), vec![Intent::Back, Intent::Forward]);
+}
+
+#[gpui_kit::test]
+fn the_open_entry_clicked_again_from_a_search_opens_it_again(cx: &mut TestAppContext) {
+    let (viewer, cx, intents) = viewer(cx);
+    cx.update(|window, cx| {
+        viewer.update(cx, |viewer, cx| {
+            viewer.select(&"garden".into(), cx);
+            viewer.set_pane(
+                Pane::Search(SearchData {
+                    query: "rake".into(),
+                    types: Vec::new(),
+                    type_name: None,
+                    results: Load::Loading,
+                }),
+                window,
+                cx,
+            );
+            viewer.select(&"garden".into(), cx);
+        })
+    });
+    assert_eq!(
+        *intents.borrow(),
+        vec![Intent::Open("garden".into()), Intent::Open("garden".into())]
+    );
+}
+
+#[gpui_kit::test]
+fn a_slash_typed_in_the_search_field_stays_in_it(cx: &mut TestAppContext) {
+    let (viewer, cx, _) = viewer(cx);
+    cx.simulate_keystrokes("ctrl-k");
+    cx.simulate_input("a/b");
+    let typed = viewer.read_with(cx, |viewer, cx| viewer.search_text(cx));
+    assert_eq!(typed.as_ref(), "a/b");
+}
+
+#[gpui_kit::test]
+fn a_slash_from_the_entry_pane_goes_to_the_search_field(cx: &mut TestAppContext) {
+    let (viewer, cx, _) = viewer(cx);
+    cx.update(|window, cx| viewer.update(cx, |viewer, cx| viewer.focus_pane(window, cx)));
+    cx.simulate_keystrokes("/");
+    cx.simulate_input("rake");
+    let typed = viewer.read_with(cx, |viewer, cx| viewer.search_text(cx));
+    assert_eq!(typed.as_ref(), "rake");
 }

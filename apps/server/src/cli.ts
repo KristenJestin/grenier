@@ -10,24 +10,39 @@
  *   bun src/cli.ts entry:verify <slug or id>…        (as the owner, recorded in the history)
  *   bun src/cli.ts entry:unverify <slug or id>…
  *   bun src/cli.ts entry:unverified [--type <type>] [--under <slug>]
- *   bun src/cli.ts inbox:add <folder> [--origin <name>]   (one pending item per file)
+ *   bun src/cli.ts inbox:add <folder> [--origin <name>] [--dry-run] [--again]
+ *                                         (one pending item per file, sub-folders included)
  *   bun src/cli.ts type:sensitive <type> [--off]          (only the owner lifts it)
  *   bun src/cli.ts field:sensitive <type> <field> [--off]
  *   bun src/cli.ts findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
  *   bun src/cli.ts findings:show <number>                 (with its occurrences, as Markdown)
  *   bun src/cli.ts findings:export [--kind …] [--place …] [--severity …]   (Markdown on stdout)
+ *   bun src/cli.ts findings:merge <into> <from>          (one problem reported twice)
+ *   bun src/cli.ts links:periods                         (links fulfills whose period closes nothing)
+ *   bun src/cli.ts rules:set <file>                       (the rules every agent is given)
+ *   bun src/cli.ts rules:show
+ *   bun src/cli.ts export:markdown <folder> [--include-sensitive] [--remote <url>]
+ *                                  [--deploy-key <file>]  (commits to the folder's git repository)
  *
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
 import { readdirSync, readFileSync } from 'node:fs'
-import { basename, join, relative, resolve, sep } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
-import { FindingFilter, findingsWithOccurrences } from './core/findings/index.ts'
-import { addToInbox } from './core/inbox/index.ts'
+import {
+  FindingFilter,
+  findingsWithOccurrences,
+  mergeFindings,
+  mergedInto,
+} from './core/findings/index.ts'
+import { addFileOnce, addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
+import { misfiledPeriods } from './core/links/index.ts'
+import { exportMarkdown } from './export/markdown.ts'
+import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@grenier/api/schema'
@@ -41,12 +56,17 @@ const USAGE = `Usage:
   entry:verify <slug or id>...
   entry:unverify <slug or id>...
   entry:unverified [--type <type>] [--under <slug>]
-  inbox:add <folder> [--origin <name>]
+  inbox:add <folder> [--origin <name>] [--dry-run] [--again]
   type:sensitive <type> [--off]
   field:sensitive <type> <field> [--off]
   findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
   findings:show <number>
-  findings:export [--kind <kind>] [--place <place>] [--severity <severity>]`
+  findings:export [--kind <kind>] [--place <place>] [--severity <severity>]
+  findings:merge <into> <from>
+  links:periods
+  rules:set <file>
+  rules:show
+  export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]`
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -63,8 +83,34 @@ const { positionals, values } = parseArgs({
     kind: { type: 'string' },
     place: { type: 'string' },
     severity: { type: 'string' },
+    'include-sensitive': { type: 'boolean' },
+    remote: { type: 'string' },
+    'deploy-key': { type: 'string' },
+    'dry-run': { type: 'boolean' },
+    again: { type: 'boolean' },
   },
 })
+
+/**
+ * The files under a folder, by their path from it with `/`, in order, and what is skipped: hidden
+ * files (`.gitkeep`) and hidden folders (`.obsidian/`, never walked).
+ */
+const filesUnder = (folder: string) => {
+  const files: Array<string> = []
+  const skipped: Array<string> = []
+  const walk = (inside: string) => {
+    for (const found of readdirSync(join(folder, inside), { withFileTypes: true })) {
+      const path = inside === '' ? found.name : `${inside}/${found.name}`
+      if (found.name.startsWith('.')) skipped.push(found.isDirectory() ? `${path}/` : path)
+      // A link is never followed: it may lead out of the folder, or round in circles.
+      else if (found.isSymbolicLink()) skipped.push(`${path} (a link)`)
+      else if (found.isDirectory()) walk(path)
+      else if (found.isFile()) files.push(path)
+    }
+  }
+  walk('')
+  return { files: files.toSorted(), skipped: skipped.toSorted() }
+}
 
 /** The command line is the owner's: their writes are recorded under the actor `owner`. */
 const asOwner = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -186,23 +232,44 @@ const command = Effect.gen(function* () {
       const folder = positionals[1]
       if (folder === undefined) return yield* Effect.fail({ message: USAGE })
       const origin = values.origin ?? basename(resolve(folder))
-      // Every file but the hidden ones, and those of hidden folders.
-      const files = readdirSync(folder, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => relative(folder, join(entry.parentPath, entry.name)))
-        .filter((path) => !path.split(sep).some((part) => part.startsWith('.')))
-        .toSorted()
-      yield* asOwner(
-        Effect.forEach(files, (file) =>
-          addToInbox({
-            kind: 'file',
-            name: file.split(sep).join('/'),
-            data: readFileSync(join(folder, file)).toString('base64'),
-            origin,
-          }),
-        ),
-      )
-      return `Added to the inbox: ${files.length} items, from ${origin}.`
+      const { files, skipped } = filesUnder(folder)
+      const added: Array<string> = []
+      const refused: Array<string> = []
+      let already = 0
+      for (const file of files) {
+        const bytes = readFileSync(join(folder, file))
+        const input = { kind: 'file' as const, name: file, data: bytes.toString('base64'), origin }
+        if (values['dry-run'] === true) {
+          if (values.again !== true && (yield* fileInInbox({ name: file, origin, bytes })))
+            already += 1
+          else {
+            const refusal = inboxRefusalOf(input)
+            if (refusal === undefined) added.push(file)
+            else refused.push(`${file} (${refusal.message})`)
+          }
+          continue
+        }
+        // The check and the write together: two drops at once add each file once.
+        const adding = values.again === true ? addToInbox(input) : addFileOnce(input, bytes)
+        const outcome = yield* asOwner(adding).pipe(
+          Effect.map((item) => (item === null ? 'already' : 'added')),
+          Effect.catchTag('Refused', ({ message }) => Effect.succeed(message)),
+        )
+        if (outcome === 'already') already += 1
+        else if (outcome === 'added') added.push(file)
+        else refused.push(`${file} (${outcome})`)
+      }
+      return [
+        values['dry-run'] === true
+          ? `Would add to the inbox, from ${origin}: ${added.length} items.`
+          : `Added to the inbox, from ${origin}: ${added.length} items.`,
+        ...(values['dry-run'] === true ? added.map((file) => `  ${file}`) : []),
+        ...(already === 0
+          ? []
+          : [`Already in the inbox: ${already} files; give --again to add them again.`]),
+        ...(skipped.length === 0 ? [] : [`Skipped: ${skipped.join(', ')}.`]),
+        ...(refused.length === 0 ? [] : [`Refused: ${refused.join('; ')}`]),
+      ].join('\n')
     }
     case 'type:sensitive': {
       const type = positionals[1]
@@ -241,13 +308,73 @@ const command = Effect.gen(function* () {
       const number = Number(positionals[1])
       if (!Number.isInteger(number)) return yield* Effect.fail({ message: USAGE })
       const [found] = yield* findingsWithOccurrences({ number })
+      const into = yield* mergedInto(number)
+      if (into !== null)
+        return `The finding ${number} is merged into ${into}: \`findings:show ${into}\`.`
       if (found === undefined)
         return yield* Effect.fail({ message: `There is no finding ${number}.` })
       return markdownOf(found)
     }
+    case 'findings:merge': {
+      const [into, from] = positionals.slice(1).map(Number)
+      if (!Number.isInteger(into) || !Number.isInteger(from))
+        return yield* Effect.fail({ message: USAGE })
+      yield* mergeFindings(into ?? 0, from ?? 0)
+      return `The finding ${from} is merged into ${into}.`
+    }
     case 'findings:export': {
       const found = yield* findingsWithOccurrences(yield* findingFilter)
       return ['# Findings of Grenier', ...found.map(markdownOf)].join('\n\n')
+    }
+    case 'links:periods': {
+      const misfiled = yield* asOwner(misfiledPeriods)
+      return misfiled.length === 0
+        ? 'Every link fulfills names a period of the form its date comes back by.'
+        : misfiled
+            .map(
+              ({ source, target, field, period, expected }) =>
+                `${source}\t${target}\t${field}\t${period}\texpected like ${expected}`,
+            )
+            .join('\n')
+    }
+    case 'rules:set': {
+      const file = positionals[1]
+      if (file === undefined) return yield* Effect.fail({ message: USAGE })
+      yield* asOwner(setInstanceRules(readFileSync(file, 'utf8')))
+      return 'The rules of this instance are set.'
+    }
+    case 'rules:show': {
+      const rules = yield* instanceRulesText
+      return rules === null ? 'This instance has no rules.' : rules.replace(/\n$/, '')
+    }
+    case 'export:markdown': {
+      const folder = positionals[1]
+      if (folder === undefined) return yield* Effect.fail({ message: USAGE })
+      // Sensitive data only when asked: the export of every night leaves it out.
+      const { commit, push } = yield* exportMarkdown({
+        folder: resolve(folder),
+        sensitive: values['include-sensitive'] === true,
+        remote: values.remote,
+        deployKey: values['deploy-key'],
+      }).pipe(
+        Effect.provideService(
+          Rights,
+          values['include-sensitive'] === true ? ['read', 'sensitive'] : ['read'],
+        ),
+      )
+      if (push?.pushed === false)
+        yield* Effect.sync(() => {
+          console.error(
+            `The push failed: ${push.problem}\nThe commit stays; the next export pushes it.`,
+          )
+          process.exitCode = 1
+        })
+      return [
+        commit === null
+          ? 'Nothing changed since the last export.'
+          : `Exported to ${resolve(folder)}: ${commit.split(': ').slice(1).join(': ')}.`,
+        ...(push?.pushed === true ? ['Pushed.'] : []),
+      ].join('\n')
     }
     default:
       return yield* Effect.fail({ message: USAGE })

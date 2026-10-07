@@ -10,9 +10,11 @@ export {
   FindingReport,
   findingsWithOccurrences,
   listFindings,
+  mergeFindings,
+  mergedInto,
   recordDefect,
   reportFinding,
   SEVERITIES,
 } from './operations.ts'
-export type { Call } from './operations.ts'
+export type { Call, ReportChoice } from './operations.ts'
 export { titleSimilarity } from './similar.ts'

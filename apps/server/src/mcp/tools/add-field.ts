@@ -5,7 +5,8 @@ import { defineTool } from '../tool.ts'
 
 export const addFieldTool = defineTool({
   name: 'add_field',
-  description: 'Adds an optional field to an existing type.',
+  description:
+    'Adds an optional field to an existing type. A field of kind `entry` may name the `types` it accepts; any field may be `many: true` to hold a list.',
   input: Schema.Struct({
     type: Schema.String.annotate({ description: 'The name of the type.' }),
     field: FieldDefinition,

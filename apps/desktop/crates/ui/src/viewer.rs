@@ -14,7 +14,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, ClipboardItem, Context, Div,
     ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
-    IntoElement, KeyBinding, ParentElement as _, Render, ScrollHandle, SharedString,
+    IntoElement, KeyBinding, MouseButton, ParentElement as _, Render, ScrollHandle, SharedString,
     SpringAnimation, StatefulInteractiveElement as _, Styled as _, Subscription, Window, actions,
     div, linear_color_stop, linear_gradient, point, px, radians,
 };
@@ -32,6 +32,7 @@ use crate::theme::{self, space, text, width};
 
 const CONTEXT: &str = "Viewer";
 const TREE: &str = "ViewerTree";
+const PANE: &str = "ViewerPane";
 
 actions!(viewer, [SelectPrevious, SelectNext, Collapse, Expand]);
 
@@ -39,7 +40,9 @@ actions!(viewer, [SelectPrevious, SelectNext, Collapse, Expand]);
 pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("ctrl-k", FocusSearch, Some(CONTEXT)),
-        KeyBinding::new("/", FocusSearch, Some(CONTEXT)),
+        // Not from the whole viewer: a `/` typed in the search field, or any field, is text.
+        KeyBinding::new("/", FocusSearch, Some(TREE)),
+        KeyBinding::new("/", FocusSearch, Some(PANE)),
         KeyBinding::new("alt-left", Back, Some(CONTEXT)),
         KeyBinding::new("alt-right", Forward, Some(CONTEXT)),
         KeyBinding::new("up", SelectPrevious, Some(TREE)),
@@ -85,11 +88,15 @@ pub struct Viewer {
     /// How many panes were shown: each new one comes in.
     shown: usize,
     scroll: ScrollHandle,
+    /// The heading of the open entry to glide to, named by the reference that opened it.
+    jump: Option<SharedString>,
     /// Whether the sidebar shows, once asked; until then, as wide as the window allows.
     sidebar_open: Option<bool>,
     connection: Option<SharedString>,
     focus: FocusHandle,
     tree_focus: FocusHandle,
+    /// The main pane, focused by a click in it: `/` from there goes to the search field.
+    pane_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -125,10 +132,12 @@ impl Viewer {
             pane: Pane::Entry(Box::new(Load::Empty)),
             shown: 0,
             scroll: ScrollHandle::new(),
+            jump: None,
             sidebar_open: None,
             connection: None,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),
+            pane_focus: cx.focus_handle(),
             _subscriptions: vec![searched],
         }
     }
@@ -170,13 +179,25 @@ impl Viewer {
         }
         self.pane = pane;
         self.shown += 1;
+        self.jump = None;
         self.scroll.set_offset(point(px(0.), px(0.)));
         cx.notify();
     }
 
-    /// Selects an entry of the tree, its ancestors unfolded, and opens it.
+    /// Glides the open entry to that heading of its body, once it is laid out.
+    pub fn jump_to(&mut self, heading: SharedString, cx: &mut Context<Self>) {
+        self.jump = Some(heading);
+        cx.notify();
+    }
+
+    /// Selects an entry of the tree, its ancestors unfolded, and opens it unless the pane shows
+    /// it already: from a search, or after a load that failed, it opens it again.
     pub fn select(&mut self, id: &SharedString, cx: &mut Context<Self>) {
-        if self.selected.as_ref() != Some(id) {
+        let elsewhere = match &self.pane {
+            Pane::Search(_) => true,
+            Pane::Entry(load) => matches!(load.as_ref(), Load::Failed(_)),
+        };
+        if self.selected.as_ref() != Some(id) || elsewhere {
             cx.emit(Intent::Open(id.clone()));
         }
         self.reveal(id, cx);
@@ -198,9 +219,24 @@ impl Viewer {
         &self.pane
     }
 
+    /// The scroll of the main pane.
+    pub fn scroll(&self) -> &ScrollHandle {
+        &self.scroll
+    }
+
+    /// What the search field holds.
+    pub fn search_text(&self, cx: &App) -> SharedString {
+        self.search.read(cx).value()
+    }
+
     /// The state of the tree.
     pub fn tree_state(&self) -> &Load<()> {
         &self.tree_load
+    }
+
+    /// The tree, as it is shown.
+    pub fn nodes(&self) -> &[TreeNode] {
+        &self.nodes
     }
 
     /// The id of the entry the main pane shows, if it shows one.
@@ -226,6 +262,11 @@ impl Viewer {
     /// Puts the keyboard in the tree.
     pub fn focus_tree(&self, window: &mut Window, cx: &mut App) {
         window.focus(&self.tree_focus, cx);
+    }
+
+    /// Gives the main pane the keys, as a click in it does.
+    pub fn focus_pane(&self, window: &mut Window, cx: &mut App) {
+        window.focus(&self.pane_focus, cx);
     }
 
     fn on_intent(&self, cx: &mut Context<Self>) -> OnIntent {
@@ -616,10 +657,14 @@ impl Viewer {
     fn panel(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let on_intent = self.on_intent(cx);
         let pane = match self.pane.clone() {
-            Pane::Entry(load) => {
-                EntryScreen::new(*load, on_intent, self.scroll.clone(), self.shown)
-                    .into_any_element()
-            }
+            Pane::Entry(load) => EntryScreen::new(
+                *load,
+                on_intent,
+                self.scroll.clone(),
+                self.shown,
+                self.jump.clone(),
+            )
+            .into_any_element(),
             Pane::Search(search) => {
                 SearchScreen::new(search, on_intent, self.scroll.clone(), self.shown)
                     .into_any_element()
@@ -662,28 +707,24 @@ impl Viewer {
             .child(div().flex_1());
         if let Some(slug) = self.opened_entry().map(|data| data.read.entry.slug.clone()) {
             let link = format!("grenier://{slug}");
-            bar = bar
-                .child(ghost(
-                    "copy-link",
-                    IconName::Link,
-                    Some("Copier le lien"),
-                    "Copier le lien de la fiche",
-                    move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.clone())),
-                    window,
-                    cx,
-                ))
-                .child(ghost(
-                    "open-in-api",
-                    IconName::ExternalLink,
-                    Some("Ouvrir dans l'API"),
-                    "La fiche telle que l'API la renvoie",
-                    cx.listener(move |_, _, _, cx| cx.emit(Intent::OpenInApi(slug.clone().into()))),
-                    window,
-                    cx,
-                ));
+            bar = bar.child(ghost(
+                "copy-link",
+                IconName::Link,
+                Some("Copier le lien"),
+                "Copier le lien de la fiche",
+                move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.clone())),
+                window,
+                cx,
+            ));
         }
         let theme = cx.theme();
+        let pane_focus = self.pane_focus.clone();
         v_flex()
+            .track_focus(&self.pane_focus)
+            .key_context(PANE)
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                window.focus(&pane_focus, cx)
+            })
             .flex_1()
             .min_w_0()
             .m(space::S)

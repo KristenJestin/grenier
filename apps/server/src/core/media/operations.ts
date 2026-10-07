@@ -17,18 +17,28 @@ import { asMedia, MEDIUM_COLUMNS } from './store.ts'
 
 const BYTES_LIMIT = 20 * 1024 * 1024
 
-/** What an attachment says: the entry, and the file as base64 `data` or as a `url` to fetch. */
+/**
+ * What an attachment says: the entry, and the file as base64 `data`, as a `url` to fetch, or as
+ * the `item` of the inbox it came in.
+ */
 export const AttachMediaInput = Schema.Struct({
   entry: Schema.String,
   data: Schema.optionalKey(Schema.String),
   url: Schema.optionalKey(Schema.String),
+  item: Schema.optionalKey(
+    Schema.String.annotate({
+      description: 'The id of an inbox item you took, or just processed: its file, not sent again.',
+    }),
+  ),
   alt: Schema.optionalKey(Schema.String),
   mime: Schema.optionalKey(Schema.String),
 })
 export type AttachMediaInput = typeof AttachMediaInput.Type
 
 const inboxFiles = rowsOf(Schema.Struct({ mime: Schema.NullOr(Schema.String) }))
-const owners = rowsOf(Schema.Struct({ entry_id: Schema.String, alt: Schema.String }))
+const owners = rowsOf(
+  Schema.Struct({ entry_id: Schema.String, alt: Schema.String, type: Schema.String }),
+)
 
 /** The descriptions of an entry's media, kept on the entry for search. */
 const refreshMediaText = Effect.fn('refreshMediaText')(function* (entryId: string) {
@@ -51,6 +61,53 @@ const dimensionsOf = (kind: string, head: Uint8Array) => {
     ? { width: measured.success.width, height: measured.success.height }
     : { width: null, height: null }
 }
+
+const owned = rowsOf(
+  Schema.Struct({
+    kind: Schema.String,
+    status: Schema.String,
+    taken_by: Schema.NullOr(Schema.String),
+    closed_by: Schema.NullOr(Schema.String),
+    content: Schema.NullOr(Schema.String),
+    sha256: Schema.NullOr(Schema.String),
+  }),
+)
+
+/**
+ * The bytes of the file of an item the caller has taken, or has just marked processed: what an
+ * agent attaches to an entry without sending it again.
+ */
+const itemFile = Effect.fn('itemFile')(function* (id: string) {
+  const db = yield* drizzle
+  const { inbox } = tables
+  const actor = yield* currentActor
+  const [item] = /^[0-9a-f-]{36}$/i.test(id)
+    ? yield* owned(
+        db
+          .select({
+            kind: inbox.kind,
+            status: inbox.status,
+            taken_by: inbox.taken_by,
+            closed_by: inbox.closed_by,
+            content: inbox.content,
+            sha256: inbox.sha256,
+          })
+          .from(inbox)
+          .where(eq(inbox.id, id)),
+      )
+    : []
+  if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
+  const mine =
+    (item.status === 'taken' && item.taken_by === actor) ||
+    (item.status === 'processed' && item.closed_by === actor)
+  if (!mine)
+    return yield* new Refused({ message: `Take the item \`${id}\` before attaching its file.` })
+  if (item.kind !== 'file')
+    return yield* new Refused({ message: `The item \`${id}\` holds no file to attach.` })
+  return item.sha256 === null
+    ? new Uint8Array(Buffer.from(item.content ?? '', 'utf8'))
+    : new Uint8Array(yield* readFileOf(item.sha256))
+})
 
 /** A file given as bytes, typed, measured and kept. */
 const keptFromBytes = Effect.fn('keptFromBytes')(function* (bytes: Uint8Array) {
@@ -80,8 +137,11 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
   const db = yield* drizzle
   const actor = yield* currentActor
   const entry = yield* findEntry(input.entry)
-  if ((input.data === undefined) === (input.url === undefined)) {
-    return yield* new Refused({ message: 'Give the file either as `data` (base64) or as a `url`.' })
+  const given = [input.data, input.url, input.item].filter((source) => source !== undefined)
+  if (given.length !== 1) {
+    return yield* new Refused({
+      message: 'Give the file in one way: as `data` (base64), as a `url`, or as an inbox `item`.',
+    })
   }
   // Four characters of base64 carry three bytes: a body too long is refused before it is decoded.
   if (input.data !== undefined && Math.floor((input.data.length * 3) / 4) > BYTES_LIMIT) {
@@ -90,12 +150,22 @@ export const attachMedia = Effect.fn('attachMedia')(function* (input: AttachMedi
     })
   }
   const { hash, size, mime, kind, width, height } =
-    input.data === undefined
-      ? yield* keptFromUrl(input.url ?? '')
-      : yield* keptFromBytes(new Uint8Array(Buffer.from(input.data, 'base64')))
+    input.item !== undefined
+      ? yield* keptFromBytes(yield* itemFile(input.item))
+      : input.data === undefined
+        ? yield* keptFromUrl(input.url ?? '')
+        : yield* keptFromBytes(new Uint8Array(Buffer.from(input.data, 'base64')))
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const { media } = tables
+      // The same file attached again to the same entry is the medium it already has.
+      const [already] = yield* asMedia(
+        db
+          .select(MEDIUM_COLUMNS)
+          .from(media)
+          .where(and(eq(media.entry_id, entry.id), eq(media.sha256, hash))),
+      )
+      if (already !== undefined) return { media: already }
       const [medium] = yield* asMedia(
         db
           .insert(media)
@@ -133,16 +203,19 @@ export const describeMedia = Effect.fn('describeMedia')(function* (id: string, a
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
+  const { hidesType } = yield* sensitivity
   const { media } = tables
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const [owner] = yield* owners(
         db
-          .select({ entry_id: media.entry_id, alt: media.alt })
+          .select({ entry_id: media.entry_id, alt: media.alt, type: tables.entries.type })
           .from(media)
+          .innerJoin(tables.entries, eq(tables.entries.id, media.entry_id))
           .where(sql`${media.id}::text = ${id}`),
       )
-      if (owner === undefined) {
+      // A medium of an entry the caller may not see does not exist for it.
+      if (owner === undefined || hidesType(owner.type)) {
         return yield* new Refused({ message: `There is no medium \`${id}\`.` })
       }
       const [medium] = yield* asMedia(

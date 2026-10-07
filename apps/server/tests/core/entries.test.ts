@@ -5,6 +5,7 @@ import { archiveEntry, listEntries, readEntry, writeEntry } from '../../src/core
 import { Rights } from '../../src/core/auth/index.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
 import { Refused } from '../../src/core/refused.ts'
+import { attachMedia, describeMedia } from '../../src/core/media/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -175,8 +176,15 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 
   test('a duplicate slug', async () => {
     await run(writeEntry({ ...contract, slug: 'taken' }))
-    expect(await run(refusalOf(writeEntry({ ...contract, slug: 'taken' })))).toBe(
+    await run(writeEntry({ ...contract, slug: 'other' }))
+    expect(await run(refusalOf(writeEntry({ entry: 'other', slug: 'taken' })))).toBe(
       'The field `slug` must be unique: `taken` is already used by another entry.',
+    )
+  })
+
+  test('a write naming an existing slug without entry says to pass entry', async () => {
+    expect(await run(refusalOf(writeEntry({ ...contract, slug: 'taken' })))).toBe(
+      'An entry with the slug `taken` exists: pass `entry` to update it, or choose another slug.',
     )
   })
 
@@ -235,6 +243,7 @@ describe('a project-like entry is read with its children and the path of its anc
         type: 'note',
         title: 'Kick-off',
         summary: 'First meeting.',
+        in_parent: false,
       },
       {
         id: decision.id,
@@ -242,6 +251,7 @@ describe('a project-like entry is read with its children and the path of its anc
         type: 'note',
         title: 'Use maps',
         summary: 'We use maps.',
+        in_parent: false,
       },
     ])
     expect((await run(readEntry(decision.slug))).path).toEqual(['Work', 'Atlas'])
@@ -270,9 +280,17 @@ describe('the tree is listed in one read: every entry with its parent, archived 
       type: 'area',
       title: 'Garden',
       parent_id: null,
+      in_parent: false,
     })
     expect(listed.filter(({ parent_id }) => parent_id === garden.id)).toEqual([
-      { id: shed.id, slug: 'shed', type: 'note', title: 'Shed', parent_id: garden.id },
+      {
+        id: shed.id,
+        slug: 'shed',
+        type: 'note',
+        title: 'Shed',
+        parent_id: garden.id,
+        in_parent: false,
+      },
     ])
   })
 })
@@ -294,6 +312,15 @@ describe('several problems in one write are all reported in one refusal', () => 
 })
 
 describe('an import keeps when an entry was first written', () => {
+  test('with created given and no updated, updated is the time of the write', async () => {
+    const before = new Date().toISOString()
+    const entry = await run(
+      writeEntry({ type: 'note', title: 'Older note', created: '2019-03-01' }),
+    )
+    expect(entry.created).toBe('2019-03-01T00:00:00.000Z')
+    expect(entry.updated >= before).toBe(true)
+  })
+
   test('created and updated are taken on creation', async () => {
     const entry = await run(
       writeEntry({
@@ -325,10 +352,28 @@ describe('an import keeps when an entry was first written', () => {
     )
   })
 
-  test('they are refused on an update', async () => {
+  test('created is taken on an update while the entry has not changed since its creation, and recorded in its history', async () => {
+    await run(writeEntry({ type: 'note', title: 'Draft' }))
+    const entry = await run(
+      writeEntry({ entry: 'draft', created: '2019-03-01', body: 'The whole note.' }),
+    )
+    expect(entry.created).toBe('2019-03-01T00:00:00.000Z')
+    const history = await run(entryHistory('draft'))
+    expect(history.at(-1)?.changes).toContainEqual({
+      field: 'created',
+      before: expect.any(String),
+      after: '2019-03-01T00:00:00.000Z',
+    })
+  })
+
+  test('created is refused on an update once the entry has changed', async () => {
     await run(writeEntry({ type: 'note', title: 'Kept' }))
+    await run(writeEntry({ entry: 'kept', body: 'Changed.' }))
     expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(
-      'The field `created` can be given only when the entry is created.',
+      'The field `created` can be given on an update only while the entry has not changed since it was created.',
+    )
+    expect(await run(refusalOf(writeEntry({ entry: 'kept', updated: '2019-03-01' })))).toBe(
+      'The field `updated` can be given only when the entry is created.',
     )
   })
 })
@@ -420,5 +465,123 @@ describe('an entry the owner verified is no longer verified once a writer withou
     await run(writeEntry({ ...contract, slug: 'untouched-by-agent', verified: true }).pipe(asOwner))
     const written = await run(writeEntry({ entry: 'untouched-by-agent', title: contract.title }))
     expect(written.verified).toBe(true)
+  })
+})
+
+describe('a long body written in parts', () => {
+  const parts = Array.from(
+    { length: 5 },
+    (_, index) => `## Week ${index + 1}\n\n${'Rain, then sun on the beds.\n'.repeat(400)}\n`,
+  )
+
+  test('a body written in five parts reads back identical', async () => {
+    const [first = '', ...rest] = parts
+    await run(
+      Effect.gen(function* () {
+        yield* writeEntry({ type: 'note', title: 'Garden journal', body: first })
+        // One part after the other, as an agent sends them.
+        for (const part of rest)
+          yield* writeEntry({ entry: 'garden-journal', body: part, append: true })
+      }),
+    )
+    expect((await run(readEntry('garden-journal'))).entry.body).toBe(parts.join(''))
+  })
+
+  test('a refusal in the middle leaves the entry as before', async () => {
+    await run(writeEntry({ type: 'note', title: 'Pond journal', body: 'Day one.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({ entry: 'pond-journal', body: 'Rain.\n', append: true, verified: true }),
+        ),
+      ),
+    ).toBe('The field `verified` can be set to true by the owner only.')
+    await run(writeEntry({ entry: 'pond-journal', body: 'Day two.\n', append: true }))
+    expect((await run(readEntry('pond-journal'))).entry.body).toBe('Day one.\nDay two.\n')
+    expect(await run(entryHistory('pond-journal'))).toHaveLength(2)
+  })
+})
+
+describe('a few words of a long body changed in place', () => {
+  test('three edits are applied in order, in one event', async () => {
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Orchard diary',
+        body: 'Pruned the plum tree.\nWatered the pear.\nPicked apples.\n',
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'orchard-diary',
+        edits: [
+          { find: 'plum tree', replace: 'cherry tree' },
+          { find: 'Watered', replace: 'Mulched' },
+          { find: 'Picked apples.', replace: 'Picked apples, then pears.' },
+        ],
+      }),
+    )
+    expect((await run(readEntry('orchard-diary'))).entry.body).toBe(
+      'Pruned the cherry tree.\nMulched the pear.\nPicked apples, then pears.\n',
+    )
+    expect(await run(entryHistory('orchard-diary'))).toHaveLength(2)
+  })
+
+  test('an edit that matches twice or never is refused, naming it, and changes nothing', async () => {
+    await run(writeEntry({ type: 'note', title: 'Hedge diary', body: 'Trim. Trim again. Rest.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'hedge-diary',
+            edits: [
+              { find: 'Rest', replace: 'Sleep' },
+              { find: 'Trim', replace: 'Cut' },
+              { find: 'Water', replace: 'Rain' },
+            ],
+          }),
+        ),
+      ),
+    ).toBe(
+      'The edit 2 (`Trim`) matches the body 2 times: give a longer `find` that matches once. The edit 3 (`Water`) matches nothing in the body.',
+    )
+    expect((await run(readEntry('hedge-diary'))).entry.body).toBe('Trim. Trim again. Rest.\n')
+  })
+})
+
+describe('edits on their own, counted as they overlap', () => {
+  test('edits with append are refused, and change nothing', async () => {
+    await run(writeEntry({ type: 'note', title: 'Shed diary', body: 'Oiled the hinge.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'shed-diary',
+            append: true,
+            edits: [{ find: 'Oiled', replace: 'Greased' }],
+          }),
+        ),
+      ),
+    ).toBe('Give `edits` or `append`, not both: write the edits, then append.')
+  })
+
+  test('a find that overlaps itself counts each match', async () => {
+    await run(writeEntry({ type: 'note', title: 'Buzz', body: 'aaa\n' }))
+    expect(
+      await run(refusalOf(writeEntry({ entry: 'buzz', edits: [{ find: 'aa', replace: 'b' }] }))),
+    ).toBe('The edit 1 (`aa`) matches the body 2 times: give a longer `find` that matches once.')
+  })
+})
+
+describe('a draft keeps its right to its real date', () => {
+  test('a rewrite by a rename and a description of its media are not changes of its own', async () => {
+    const PAGE = Buffer.from('<!doctype html><p>Notes</p>').toString('base64')
+    await run(writeEntry({ type: 'note', title: 'Old name' }))
+    await run(writeEntry({ type: 'note', title: 'Field draft', body: 'See [[old-name]].' }))
+    await run(writeEntry({ entry: 'old-name', slug: 'new-name' }))
+    const { media } = await run(attachMedia({ entry: 'field-draft', data: PAGE }))
+    await run(describeMedia(media.id, 'The notes'))
+    const redated = await run(writeEntry({ entry: 'field-draft', created: '2019-03-01' }))
+    expect(redated.created).toBe('2019-03-01T00:00:00.000Z')
   })
 })

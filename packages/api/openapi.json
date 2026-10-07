@@ -143,6 +143,52 @@
         }
       }
     },
+    "/api/pending-references": {
+      "get": {
+        "tags": [
+          "Entries"
+        ],
+        "operationId": "entries.pending",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PendingReferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingReferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/entries/{entry}": {
       "get": {
         "tags": [
@@ -460,6 +506,69 @@
               "type": "string"
             }
           },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string"
+                },
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "reference",
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "ancestors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
           "links": {
             "type": "array",
             "items": {
@@ -476,6 +585,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Link"
+            }
+          },
+          "titles": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
             }
           },
           "children": {
@@ -514,9 +629,12 @@
         "required": [
           "entry",
           "path",
+          "references",
+          "ancestors",
           "links",
           "media",
           "backlinks",
+          "titles",
           "children",
           "hidden_children",
           "cited_by"
@@ -540,6 +658,18 @@
           },
           "summary": {
             "type": "string"
+          },
+          "in_parent": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "object"
+          },
+          "titles": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -547,7 +677,8 @@
           "slug",
           "type",
           "title",
-          "summary"
+          "summary",
+          "in_parent"
         ],
         "additionalProperties": false
       },
@@ -577,6 +708,36 @@
               }
             ]
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -591,6 +752,9 @@
           "relation",
           "period",
           "field",
+          "note",
+          "valid_from",
+          "valid_until",
           "id",
           "slug",
           "title"
@@ -908,6 +1072,57 @@
         ],
         "additionalProperties": false
       },
+      "PendingReferences": {
+        "type": "object",
+        "properties": {
+          "pending": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingReference"
+            }
+          }
+        },
+        "required": [
+          "pending"
+        ],
+        "additionalProperties": false
+      },
+      "PendingReference": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "cited_by": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "slug",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "cited_by"
+        ],
+        "additionalProperties": false
+      },
       "EntryList": {
         "type": "object",
         "properties": {
@@ -947,6 +1162,9 @@
                 "type": "null"
               }
             ]
+          },
+          "in_parent": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -954,7 +1172,8 @@
           "slug",
           "type",
           "title",
-          "parent_id"
+          "parent_id",
+          "in_parent"
         ],
         "additionalProperties": false
       },
@@ -990,6 +1209,10 @@
           "sensitive": {
             "type": "boolean",
             "description": "Every entry of the type is sensitive: shown only to a key with the right `sensitive`."
+          },
+          "read_in_parent": {
+            "type": "boolean",
+            "description": "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
           },
           "fields": {
             "type": "array",
@@ -1042,6 +1265,19 @@
           },
           "sensitive": {
             "type": "boolean"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "On an `entry` field only: the names of the types its entries may be of, such as `[\"organization\"]`; a write naming an entry of another type is refused. Without it, any entry is accepted."
+          },
+          "many": {
+            "type": "boolean",
+            "description": "The field holds a list of values of its kind, in the order given and without duplicates, such as several sellers or languages; `required` then means at least one. Not with `due` or `recurs`."
           },
           "due": {
             "type": "object",

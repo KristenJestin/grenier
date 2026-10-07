@@ -56,6 +56,7 @@ export const types = pgTable('types', {
   updated: timestamp(at).notNull().defaultNow(),
   deleted_at: timestamp(at),
   sensitive: boolean().notNull().default(false),
+  read_in_parent: boolean().notNull().default(false),
 })
 
 /**
@@ -103,7 +104,7 @@ export const entries = pgTable(
       setweight(to_tsvector(search_language, tags::text || ' ' || summary), 'B') ||
       setweight(to_tsvector(search_language, body || ' ' || media_text), 'C')`,
     ),
-    // Where the entry comes from: entries by id, URLs, external identifiers, registry items.
+    // Where the entry comes from: entries by id, URLs, external identifiers, inbox items.
     sources: jsonb()
       .notNull()
       .default(sql`'[]'`),
@@ -162,7 +163,8 @@ export const events = pgTable(
 
 /**
  * Links between entries, apart from the tree: a source, a target and a relation. A link
- * `fulfills` carries the period and the date field of the occurrence it closes.
+ * `fulfills` carries the period and the date field of the occurrence it closes. Any link may carry
+ * a short note and the dates it held between.
  */
 export const links = pgTable(
   'links',
@@ -172,6 +174,10 @@ export const links = pgTable(
     relation: text().notNull(),
     period: text().notNull().default(''),
     field: text().notNull().default(''),
+    // What the link says of itself: a role (`accountant`), and when it held.
+    note: text(),
+    valid_from: date({ mode: 'string' }),
+    valid_until: date({ mode: 'string' }),
   },
   (table) => [
     primaryKey({
@@ -189,29 +195,6 @@ export const links = pgTable(
       foreignColumns: [entries.id],
     }),
     index('links_target_id').on(table.target_id),
-  ],
-)
-
-/**
- * What an import read: each item by its source and its identifier at the source, the entry it
- * gave, and a hash of its content, so a second import processes only what changed.
- */
-export const sources = pgTable(
-  'sources',
-  {
-    source: text().notNull(),
-    identifier: text().notNull(),
-    entry_id: uuid().notNull(),
-    hash: text().notNull(),
-    imported_at: timestamp(at).notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ name: 'sources_pkey', columns: [table.source, table.identifier] }),
-    foreignKey({
-      name: 'sources_entry_id_fkey',
-      columns: [table.entry_id],
-      foreignColumns: [entries.id],
-    }),
   ],
 )
 
@@ -463,6 +446,8 @@ export const findings = pgTable(
     // The worst severity of its occurrences.
     severity: text().notNull(),
     occurrences: integer().notNull().default(1),
+    // The finding it was merged into, which holds its occurrences now; a merged finding is closed.
+    merged_into: integer(),
     first_seen: timestamp(at)
       .notNull()
       .default(sql`clock_timestamp()`),
@@ -476,6 +461,11 @@ export const findings = pgTable(
       sql`kind IN ('bug', 'tool_error', 'unclear_refusal', 'missing_capability', 'wrong_state', 'slow', 'model_friction', 'other')`,
     ),
     check('findings_severity', sql`severity IN ('blocks', 'hurts', 'cosmetic')`),
+    foreignKey({
+      name: 'findings_merged_into_fkey',
+      columns: [table.merged_into],
+      foreignColumns: [table.number],
+    }),
     index('findings_kind_place').on(table.kind, table.place),
   ],
 )
@@ -515,5 +505,40 @@ export const findingOccurrences = pgTable(
     }),
     check('finding_occurrences_origin', sql`origin IN ('agent', 'server')`),
     index('finding_occurrences_finding').on(table.finding, table.at),
+  ],
+)
+
+/**
+ * The rules the owner gives every agent of this instance, as Markdown: one row at most, set by the
+ * owner alone and given in the instructions of each MCP session.
+ */
+export const instanceRules = pgTable(
+  'instance_rules',
+  {
+    id: integer().primaryKey().default(1),
+    rules: text().notNull(),
+    updated: timestamp(at).notNull().defaultNow(),
+  },
+  () => [check('instance_rules_one', sql`id = 1`)],
+)
+
+/**
+ * The references of a body to a slug no entry has yet (`[[slug]]` before the entry is written):
+ * kept until an entry takes that slug or alias, then turned into a link `mentions`.
+ */
+export const pendingReferences = pgTable(
+  'pending_references',
+  {
+    source_id: uuid().notNull(),
+    slug: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ name: 'pending_references_pkey', columns: [table.source_id, table.slug] }),
+    foreignKey({
+      name: 'pending_references_source_id_fkey',
+      columns: [table.source_id],
+      foreignColumns: [entries.id],
+    }),
+    index('pending_references_slug').on(table.slug),
   ],
 )

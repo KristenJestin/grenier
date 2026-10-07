@@ -1,0 +1,1 @@
+ALTER TABLE "findings" ADD COLUMN "merged_into" integer;

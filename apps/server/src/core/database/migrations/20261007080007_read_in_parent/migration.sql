@@ -1,0 +1,1 @@
+ALTER TABLE "types" ADD COLUMN "read_in_parent" boolean DEFAULT false NOT NULL;

@@ -19,7 +19,9 @@ Three rules shape everything:
 
 - **Nothing is typed in code.** The system knows generic notions (an entry, its type, its
   fields, its parent, its links, its media, its history). Types such as "recipe" or "contract"
-  and their fields are data, created and changed at run time.
+  and their fields are data, created and changed at run time; so are the relations between
+  entries: a field of kind `entry` names the types it accepts and may hold a list (`many`), and a
+  link carries a note and the dates it held between (see `docs/model.md`).
 - **The server runs no AI.** It stores, indexes, validates, searches full text and enforces the
   rules. Every judgement (summarising, linking, deduplicating) comes from an agent, through MCP.
 - **The rules live in the server.** A write that breaks a type's definition, a broken link or a
@@ -45,7 +47,6 @@ apps/server       @grenier/server  Everything else, one program and its folders:
                                                   log, authentication: the only folder that
                                                   reaches the database;
                                    `src/mcp`      the MCP tools, over stdio and over HTTP;
-                                   `src/import`   the importer of Markdown notes;
                                    the HTTP server, Effect's on Bun (no web framework), and
                                    the command lines.
 apps/desktop      @grenier/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
@@ -64,9 +65,10 @@ calls its own toolchain for Turborepo, as `apps/desktop` calls Cargo.
 `packages/*`, `apps/*` and `tools` form the Bun workspace; Turborepo runs their tasks. Import
 another package only through its `exports`; never reach into another package's `src`. **Every
 access to the data goes through `apps/server/src/core`**: `bun tools/boundaries.ts` (part of
-`bun run lint`) refuses a SQL client imported anywhere else, so validation and the event log can
-never be bypassed, and refuses a contract (`packages/api`) that imports an application or a
-runtime.
+`bun run lint`) refuses a SQL client or Drizzle imported anywhere else, and the core's database
+layer (its tables, its Drizzle handle) imported outside the core, but the one module it exposes for
+wiring the pool and running the migrations; so validation and the event log can never be
+bypassed. It also refuses a contract (`packages/api`) that imports an application or a runtime.
 
 Every version is pinned exactly: Bun, Turborepo, oxlint, oxfmt, Vitest, TypeScript, Effect,
 PostgreSQL, and whatever a change adds.
@@ -108,15 +110,21 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 `entry:unverified [--type <type>] [--under <slug>]` lists what waits for the owner's review;
 `entry:verify <slug>…` and `entry:unverify <slug>…` set it, as the owner (no key with `owner` is
 ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
-entry:verify <slug>`. `inbox:add <folder> [--origin <name>]` drops a folder into the inbox, one
-item per file, for agents to process (`inbox_take`, then `inbox_done`).
+entry:verify <slug>`. `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
+into the inbox, one item per file, sub-folders included (hidden files and links are skipped), for
+agents to process (`inbox_take`, then `inbox_done`); `--dry-run` says what it would add, and a file
+already in the inbox (same path, origin and content) is added again only with `--again`.
 `type:sensitive <type> --off` and `field:sensitive <type> <field> --off` make a type or a field
 no longer sensitive, which only the owner may do.
 `findings:list [--kind <kind>] [--place <place>] [--severity <severity>]`, `findings:show <number>`
 and `findings:export` (Markdown on stdout) read what diagnostics found, occurrences included: the
-owner's only way to read them in full. The other
-entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
-and `bun run import` (see `src/import/README.md`).
+owner's only way to read them in full; `findings:merge <into> <from>` makes one finding of two.
+`rules:set <file>` sets the rules every agent is given in its instructions (`rules:show` prints
+them); only the owner sets them.
+`export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]` writes
+everything as Markdown into a git repository and commits what changed; the server runs it every
+night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
+entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`).
 
 Grenier with Docker, server and database in one command (the image is built from
 `apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database
@@ -155,7 +163,8 @@ by the stdio MCP server:
 The server speaks plain HTTP: published on a network, every key crosses it in clear, in the
 `Authorization` header of each request. Reach it from other machines only through an encrypted
 path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
-By default it listens on `127.0.0.1` only.
+By default it listens on `127.0.0.1` only; `GRENIER_HOST` changes that (the image sets `GRENIER_HOST=0.0.0.0`
+inside the container, and compose publishes the port on `GRENIER_BIND`).
 
 The clients never hand-write what they exchange with the server: `bun run generate` writes the
 OpenAPI document of the read API from the schemas (`packages/api/openapi.json`, no server needed),
@@ -231,6 +240,9 @@ Doctor will join the checks.
 - `bun run test` runs Vitest **under Bun** (`bun --bun vitest run`), the runtime of the server,
   in each package, with the `repository` project of `vitest.config.ts`.
 - Always `vitest run`: plain `vitest` starts watch mode and never ends.
+- The tests of `tools/` run one file at a time (`--no-file-parallelism`): some write deliberate
+  scratch files into the tree to prove the lint or the type check refuses them, while others read
+  the same tree.
 - A suite that needs PostgreSQL uses the local one of `docker-compose.yml` (in CI, the same image
   as a service), creates its own database with a unique name, and drops it at the end. It never
   touches a database that holds real data.
