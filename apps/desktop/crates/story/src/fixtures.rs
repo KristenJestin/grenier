@@ -108,6 +108,49 @@ pub fn contract() -> EntryData {
     }
 }
 
+fn item_type() -> TypeDefinition {
+    serde_json::from_value(json!({
+        "name": "item", "label": "Objet", "description": "Un objet possédé, ou une de ses pièces.",
+        "read_in_parent": true,
+        "fields": [
+            { "name": "serial", "kind": "text" },
+            { "name": "capacity", "kind": "text" },
+            { "name": "warranty_until", "kind": "date" },
+            { "name": "price", "kind": "money", "sensitive": true }
+        ]
+    }))
+    .expect("a fixture type")
+}
+
+/// A machine and its parts, one of them with a value the key may not see; and a note beside them.
+pub fn machine() -> EntryData {
+    let part = |id: &str, title: &str, fields: Value| json!({ "id": id, "slug": id, "type": "item", "title": title, "summary": "", "in_parent": true, "fields": fields });
+    EntryData {
+        read: read(around(
+            entry(
+                "ordinateur-du-bureau",
+                "Ordinateur du bureau",
+                "item",
+                json!({
+                    "summary": "La tour du bureau, montée en 2025.",
+                    "fields": { "serial": "TOUR-0042", "warranty_until": "2028-02-01" }
+                }),
+            ),
+            json!({
+                "path": ["Maison", "Bureau"],
+                "children": [
+                    part("alimentation", "Alimentation", json!({})),
+                    part("carte-graphique", "Carte graphique", json!({ "serial": "GPU-7781", "warranty_until": "2027-11-30" })),
+                    part("disque-de-sauvegarde", "Disque de sauvegarde", json!({ "serial": "HDD-5512", "capacity": "4 To", "price": "[hidden]" })),
+                    part("disque-principal", "Disque principal", json!({ "serial": "SSD-0193", "capacity": "1 To", "warranty_until": "2029-06-15" })),
+                    { "id": "notes-de-montage", "slug": "notes-de-montage", "type": "note", "title": "Notes de montage", "summary": "L'ordre des câbles et les vis à garder.", "in_parent": false }
+                ]
+            }),
+        )),
+        type_definition: Some(item_type()),
+    }
+}
+
 /// An entry with nothing but its title.
 pub fn bare() -> EntryData {
     EntryData {

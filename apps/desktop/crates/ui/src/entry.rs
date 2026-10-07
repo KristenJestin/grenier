@@ -4,7 +4,7 @@
 use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
-use api::{EntryRead, FieldDefinitionKind, Medium, Source, TypeDefinition};
+use api::{Child, EntryRead, FieldDefinitionKind, Medium, Source, TypeDefinition};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
@@ -190,7 +190,14 @@ fn ready(
         article.anchored("Champs", 2, fields);
     }
     body(&mut article, entry.id.clone(), &entry.body, &read, cx);
-    children(&mut article, &read, on_intent, window, cx);
+    children(
+        &mut article,
+        &read,
+        type_definition.as_ref(),
+        on_intent,
+        window,
+        cx,
+    );
     links(&mut article, &read, on_intent, window, cx);
     sources(&mut article, &entry.sources, on_intent, window, cx);
     media(&mut article, &read.media, cx);
@@ -644,10 +651,12 @@ fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &Ap
     }
 }
 
-/// The entries filed under this one; those the key may not see, as one quiet card.
+/// The entries filed under this one: its parts as a table of their fields, the others as cards,
+/// and those the key may not see as one quiet card.
 fn children(
     article: &mut Article,
     read: &EntryRead,
+    type_definition: Option<&TypeDefinition>,
     on_intent: &OnIntent,
     window: &mut Window,
     cx: &mut App,
@@ -656,8 +665,9 @@ fn children(
     if read.children.is_empty() && hidden == 0 {
         return;
     }
-    let mut list: Vec<AnyElement> = read
-        .children
+    let (parts, others): (Vec<&Child>, Vec<&Child>) =
+        read.children.iter().partition(|child| child.in_parent);
+    let mut list: Vec<AnyElement> = others
         .iter()
         .map(|child| {
             card(
@@ -692,13 +702,135 @@ fn children(
             .into_any_element(),
         );
     }
+    let table = (!parts.is_empty())
+        .then(|| parts_table(&parts, read, type_definition, on_intent, window, cx));
     article.anchored(
         "Contient",
         2,
         v_flex()
             .child(heading("Contient", Some(read.children.len() + hidden), cx))
-            .child(cards(list)),
+            .children(table)
+            .when(!list.is_empty(), |section| section.child(cards(list))),
     );
+}
+
+/// The parts of the entry as a table: a row each, which opens it, its title, then a column for
+/// each field of the type that one of them fills, in the order of the type, each value shown as on
+/// the part's own page.
+fn parts_table(
+    parts: &[&Child],
+    read: &EntryRead,
+    type_definition: Option<&TypeDefinition>,
+    on_intent: &OnIntent,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let filled = |name: &String| parts.iter().any(|part| part.fields.contains_key(name));
+    let mut columns: Vec<(String, Option<FieldDefinitionKind>)> = type_definition
+        .map(|definition| {
+            definition
+                .fields
+                .iter()
+                .filter(|field| filled(&field.name))
+                .map(|field| (field.name.clone(), Some(field.kind)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut rest: Vec<String> = parts
+        .iter()
+        .flat_map(|part| part.fields.keys())
+        .filter(|name| !columns.iter().any(|(known, _)| known == *name))
+        .cloned()
+        .collect();
+    rest.sort();
+    rest.dedup();
+    columns.extend(rest.into_iter().map(|name| (name, None)));
+
+    let theme = cx.theme();
+    let (card_bg, over, border, soft, muted, radius) = (
+        theme.secondary,
+        theme.accent,
+        theme.border,
+        theme.table_row_border,
+        theme.muted_foreground,
+        theme.radius_lg,
+    );
+    let primary = theme.primary;
+    let cell = || div().flex_1().min_w_0();
+    let header = h_flex()
+        .gap(space::L)
+        .px(space::L)
+        .py(space::S)
+        .border_b_1()
+        .border_color(soft)
+        .text_size(text::SMALL)
+        .text_color(muted)
+        .child(cell().child("Nom"))
+        .children(
+            columns
+                .iter()
+                .map(|(name, _)| cell().truncate().child(label_of(name))),
+        );
+    let count = parts.len();
+    let rows = parts.iter().enumerate().map(|(index, part)| {
+        let values: Vec<AnyElement> = columns
+            .iter()
+            .map(|(name, kind)| {
+                cell()
+                    .child(part.fields.get(name).map_or_else(
+                        || {
+                            div()
+                                .text_color(theme::faint(cx))
+                                .child("—")
+                                .into_any_element()
+                        },
+                        |value| value_of(value, *kind, read, on_intent, cx),
+                    ))
+                    .into_any_element()
+            })
+            .collect();
+        let title = part.title.clone();
+        let open = opener(on_intent, part.slug.clone());
+        let selector = format!("part-{}", part.slug);
+        hoverable(
+            SharedString::from(format!("part-{}", part.id)),
+            window,
+            cx,
+            move |element, hover| {
+                element
+                    .flex()
+                    .items_start()
+                    .gap(space::L)
+                    .px(space::L)
+                    .py(px(11.))
+                    .when(index + 1 < count, |row| row.border_b_1().border_color(soft))
+                    .bg(mix(card_bg, over, hover.0))
+                    .cursor_pointer()
+                    .debug_selector(|| selector)
+                    .on_click(open)
+                    .child(
+                        cell()
+                            .font_weight(FontWeight::MEDIUM)
+                            .underline()
+                            .text_decoration_1()
+                            .text_decoration_color(primary)
+                            .child(title),
+                    )
+                    .children(values)
+            },
+        )
+    });
+    v_flex()
+        .mt(space::M)
+        .mb(space::M)
+        .rounded(radius)
+        .border_1()
+        .border_color(border)
+        .bg(card_bg)
+        .overflow_hidden()
+        .child(header)
+        .children(rows)
+        .into_any_element()
 }
 
 /// The links of the entry, both ways: each card says how it relates.

@@ -203,6 +203,11 @@ impl Viewer {
         &self.tree_load
     }
 
+    /// The tree, as it is shown.
+    pub fn nodes(&self) -> &[TreeNode] {
+        &self.nodes
+    }
+
     /// The id of the entry the main pane shows, if it shows one.
     pub fn opened(&self) -> Option<&str> {
         self.opened_entry().map(|data| data.read.entry.id.as_str())

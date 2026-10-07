@@ -74,6 +74,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "viewer/parts",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    None,
+                    Pane::Entry(Box::new(Load::Ready(fixtures::machine()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "viewer/search",
             build: |window, cx| {
                 viewer(
