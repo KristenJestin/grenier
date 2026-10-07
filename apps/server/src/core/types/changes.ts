@@ -3,19 +3,21 @@ import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
 import { refusingContention } from '../entries/contention.ts'
-import { visibleIdOf } from '../entries/operations.ts'
+import { textsOf, visibleIdOf, visibleOf } from '../entries/operations.ts'
 import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { FIELD_KINDS, TypeDefinition } from '@grenier/api/model'
-import { getType, snapshotOf } from './operations.ts'
+import { checkAcceptedTypes, getType, listTypes, snapshotOf } from './operations.ts'
 
 /**
  * A change of one field of a type: make it required (or optional), change its kind, rename it,
- * change its allowed values, make it sensitive (or, for the owner alone, no longer). `default` fills the entries that lack a field made required;
- * `mapping` turns an old value into a new one. `dry_run` says what the change would do.
+ * change its allowed values, the types an entry field accepts (`null` accepts any), whether it
+ * holds a list (`many`), make it sensitive (or, for the owner alone, no longer). `default` fills
+ * the entries that lack a field made required; `mapping` turns an old value into a new one, each
+ * item of a list on its own. `dry_run` says what the change would do.
  */
 export const ChangeFieldInput = Schema.Struct({
   type: Schema.String,
@@ -24,6 +26,14 @@ export const ChangeFieldInput = Schema.Struct({
   kind: Schema.optionalKey(Schema.Literals(FIELD_KINDS)),
   rename: Schema.optionalKey(Schema.String),
   values: Schema.optionalKey(Schema.Array(Schema.String)),
+  types: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))).annotate({
+    description:
+      'For an `entry` field: the types its entries may be of, or `null` to accept any. Stored values that no longer fit are kept and listed in `mismatched`.',
+  }),
+  many: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make the field hold a list (each stored value becomes a list of one), or a single value again (refused while an entry holds several).',
+  }),
   sensitive: Schema.optionalKey(Schema.Boolean),
   default: Schema.optionalKey(Schema.Json),
   mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
@@ -108,20 +118,26 @@ const withEntryIds = Effect.fn('withEntryIds')(function* (
   const resolved = yield* Effect.forEach(rewrites, (rewrite) =>
     Effect.gen(function* () {
       const ids: Record<string, Schema.Json> = {}
-      const held = wereEntries.map((field) => rewrite.before.fields[field])
+      const held = wereEntries.flatMap((field) => textsOf(rewrite.before.fields[field]))
+      /** The id of the entry a value names; the value itself when it names none. */
+      const idFor = Effect.fnUntraced(function* (field: string, value: string) {
+        if (held.includes(value)) return value
+        const id = yield* visibleIdOf(value)
+        if (id !== undefined) return id
+        unknown.push({
+          slug: rewrite.slug,
+          // The value is not quoted: a refusal never gives a stored value back.
+          problem: `the field \`fields.${field}\` must name an existing entry, and its value names none`,
+        })
+        return value
+      })
       for (const field of fields) {
         const value = rewrite.fields[field]
-        if (!Predicate.isString(value) || held.includes(value)) continue
-        const id = yield* visibleIdOf(value)
-        if (id === undefined) {
-          unknown.push({
-            slug: rewrite.slug,
-            // The value is not quoted: a refusal never gives a stored value back.
-            problem: `the field \`fields.${field}\` must name an existing entry, and its value names none`,
-          })
-        } else {
-          ids[field] = id
-        }
+        if (Predicate.isString(value)) ids[field] = yield* idFor(field, value)
+        else if (Array.isArray(value))
+          ids[field] = yield* Effect.forEach(value, (item) =>
+            Predicate.isString(item) ? idFor(field, item) : Effect.succeed(item),
+          )
       }
       return { ...rewrite, fields: { ...rewrite.fields, ...ids } }
     }),
@@ -178,6 +194,33 @@ const rewriteEntries = Effect.fn('rewriteEntries')(function* (
 })
 
 /**
+ * The entries whose field of kind `entry` names an entry of a type the field no longer accepts:
+ * kept as they are, and said. An entry the caller may not see is not checked, as it is not shown.
+ */
+const mismatchedOf = Effect.fn('mismatchedOf')(function* (
+  type: TypeDefinition,
+  name: string,
+  rewrites: ReadonlyArray<Rewrite>,
+) {
+  const accepted = type.fields.find((field) => field.name === name)?.types
+  if (accepted === undefined) return []
+  const found: Array<{ slug: string; problem: string }> = []
+  for (const { slug, fields } of rewrites) {
+    const kinds = new Set<string>()
+    for (const value of textsOf(fields[name])) {
+      const other = yield* visibleOf(value)
+      if (other !== undefined && !accepted.includes(other.type)) kinds.add(other.type)
+    }
+    for (const kind of kinds)
+      found.push({
+        slug,
+        problem: `the field \`fields.${name}\` names an entry of type \`${kind}\``,
+      })
+  }
+  return found
+})
+
+/**
  * Changes one field of a type. Refused while an entry would become invalid, naming each one;
  * a `default` or a `mapping` repairs them, and each repaired entry gets its event.
  */
@@ -215,9 +258,14 @@ export const changeField = Effect.fn('changeField')(
     const name = input.rename ?? old.name
     const kind = input.kind ?? old.kind
     const required = input.required ?? old.required === true
+    const many = input.many ?? old.many === true
     // Values given for another kind than enum stay, so the definition refuses them.
     const values = kind === 'enum' ? (input.values ?? old.values) : input.values
-    const { values: _, required: __, sensitive: ___, ...kept } = old
+    // Accepted types given for another kind than entry stay too; a field that stops being one
+    // drops its own.
+    const accepted =
+      input.types === null ? undefined : (input.types ?? (kind === 'entry' ? old.types : undefined))
+    const { values: _, required: __, sensitive: ___, types: ____, many: _____, ...kept } = old
     // A deadline and a recurrence belong to a date: a field that stops being one drops them.
     const carried = kind === 'date' ? kept : { ...kept, due: undefined, recurs: undefined }
     const field = Object.fromEntries(
@@ -227,6 +275,8 @@ export const changeField = Effect.fn('changeField')(
         kind,
         required: required || undefined,
         values,
+        types: accepted,
+        many: many || undefined,
         sensitive: sensitive || undefined,
       }).filter(([, value]) => value !== undefined),
     )
@@ -234,14 +284,27 @@ export const changeField = Effect.fn('changeField')(
       { ...type, fields: type.fields.map((each) => (each.name === old.name ? field : each)) },
       { errors: 'all', onExcessProperty: 'error' },
     ).pipe(Effect.mapError(Refused.fromSchemaError))
+    yield* checkAcceptedTypes(next)
 
     const entries = yield* entriesOf(type.name)
     const mapping = input.mapping ?? {}
+    const wasMany = old.many === true
+    // The entries whose list could not become a single value, with how many values each holds.
+    const several: Array<{ slug: string; count: number }> = []
     const rewrites = entries.map((entry) => {
       const fields: Record<string, Schema.Json> = renamed(entry.fields, old.name, name)
+      // A single value becomes a list of one; a list of one, or none, a single value or none.
+      const held = fields[name]
+      if (held !== undefined && many && !wasMany) fields[name] = [held]
+      if (Array.isArray(held) && !many && wasMany) {
+        if (held.length > 1) several.push({ slug: entry.slug, count: held.length })
+        else if (held[0] === undefined) delete fields[name]
+        else fields[name] = held[0]
+      }
       const value = fields[name]
-      const mapped = value === undefined ? undefined : mappedOf(mapping, keyOf(value))
-      if (mapped !== undefined) fields[name] = mapped
+      const mapOne = (one: Schema.Json) => mappedOf(mapping, keyOf(one)) ?? one
+      if (value !== undefined)
+        fields[name] = many && Array.isArray(value) ? value.map(mapOne) : mapOne(value)
       if (value === undefined && required && input.default !== undefined)
         fields[name] = input.default
       return {
@@ -258,13 +321,31 @@ export const changeField = Effect.fn('changeField')(
       old.kind === 'entry' ? [old.name] : [],
     )
     const invalid = problemsOf(next, proposed, unknown)
+    const mismatched = yield* mismatchedOf(next, name, proposed)
     const repaired = proposed.filter(
       ({ before, fields, provenance }) =>
         JSON.stringify(fields) !== JSON.stringify(before.fields) ||
         JSON.stringify(provenance) !== JSON.stringify(before.provenance),
     )
+    const holdingSeveral = several.map(({ slug, count }) => `\`${slug}\` (${count} values)`)
     if (input.dry_run === true) {
-      return { type: next, invalid, repaired: repaired.map(({ slug }) => slug) }
+      return {
+        type: next,
+        invalid: [
+          ...invalid,
+          ...several.map(({ slug, count }) => ({
+            slug,
+            problem: `the field \`fields.${name}\` holds ${count} values`,
+          })),
+        ].toSorted(bySlug),
+        repaired: repaired.map(({ slug }) => slug),
+        mismatched,
+      }
+    }
+    if (several.length > 0) {
+      return yield* new Refused({
+        message: `The field \`${name}\` of \`${type.name}\` cannot hold a single value while entries hold several: ${holdingSeveral.join(', ')}. Leave one value in each first.`,
+      })
     }
     if (invalid.length > 0) return yield* refusedFor(invalid)
     yield* sql`UPDATE types SET fields = ${JSON.stringify(next.fields)}::jsonb, updated = now()
@@ -282,7 +363,7 @@ export const changeField = Effect.fn('changeField')(
       changesBetween(snapshotOf(type), snapshotOf(next)),
     )
     yield* rewriteEntries(actor, repaired)
-    return { type: next, invalid, repaired: repaired.map(({ slug }) => slug) }
+    return { type: next, invalid, repaired: repaired.map(({ slug }) => slug), mismatched }
   },
   // The type and its entries are read under a lock, and checked as they stand when written.
   (change) =>
@@ -354,6 +435,24 @@ const refuseWhileUsed = Effect.fn('refuseWhileUsed')(function* (type: string) {
   }
 })
 
+/**
+ * Refuses to take a type away while a field of another type accepts its entries: its `types` would
+ * name a type that no longer exists.
+ */
+const refuseWhileAccepted = Effect.fn('refuseWhileAccepted')(function* (name: string) {
+  const naming = (yield* listTypes).flatMap((other) =>
+    other.name === name
+      ? []
+      : other.fields
+          .filter(({ types }) => types?.includes(name) === true)
+          .map(
+            (field) =>
+              `The field \`${field.name}\` of \`${other.name}\` accepts entries of \`${name}\`: change its \`types\` first.`,
+          ),
+  )
+  if (naming.length > 0) return yield* new Refused({ message: naming.join(' ') })
+})
+
 const propose = Effect.fn('propose')(function* (
   action: 'delete' | 'merge',
   type: string,
@@ -373,6 +472,7 @@ const propose = Effect.fn('propose')(function* (
 /** Proposes to delete a type that no entry uses any more. The owner confirms it. */
 export const proposeTypeDeletion = Effect.fn('proposeTypeDeletion')(function* (name: string) {
   const type = yield* getType(name)
+  yield* refuseWhileAccepted(type.name)
   yield* refuseWhileUsed(type.name)
   return yield* propose('delete', type.name, null, null)
 })
@@ -399,6 +499,7 @@ export const proposeTypeMerge = Effect.fn('proposeTypeMerge')(function* (
     ...sharedTargets(source.name, mapping),
   ]
   if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+  yield* refuseWhileAccepted(source.name)
   return yield* propose('merge', source.name, target.name, mapping)
 })
 
@@ -436,6 +537,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
           yield* Effect.forEach([proposal.type, proposal.into].toSorted(), lockedType)
           const source = yield* lockedType(proposal.type)
           const into = yield* lockedType(proposal.into)
+          yield* refuseWhileAccepted(source.name)
           const mapping = proposal.mapping ?? {}
           const shared = sharedTargets(proposal.type, mapping)
           if (shared.length > 0) return yield* new Refused({ message: shared.join(' ') })
@@ -485,6 +587,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
         } else {
           // Locked as a merge locks it: an entry created at the same moment is counted.
           yield* lockedType(proposal.type)
+          yield* refuseWhileAccepted(proposal.type)
           yield* refuseWhileUsed(proposal.type)
         }
         yield* sql`UPDATE types SET deleted_at = now() WHERE name = ${proposal.type}`

@@ -91,6 +91,28 @@ export const getType = Effect.fn('getType')(function* (name: string, lock?: 'upd
   return type
 })
 
+/** The names of the types that exist, deleted and merged ones aside. */
+const liveNames = Effect.gen(function* () {
+  const db = yield* drizzle
+  return (yield* names(
+    db.select({ name: types.name }).from(types).where(isNull(types.deleted_at)),
+  )).map(({ name }) => name)
+})
+
+/**
+ * Refuses the fields of a type whose `types` name a type that does not exist; the type itself
+ * counts as one, so a type may accept its own entries.
+ */
+export const checkAcceptedTypes = Effect.fn('checkAcceptedTypes')(function* (type: TypeDefinition) {
+  const known = [...(yield* liveNames), type.name]
+  const problems = type.fields.flatMap((field, index) =>
+    (field.types ?? [])
+      .filter((name) => !known.includes(name))
+      .map((name) => `The field \`fields.${index}.types\` names \`${name}\`, which is not a type.`),
+  )
+  if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+})
+
 /** Every type, by name. */
 export const listTypes = Effect.gen(function* () {
   const db = yield* drizzle
@@ -118,6 +140,7 @@ export const defineType = Effect.fn('defineType')(function* (input: typeof TypeD
       if (existing.includes(type.name)) {
         return yield* new Refused({ message: `The type \`${type.name}\` already exists.` })
       }
+      yield* checkAcceptedTypes(type)
       yield* db.insert(types).values({
         name: type.name,
         label: type.label,
@@ -161,6 +184,7 @@ export const addField = Effect.fn('addField')(function* (
         })
       }
       const extended = yield* decodeType({ ...type, fields: [...type.fields, input] })
+      yield* checkAcceptedTypes(extended)
       yield* db
         .update(types)
         .set({ fields: extended.fields, updated: sql`now()` })

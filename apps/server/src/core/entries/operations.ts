@@ -9,7 +9,7 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
-import { hiddenIn, withoutHidden } from '../hidden-ids.ts'
+import { hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
@@ -109,12 +109,28 @@ const typed = rowsOf(Schema.Struct({ id: Schema.String, type: Schema.String }))
  * without the right `sensitive`, an entry of a sensitive type is one that does not exist.
  */
 export const visibleIdOf = Effect.fn('visibleIdOf')(function* (reference: string) {
+  return (yield* visibleOf(reference))?.id
+})
+
+/** The id and the type of the entry named, if there is one the caller may see. */
+export const visibleOf = Effect.fn('visibleOf')(function* (reference: string) {
   const db = yield* drizzle
   const [row] = yield* typed(
     db.select({ id: table.id, type: table.type }).from(table).where(named(reference)),
   )
-  return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row.id
+  return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row
 })
+
+/** Names in a sentence: `a`, `a` or `b`, `a`, `b` or `c`. */
+export const eitherOf = (names: ReadonlyArray<string>) =>
+  names
+    .map((name) => `\`${name}\``)
+    .join(', ')
+    .replace(/, ([^,]*)$/, ' or $1')
+
+/** The texts a value holds: itself, or the items of a list. */
+export const textsOf = (value: Schema.Json | undefined): ReadonlyArray<string> =>
+  Array.isArray(value) ? value.filter(Predicate.isString) : Predicate.isString(value) ? [value] : []
 
 const entryNamed = Effect.fn('entryNamed')(function* (reference: string, locked: boolean) {
   const db = yield* drizzle
@@ -275,11 +291,13 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   )
   // A part of this entry comes with its fields, as the caller may see them on its own page.
   const parts = all.filter((child) => child.in_parent && !hiddenTypes.includes(child.type))
-  // The entries the parts name in their fields, by id, for a reader to show their titles.
+  // The entries the entry and its parts name in their fields, by id, for a reader to show their
+  // titles; the entry's own are already without the ids the caller may not see.
   const naming = (yield* findType(entry.type))?.fields.filter(({ kind }) => kind === 'entry') ?? []
-  const namedIds = parts.flatMap(({ fields }) =>
-    naming.map(({ name }) => fields[name]).filter(Predicate.isString),
-  )
+  const namesOf = (fields: { readonly [name: string]: Schema.Json }) =>
+    naming.flatMap(({ name }) => textsOf(fields[name]))
+  const ownIds = namesOf(entry.fields)
+  const namedIds = [...ownIds, ...parts.flatMap(({ fields }) => namesOf(fields))].filter(isId)
   const hidden = yield* hiddenIn(namedIds)
   const titles = Object.fromEntries(
     namedIds.length === 0
@@ -308,7 +326,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     )
     const own = Object.fromEntries(
       Object.values(seen)
-        .filter(Predicate.isString)
+        .flatMap(textsOf)
         .flatMap((value) => (titles[value] === undefined ? [] : [[value, titles[value]]])),
     )
     shown.push({ ...child, fields: seen, titles: own })
@@ -328,6 +346,9 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     links: yield* outgoing(entry.id, hiddenTypes),
     media: yield* mediaOf(entry.id),
     backlinks: yield* incoming(entry.id, hiddenTypes),
+    titles: Object.fromEntries(
+      ownIds.flatMap((id) => (titles[id] === undefined ? [] : [[id, titles[id]]])),
+    ),
     children: shown,
     hidden_children: all.length - shown.length,
     cited_by: citing
@@ -792,9 +813,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           field: string,
           reference: string | null,
           stored: Schema.Json | undefined,
+          accepted?: ReadonlyArray<string>,
         ) {
           if (reference === null) return null
-          if (existing !== undefined && reference === stored) return reference
+          if (existing !== undefined && textsOf(stored).includes(reference)) return reference
           // A slug a new entry of the batch would have had, had it been free, names the old one.
           const other = displaced.get(reference)
           if (other !== undefined) {
@@ -803,8 +825,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
             return null
           }
-          const id = yield* visibleIdOf(reference)
-          if (id !== undefined) return id
+          const found = yield* visibleOf(reference)
+          if (found !== undefined && accepted !== undefined && !accepted.includes(found.type)) {
+            problems.push(
+              `The field \`${field}\` must name an entry of type ${eitherOf(accepted)}: \`${reference}\` is of type \`${found.type}\`.`,
+            )
+            return null
+          }
+          if (found !== undefined) return found.id
           problems.push(
             `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
           )
@@ -828,9 +856,31 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const references = { ...state.fields }
         for (const field of type?.fields ?? []) {
           const value = state.fields[field.name]
-          if (field.kind === 'entry' && Predicate.isString(value)) {
-            references[field.name] =
-              (yield* resolve(`fields.${field.name}`, value, existing?.fields[field.name])) ?? value
+          const stored = existing?.fields[field.name]
+          const at = `fields.${field.name}`
+          if (field.kind !== 'entry') continue
+          if (Predicate.isString(value)) {
+            references[field.name] = (yield* resolve(at, value, stored, field.types)) ?? value
+          } else if (field.many === true && Array.isArray(value)) {
+            // Each item as one value; what is not text is the decoder's problem.
+            const resolved: Array<Schema.Json> = []
+            for (const [index, item] of value.entries()) {
+              resolved.push(
+                Predicate.isString(item)
+                  ? ((yield* resolve(`${at}.${index}`, item, stored, field.types)) ?? item)
+                  : item,
+              )
+            }
+            // Two names of one entry, a slug and an id, are one value given twice; the same name
+            // given twice is the decoder's problem.
+            const again = resolved.findIndex((id, index) => resolved.indexOf(id) !== index)
+            const first = resolved.findIndex((id) => id === resolved[again])
+            if (again !== -1 && value[first] !== value[again]) {
+              problems.push(
+                `The field \`${at}\` names the same entry twice: \`${String(value[first])}\` and \`${String(value[again])}\`.`,
+              )
+            }
+            references[field.name] = resolved
           }
         }
 
@@ -1175,9 +1225,10 @@ const orderOf = Effect.fn('orderOf')(function* (
       const type = name === undefined ? undefined : yield* findType(name)
       // Each reference to another entry of the batch, with the key it is given under.
       const fields = (type?.fields ?? []).flatMap((field) => {
-        const value = input.fields?.[field.name]
-        return field.kind === 'entry' && Predicate.isString(value)
-          ? inBatch(value).map((target) => ({ target, key: field.name }))
+        return field.kind === 'entry'
+          ? textsOf(input.fields?.[field.name]).flatMap((value) =>
+              inBatch(value).map((target) => ({ target, key: field.name })),
+            )
           : []
       })
       return [

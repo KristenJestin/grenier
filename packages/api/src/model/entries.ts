@@ -196,6 +196,8 @@ export const EntryRead = Schema.Struct({
   links: Schema.Array(Link),
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),
+  /** The titles of the entries its fields of kind `entry` name, by id, as a reader shows them. */
+  titles: Schema.Record(Schema.String, Schema.String),
   children: Schema.Array(Child),
   hidden_children: Schema.Int,
   cited_by: Schema.Array(
