@@ -114,7 +114,10 @@ item per file, for agents to process (`inbox_take`, then `inbox_done`).
 no longer sensitive, which only the owner may do.
 `findings:list [--kind <kind>] [--place <place>] [--severity <severity>]`, `findings:show <number>`
 and `findings:export` (Markdown on stdout) read what diagnostics found, occurrences included: the
-owner's only way to read them in full. The other
+owner's only way to read them in full.
+`export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]` writes
+everything as Markdown into a git repository and commits what changed; the server runs it every
+night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
 entry points of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`)
 and `bun run import` (see `src/import/README.md`).
 

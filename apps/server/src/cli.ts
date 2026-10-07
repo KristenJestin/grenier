@@ -16,6 +16,8 @@
  *   bun src/cli.ts findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
  *   bun src/cli.ts findings:show <number>                 (with its occurrences, as Markdown)
  *   bun src/cli.ts findings:export [--kind …] [--place …] [--severity …]   (Markdown on stdout)
+ *   bun src/cli.ts export:markdown <folder> [--include-sensitive] [--remote <url>]
+ *                                  [--deploy-key <file>]  (commits to the folder's git repository)
  *
  * A key's secret is printed once, at its creation, and kept nowhere in clear.
  */
@@ -28,6 +30,7 @@ import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
 import { FindingFilter, findingsWithOccurrences } from './core/findings/index.ts'
 import { addToInbox } from './core/inbox/index.ts'
+import { exportMarkdown } from './export/markdown.ts'
 import { changeField, changeType } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@grenier/api/schema'
@@ -46,7 +49,8 @@ const USAGE = `Usage:
   field:sensitive <type> <field> [--off]
   findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
   findings:show <number>
-  findings:export [--kind <kind>] [--place <place>] [--severity <severity>]`
+  findings:export [--kind <kind>] [--place <place>] [--severity <severity>]
+  export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]`
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -63,6 +67,9 @@ const { positionals, values } = parseArgs({
     kind: { type: 'string' },
     place: { type: 'string' },
     severity: { type: 'string' },
+    'include-sensitive': { type: 'boolean' },
+    remote: { type: 'string' },
+    'deploy-key': { type: 'string' },
   },
 })
 
@@ -248,6 +255,34 @@ const command = Effect.gen(function* () {
     case 'findings:export': {
       const found = yield* findingsWithOccurrences(yield* findingFilter)
       return ['# Findings of Grenier', ...found.map(markdownOf)].join('\n\n')
+    }
+    case 'export:markdown': {
+      const folder = positionals[1]
+      if (folder === undefined) return yield* Effect.fail({ message: USAGE })
+      // Sensitive data only when asked: the export of every night leaves it out.
+      const { commit, push } = yield* exportMarkdown({
+        folder: resolve(folder),
+        remote: values.remote,
+        deployKey: values['deploy-key'],
+      }).pipe(
+        Effect.provideService(
+          Rights,
+          values['include-sensitive'] === true ? ['read', 'sensitive'] : ['read'],
+        ),
+      )
+      if (push?.pushed === false)
+        yield* Effect.sync(() => {
+          console.error(
+            `The push failed: ${push.problem}\nThe commit stays; the next export pushes it.`,
+          )
+          process.exitCode = 1
+        })
+      return [
+        commit === null
+          ? 'Nothing changed since the last export.'
+          : `Exported to ${resolve(folder)}: ${commit.split(': ').slice(1).join(': ')}.`,
+        ...(push?.pushed === true ? ['Pushed.'] : []),
+      ].join('\n')
     }
     default:
       return yield* Effect.fail({ message: USAGE })
