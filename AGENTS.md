@@ -158,7 +158,8 @@ by the stdio MCP server:
 The server speaks plain HTTP: published on a network, every key crosses it in clear, in the
 `Authorization` header of each request. Reach it from other machines only through an encrypted
 path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
-By default it listens on `127.0.0.1` only.
+By default it listens on `127.0.0.1` only; `HOST` changes that (the image sets `HOST=0.0.0.0`
+inside the container, and compose publishes the port on `GRENIER_BIND`).
 
 The clients never hand-write what they exchange with the server: `bun run generate` writes the
 OpenAPI document of the read API from the schemas (`packages/api/openapi.json`, no server needed),

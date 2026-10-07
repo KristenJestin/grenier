@@ -24,7 +24,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ARG GRENIER_VERSION=unknown
 ARG GRENIER_COMMIT=unknown
-ENV NODE_ENV=production PORT=3000 MEDIA_DIR=/data/media \
+# Every interface inside the container: compose publishes the port, on 127.0.0.1 unless told.
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 MEDIA_DIR=/data/media \
     GRENIER_VERSION=${GRENIER_VERSION} GRENIER_COMMIT=${GRENIER_COMMIT}
 WORKDIR /app
 COPY --from=dependencies /app ./
