@@ -540,6 +540,12 @@
           },
           "summary": {
             "type": "string"
+          },
+          "in_parent": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "object"
           }
         },
         "required": [
@@ -547,7 +553,8 @@
           "slug",
           "type",
           "title",
-          "summary"
+          "summary",
+          "in_parent"
         ],
         "additionalProperties": false
       },
@@ -947,6 +954,9 @@
                 "type": "null"
               }
             ]
+          },
+          "in_parent": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -954,7 +964,8 @@
           "slug",
           "type",
           "title",
-          "parent_id"
+          "parent_id",
+          "in_parent"
         ],
         "additionalProperties": false
       },
@@ -990,6 +1001,10 @@
           "sensitive": {
             "type": "boolean",
             "description": "Every entry of the type is sensitive: shown only to a key with the right `sensitive`."
+          },
+          "read_in_parent": {
+            "type": "boolean",
+            "description": "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
           },
           "fields": {
             "type": "array",

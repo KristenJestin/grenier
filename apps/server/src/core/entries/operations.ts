@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
-import { Effect, Predicate, Result, Schema } from 'effect'
+import { Effect, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { drizzle } from '../database/client.ts'
@@ -32,7 +32,12 @@ const Row = Schema.Struct({
 })
 
 const entries = rowsOf(Row)
-const children = rowsOf(Child)
+const kids = rowsOf(
+  Schema.Struct({
+    ...Struct.omit(Child.fields, ['fields']),
+    fields: Schema.Record(Schema.String, Schema.Json),
+  }),
+)
 const listed = rowsOf(TreeEntry)
 const ids = rowsOf(Schema.Struct({ id: Schema.String }))
 const ancestors = rowsOf(
@@ -206,9 +211,9 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
  */
 export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   const db = yield* drizzle
-  const { hiddenTypes } = yield* sensitivity
+  const { hiddenTypes, maskFields } = yield* sensitivity
   const entry = yield* findEntry(reference)
-  const all = yield* children(
+  const all = yield* kids(
     db
       .select({
         id: table.id,
@@ -216,12 +221,20 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
         type: table.type,
         title: table.title,
         summary: table.summary,
+        fields: table.fields,
+        in_parent: sql<boolean>`${table.type} = ${entry.type} AND EXISTS (SELECT 1 FROM types t
+          WHERE t.name = ${table.type} AND t.read_in_parent)`,
       })
       .from(table)
       .where(and(eq(table.parent_id, entry.id), isNull(table.archived_at)))
       .orderBy(asc(table.title)),
   )
-  const shown = all.filter(({ type }) => !hiddenTypes.includes(type))
+  // A part of this entry comes with its fields, as the caller may see them on its own page.
+  const shown: Array<Child> = []
+  for (const { fields, ...child } of all) {
+    if (hiddenTypes.includes(child.type)) continue
+    shown.push(child.in_parent ? { ...child, fields: maskFields(child.type, fields) } : child)
+  }
   const citing = yield* cited(
     db
       .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
@@ -258,6 +271,9 @@ export const listEntries = Effect.fn('listEntries')(function* () {
         type: table.type,
         title: table.title,
         parent_id: table.parent_id,
+        // Named whole: inside the subquery, a bare column would be the parent's.
+        in_parent: sql<boolean>`EXISTS (SELECT 1 FROM entries p JOIN types t ON t.name = p.type
+          WHERE p.id = "entries"."parent_id" AND p.type = "entries"."type" AND t.read_in_parent)`,
       })
       .from(table)
       .where(isNull(table.archived_at))

@@ -73,7 +73,10 @@ impl ::std::convert::TryFrom<::std::string::String> for AboutInstance {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Child {
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub fields: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
     pub id: ::std::string::String,
+    pub in_parent: bool,
     pub slug: ::std::string::String,
     pub summary: ::std::string::String,
     pub title: ::std::string::String,
@@ -701,6 +704,7 @@ pub struct SourceUrl {
 #[serde(deny_unknown_fields)]
 pub struct TreeEntry {
     pub id: ::std::string::String,
+    pub in_parent: bool,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub parent_id: ::std::option::Option<::std::string::String>,
     pub slug: ::std::string::String,
@@ -716,6 +720,9 @@ pub struct TypeDefinition {
     pub fields: ::std::vec::Vec<FieldDefinition>,
     pub label: TypeDefinitionLabel,
     pub name: ::std::string::String,
+    #[doc = "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub read_in_parent: ::std::option::Option<bool>,
     #[doc = "Every entry of the type is sensitive: shown only to a key with the right `sensitive`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub sensitive: ::std::option::Option<bool>,

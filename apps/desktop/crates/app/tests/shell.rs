@@ -40,8 +40,8 @@ fn serve(listener: TcpListener) {
                 "/api/entries" => (
                     "200 OK",
                     json!({ "entries": [
-                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null },
-                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen" }
+                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null, "in_parent": false },
+                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen", "in_parent": false }
                     ]}),
                 ),
                 "/api/entries/kitchen" => ("200 OK", entry("kitchen", "Kitchen", None, "")),

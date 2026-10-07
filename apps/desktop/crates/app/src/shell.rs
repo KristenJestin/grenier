@@ -323,6 +323,7 @@ mod tests {
             title: id.into(),
             type_: "note".into(),
             parent_id: parent.map(Into::into),
+            in_parent: false,
         }
     }
 

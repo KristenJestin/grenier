@@ -242,6 +242,7 @@ describe('a project-like entry is read with its children and the path of its anc
         type: 'note',
         title: 'Kick-off',
         summary: 'First meeting.',
+        in_parent: false,
       },
       {
         id: decision.id,
@@ -249,6 +250,7 @@ describe('a project-like entry is read with its children and the path of its anc
         type: 'note',
         title: 'Use maps',
         summary: 'We use maps.',
+        in_parent: false,
       },
     ])
     expect((await run(readEntry(decision.slug))).path).toEqual(['Work', 'Atlas'])
@@ -277,9 +279,17 @@ describe('the tree is listed in one read: every entry with its parent, archived 
       type: 'area',
       title: 'Garden',
       parent_id: null,
+      in_parent: false,
     })
     expect(listed.filter(({ parent_id }) => parent_id === garden.id)).toEqual([
-      { id: shed.id, slug: 'shed', type: 'note', title: 'Shed', parent_id: garden.id },
+      {
+        id: shed.id,
+        slug: 'shed',
+        type: 'note',
+        title: 'Shed',
+        parent_id: garden.id,
+        in_parent: false,
+      },
     ])
   })
 })

@@ -94,8 +94,8 @@ pub fn contract() -> EntryData {
                     { "relation": "fulfills", "period": "2026-09", "field": "start", "id": "facture-de-septembre", "slug": "facture-de-septembre", "title": "Facture de septembre" }
                 ],
                 "children": [
-                    { "id": "facture-de-septembre", "slug": "facture-de-septembre", "type": "invoice", "title": "Facture de septembre", "summary": "" },
-                    { "id": "facture-d-aout", "slug": "facture-d-aout", "type": "invoice", "title": "Facture d'août", "summary": "" }
+                    { "id": "facture-de-septembre", "slug": "facture-de-septembre", "type": "invoice", "title": "Facture de septembre", "summary": "", "in_parent": false },
+                    { "id": "facture-d-aout", "slug": "facture-d-aout", "type": "invoice", "title": "Facture d'août", "summary": "", "in_parent": false }
                 ],
                 "hidden_children": 1,
                 "media": [
@@ -135,7 +135,7 @@ pub fn long() -> EntryData {
         })
         .collect();
     let children: Vec<Value> = (1..=40)
-        .map(|index| json!({ "id": format!("page-{index}"), "slug": format!("page-{index}"), "type": "note", "title": format!("Page {index} du carnet de bord de la longue traversée"), "summary": "" }))
+        .map(|index| json!({ "id": format!("page-{index}"), "slug": format!("page-{index}"), "type": "note", "title": format!("Page {index} du carnet de bord de la longue traversée"), "summary": "", "in_parent": false }))
         .collect();
     EntryData {
         read: read(around(

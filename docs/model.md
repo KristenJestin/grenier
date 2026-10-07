@@ -157,6 +157,13 @@ entries by domain.
 
 The nightly Markdown export follows the parents to rebuild a folder hierarchy.
 
+An object made of parts (a computer and its disks) is one entry per part, filed under the whole.
+A type that says `read_in_parent` (set with `define_type` or `change_type`, false by default)
+has its entries filed under an entry of the same type read in their parent: the parent's `read`
+gives each such child its fields (sensitive ones hidden as on the child's own page), and the tree
+marks it `in_parent`, so a client shows the parts in the parent's page rather than as branches.
+Each part stays an entry of its own, found by search with its history, sources and media.
+
 ## Links
 
 Links are separate from filing. A link has a source entry, a target entry and a free relation
