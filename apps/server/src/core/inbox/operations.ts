@@ -1,12 +1,13 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { Effect, Result, Schema, Struct } from 'effect'
+import { Effect, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { identityOf, lockedEntry, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
-import { mimeOf, readFileOf, sha256Of, storeFile } from '../media/files.ts'
+import { mimeOf, sha256Of, storeFile } from '../media/files.ts'
+import { attachMedia } from '../media/operations.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
 import { INBOX } from './store.ts'
@@ -397,52 +398,6 @@ export const readItem = Effect.fn('readItem')(function* (input: {
   }
 })
 
-const owned = rowsOf(
-  Schema.Struct({
-    kind: Schema.String,
-    status: Schema.String,
-    taken_by: Schema.NullOr(Schema.String),
-    closed_by: Schema.NullOr(Schema.String),
-    content: Schema.NullOr(Schema.String),
-    sha256: Schema.NullOr(Schema.String),
-  }),
-)
-
-/**
- * The bytes of the file of an item the caller has taken, or has just marked processed: what an
- * agent attaches to an entry without sending it again.
- */
-export const itemFile = Effect.fn('itemFile')(function* (id: string) {
-  const db = yield* drizzle
-  const actor = yield* currentActor
-  const [item] = /^[0-9a-f-]{36}$/i.test(id)
-    ? yield* owned(
-        db
-          .select({
-            kind: inbox.kind,
-            status: inbox.status,
-            taken_by: inbox.taken_by,
-            closed_by: inbox.closed_by,
-            content: inbox.content,
-            sha256: inbox.sha256,
-          })
-          .from(inbox)
-          .where(eq(inbox.id, id)),
-      )
-    : []
-  if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
-  const mine =
-    (item.status === 'taken' && item.taken_by === actor) ||
-    (item.status === 'processed' && item.closed_by === actor)
-  if (!mine)
-    return yield* new Refused({ message: `Take the item \`${id}\` before attaching its file.` })
-  if (item.kind !== 'file')
-    return yield* new Refused({ message: `The item \`${id}\` holds no file to attach.` })
-  return item.sha256 === null
-    ? new Uint8Array(Buffer.from(item.content ?? '', 'utf8'))
-    : new Uint8Array(yield* readFileOf(item.sha256))
-})
-
 /** The item of that id, locked until the transaction ends; refused when there is none. */
 const lockedItem = Effect.fn('lockedItem')(function* (id: string) {
   const db = yield* drizzle
@@ -539,13 +494,24 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
 
 export const FinishInput = Schema.Struct({
   id: Schema.String,
-  entries: Schema.Array(Schema.String),
+  entries: Schema.Array(
+    Schema.Union([
+      Schema.String,
+      Schema.Struct({
+        entry: Schema.String,
+        attach: Schema.Struct({ alt: Schema.optionalKey(Schema.String) }).annotate({
+          description: "Attaches the item's file to this entry, with what it shows as `alt`.",
+        }),
+      }),
+    ]),
+  ),
 })
 export type FinishInput = typeof FinishInput.Type
 
 /**
  * Marks an item processed, with the entries it produced: each of them cites the item in its
- * `sources`. The item must be taken by the caller.
+ * `sources`, and those given with `attach` get its file as a medium. The item must be taken by the
+ * caller; nothing is written unless all of it is.
  */
 export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput) {
   const client = yield* SqlClient.SqlClient
@@ -567,7 +533,10 @@ export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput)
         })
       }
       const cited = { source: INBOX, item: item.id }
-      const entries = yield* Effect.forEach(input.entries, (reference) =>
+      const named = input.entries.map((given) =>
+        Predicate.isString(given) ? { entry: given } : given,
+      )
+      const entries = yield* Effect.forEach(named, ({ entry: reference }) =>
         Effect.gen(function* () {
           // Locked before its sources are read: two items finished on it both stay cited.
           const entry = yield* lockedEntry(reference)
@@ -585,11 +554,19 @@ export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput)
           return yield* identityOf(written)
         }),
       )
+      const media = yield* Effect.forEach(
+        named.flatMap((given) => ('attach' in given ? [given] : [])),
+        ({ entry, attach }) =>
+          Effect.map(attachMedia({ entry, item: item.id, ...attach }), ({ media: medium }) => ({
+            entry,
+            medium,
+          })),
+      )
       yield* db
         .update(inbox)
         .set({ status: 'processed', closed_by: actor, closed_at: sql`now()` })
         .where(eq(inbox.id, item.id))
-      return { id: item.id, status: 'processed' as const, entries }
+      return { id: item.id, status: 'processed' as const, entries, media }
     }),
   )
 })

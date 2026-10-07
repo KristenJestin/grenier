@@ -211,7 +211,9 @@ on the server's disk, stored by content hash; the database keeps its record (kin
 size, hash, dimensions or duration, source URL, alternative text). Media never go into git.
 
 How the server does it: a file comes as base64 (20 MB at most), as the file of an inbox item the
-caller has taken or just processed (`item`, so an agent never sends it again), or as an http(s) URL the server
+caller has taken or just processed (`item`, so an agent never sends it again; or, when the
+item is done, `inbox_done` with `{ "entry": "<slug>", "attach": { "alt": "…" } }` among its
+entries), or as an http(s) URL the server
 fetches (200 MB, 30 seconds, every redirect checked, never a private address unless
 `MEDIA_ALLOW_PRIVATE=true`; the connection goes to the very address that was checked, so a
 name that resolves elsewhere a moment later cannot lead it to the private network). Its type is read from its content, never from what the caller

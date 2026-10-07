@@ -59,6 +59,10 @@ const added = async (text: string) =>
     await answerOf('inbox_add', { kind: 'text', text, origin: 'notes' }),
   ).item.id
 
+/** A PNG of one pixel, made for the tests. */
+const PIXEL =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+
 const LONG = `${'A line of the journal, long enough to weigh.\n'.repeat(2000)}`
 
 describe('answers carry the entry, not its content', () => {
@@ -233,6 +237,27 @@ describe('six agents work the inbox in parallel', () => {
             path: [],
           },
         ],
+        media: [],
+      },
+    })
+  })
+
+  test('inbox_done attaches the file of the item to the entry given with attach', async () => {
+    const { item } = Schema.decodeUnknownSync(Added)(
+      await answerOf('inbox_add', { kind: 'file', name: 'pane.png', data: PIXEL }),
+    )
+    // A file item is taken with its image, beside the text the other calls answer.
+    await mcp().request('tools/call', { name: 'inbox_take', arguments: { id: item.id } })
+    expect(
+      await answerOf('inbox_done', {
+        id: item.id,
+        entries: [{ entry: 'garden', attach: { alt: 'Cracked pane' } }],
+      }),
+    ).toMatchObject({
+      item: {
+        status: 'processed',
+        entries: [{ slug: 'garden' }],
+        media: [{ entry: 'garden', medium: { mime: 'image/png', alt: 'Cracked pane' } }],
       },
     })
   })
@@ -240,8 +265,6 @@ describe('six agents work the inbox in parallel', () => {
 
 describe('several images taken at once', () => {
   test('each is shown to the agent', async () => {
-    const PIXEL =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
     const ids = await Promise.all(
       ['one.png', 'two.png'].map(
         async (name) =>
