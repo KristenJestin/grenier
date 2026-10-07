@@ -193,6 +193,7 @@ pub struct EntryRead {
     pub media: ::std::vec::Vec<Medium>,
     pub path: ::std::vec::Vec<::std::string::String>,
     pub references: ::std::vec::Vec<EntryReadReferencesItem>,
+    pub titles: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
 }
 #[doc = "`EntryReadAncestorsItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -227,6 +228,9 @@ pub struct FieldDefinition {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub due: ::std::option::Option<FieldDefinitionDue>,
     pub kind: FieldDefinitionKind,
+    #[doc = "The field holds a list of values of its kind, in the order given and without duplicates, such as several sellers or languages; `required` then means at least one. Not with `due` or `recurs`."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub many: ::std::option::Option<bool>,
     pub name: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub recurs: ::std::option::Option<FieldDefinitionRecurs>,
@@ -234,6 +238,9 @@ pub struct FieldDefinition {
     pub required: ::std::option::Option<bool>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub sensitive: ::std::option::Option<bool>,
+    #[doc = "On an `entry` field only: the names of the types its entries may be of, such as `[\"organization\"]`; a write naming an entry of another type is refused. Without it, any entry is accepted."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub types: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub values: ::std::option::Option<::std::vec::Vec<FieldDefinitionValuesItem>>,
 }
@@ -558,10 +565,16 @@ pub struct Link {
     pub field: ::std::option::Option<::std::string::String>,
     pub id: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub note: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub period: ::std::option::Option<::std::string::String>,
     pub relation: ::std::string::String,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub valid_from: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub valid_until: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`Medium`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

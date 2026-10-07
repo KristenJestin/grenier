@@ -587,6 +587,12 @@
               "$ref": "#/components/schemas/Link"
             }
           },
+          "titles": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "children": {
             "type": "array",
             "items": {
@@ -628,6 +634,7 @@
           "links",
           "media",
           "backlinks",
+          "titles",
           "children",
           "hidden_children",
           "cited_by"
@@ -701,6 +708,36 @@
               }
             ]
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -715,6 +752,9 @@
           "relation",
           "period",
           "field",
+          "note",
+          "valid_from",
+          "valid_until",
           "id",
           "slug",
           "title"
@@ -1225,6 +1265,19 @@
           },
           "sensitive": {
             "type": "boolean"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "On an `entry` field only: the names of the types its entries may be of, such as `[\"organization\"]`; a write naming an entry of another type is refused. Without it, any entry is accepted."
+          },
+          "many": {
+            "type": "boolean",
+            "description": "The field holds a list of values of its kind, in the order given and without duplicates, such as several sellers or languages; `required` then means at least one. Not with `due` or `recurs`."
           },
           "due": {
             "type": "object",
