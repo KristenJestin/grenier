@@ -20,6 +20,7 @@ const ENTRY: &str = r#"{
     "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null
   },
   "path": ["Kitchen"],
+  "ancestors": [{ "id": "01a1-kitchen", "title": "Kitchen" }],
   "links": [{ "relation": "mentions", "period": null, "field": null, "id": "01a1-pastry", "slug": "pastry", "title": "Pastry" }],
   "media": [{
     "id": "01a1-medium", "kind": "image", "mime": "image/png", "size": 68, "sha256": "ab12",

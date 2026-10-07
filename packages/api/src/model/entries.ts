@@ -176,6 +176,10 @@ export type Medium = typeof Medium.Type
 export const EntryRead = Schema.Struct({
   entry: Entry,
   path: Schema.Array(Schema.String),
+  /** The same ancestors with their ids, from the root: `null` for one the key may not see. */
+  ancestors: Schema.Array(
+    Schema.Struct({ id: Schema.NullOr(Schema.String), title: Schema.String }),
+  ),
   links: Schema.Array(Link),
   media: Schema.Array(Medium),
   backlinks: Schema.Array(Link),

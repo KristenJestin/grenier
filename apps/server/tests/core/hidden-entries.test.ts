@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import type { Right } from '../../src/core/auth/index.ts'
-import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { archiveEntry, readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { entryHistory, fieldHistory } from '../../src/core/events/index.ts'
 import { addToInbox, finishItem, takeItem } from '../../src/core/inbox/index.ts'
 import { backlinksOf, link, linksOf, unlink } from '../../src/core/links/index.ts'
@@ -210,5 +210,23 @@ describe('a key without the right sensitive cannot tell that a hidden entry exis
     ])
     await trusted(link('secret-page', 'spare-folder', 'about'))
     expect(await plain(backlinksOf('spare-folder'))).toEqual([])
+  })
+})
+
+describe('the ancestors of an entry, for a breadcrumb', () => {
+  test('an archived ancestor is there with its id; a hidden one without', async () => {
+    const top = await trusted(writeEntry({ type: 'folder', title: 'Attic' }))
+    const middle = await trusted(
+      writeEntry({ type: 'folder', title: 'Old trunk', parent: 'attic' }),
+    )
+    await trusted(writeEntry({ type: 'folder', title: 'Letters', parent: 'old-trunk' }))
+    await trusted(archiveEntry('old-trunk'))
+    expect((await plain(readEntry('letters'))).ancestors).toEqual([
+      { id: top.id, title: 'Attic' },
+      { id: middle.id, title: 'Old trunk' },
+    ])
+    expect((await plain(readEntry('loose-page'))).ancestors).toEqual([
+      { id: null, title: '[hidden]' },
+    ])
   })
 })

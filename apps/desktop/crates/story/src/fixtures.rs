@@ -25,7 +25,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
 
 fn around(entry: Value, extra: Value) -> Value {
     let mut base = json!({
-        "entry": entry, "path": [], "links": [], "media": [], "backlinks": [],
+        "entry": entry, "path": [], "ancestors": [], "links": [], "media": [], "backlinks": [],
         "children": [], "hidden_children": 0, "cited_by": []
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
@@ -86,6 +86,7 @@ pub fn contract() -> EntryData {
             ),
             json!({
                 "path": ["Maison", "Abonnements"],
+                "ancestors": [{ "id": "maison", "title": "Maison" }, { "id": "abonnements", "title": "Abonnements" }],
                 "links": [
                     { "relation": "mentions", "period": null, "field": null, "id": "box-du-salon", "slug": "box-du-salon", "title": "Box du salon" },
                     { "relation": "signed_by", "period": null, "field": null, "id": "camille-exemple", "slug": "camille-exemple", "title": "Camille Exemple" }
@@ -138,6 +139,7 @@ pub fn machine() -> EntryData {
             ),
             json!({
                 "path": ["Maison", "Bureau"],
+                "ancestors": [{ "id": "maison", "title": "Maison" }, { "id": "bureau", "title": "Bureau" }],
                 "children": [
                     part("alimentation", "Alimentation", json!({})),
                     part("carte-graphique", "Carte graphique", json!({ "serial": "GPU-7781", "warranty_until": "2027-11-30" })),
@@ -190,6 +192,7 @@ pub fn long() -> EntryData {
             ),
             json!({
                 "path": ["Archives", "Voyages", "Traversées", "Carnets", "Deuxième série", "Volume trois"],
+                "ancestors": [{ "id": "archives", "title": "Archives" }, { "id": "voyages", "title": "Voyages" }, { "id": "traversees", "title": "Traversées" }, { "id": "carnets", "title": "Carnets" }, { "id": "deuxieme-serie", "title": "Deuxième série" }, { "id": "volume-trois", "title": "Volume trois" }],
                 "children": children
             }),
         )),

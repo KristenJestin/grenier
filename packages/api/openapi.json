@@ -460,6 +460,32 @@
               "type": "string"
             }
           },
+          "ancestors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
           "links": {
             "type": "array",
             "items": {
@@ -514,6 +540,7 @@
         "required": [
           "entry",
           "path",
+          "ancestors",
           "links",
           "media",
           "backlinks",
