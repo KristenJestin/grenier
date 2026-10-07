@@ -16,7 +16,10 @@ the crate's source for the real signature.
   entry, search, follow a link). Colours come from the theme (`cx.theme()`), which Grenier's
   `crates/ui/src/theme.json` fills, light and dark; spacing and text sizes from `ui::theme`; how
   things move from `ui::motion`: no literal colour, size or duration in a screen. An icon outside
-  GPUI Kit's default set is added to `ui::assets`, or it draws nothing.
+  GPUI Kit's default set is added to `ui::assets`, or it draws nothing. The fonts ship inside the
+  viewer (`assets/fonts`, with their licences and origin in its `README.md`), loaded by
+  `ui::theme::load_fonts` before the first window; a screen names a family only through
+  `ui::theme::font` (`TEXT`, `HEADING`).
 - `crates/story`: the gallery, the place to design a screen. One story per screen and state,
   named `screen/state`, with invented data only (never a real person, address or amount).
 - `crates/app`: the application binary.

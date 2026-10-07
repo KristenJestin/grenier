@@ -1,11 +1,40 @@
 //! The theme of the viewer, defined once. Colours come from Grenier's theme, `theme.json`, which
 //! GPUI Kit loads as its light and dark themes: every screen reads them from `cx.theme()`.
-//! Spacing, the type scale and the widths come from here, so no screen writes a literal size.
+//! Spacing, the type scale, the widths and the fonts come from here, so no screen writes a literal
+//! size or names a font.
+
+use std::borrow::Cow;
 
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
 use gpui_kit::{App, Hsla, Pixels, px};
 
 const THEMES: &str = include_str!("theme.json");
+
+/// The families of the viewer, shipped inside it (`apps/desktop/assets/fonts`), so it reads the
+/// same on every machine.
+pub mod font {
+    /// The text: Open Sauce Sans.
+    pub const TEXT: &str = "Open Sauce Sans";
+    /// The headings: the titles of entries, the sections of a page, the headings of a body. Peace
+    /// Sans is chosen for them; until its file is in `assets/fonts`, Open Sauce Sans.
+    pub const HEADING: &str = TEXT;
+}
+
+/// The font files, read into the program when it is built.
+const FONTS: [&[u8]; 5] = [
+    include_bytes!("../../../assets/fonts/OpenSauceSans-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/OpenSauceSans-Italic.ttf"),
+    include_bytes!("../../../assets/fonts/OpenSauceSans-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/OpenSauceSans-SemiBold.ttf"),
+    include_bytes!("../../../assets/fonts/OpenSauceSans-Bold.ttf"),
+];
+
+/// Gives the text system the viewer's fonts: once, at start-up, before the first window.
+pub fn load_fonts(cx: &mut App) {
+    cx.text_system()
+        .add_fonts(FONTS.iter().map(|font| Cow::Borrowed(*font)).collect())
+        .expect("the embedded fonts are valid");
+}
 
 /// Light or dark, for the whole application, in Grenier's colours.
 pub fn set_dark(dark: bool, cx: &mut App) {
@@ -24,6 +53,7 @@ pub fn set_dark(dark: bool, cx: &mut App) {
         ThemeMode::Light
     };
     Theme::change(mode, None, cx);
+    Theme::global_mut(cx).font_family = font::TEXT.into();
 }
 
 /// Whether the application shows the dark theme.

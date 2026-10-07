@@ -301,7 +301,76 @@ pub fn stories() -> Vec<Story> {
                 )
             },
         },
+        Story {
+            name: "theme/typography",
+            build: |_, cx| cx.new(|_| Typography).into(),
+        },
     ]
+}
+
+/// The two families of the viewer at every size of its type scale, with the letters French needs.
+struct Typography;
+
+impl Render for Typography {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        const SAMPLE: &str = "Mémoire du grenier : « l’œuvre à ranger », déjà vue, çà et là.";
+        let sizes = [
+            ("TITLE", text::TITLE),
+            ("HEADING", text::HEADING),
+            ("SUBHEADING", text::SUBHEADING),
+            ("LEAD", text::LEAD),
+            ("PROSE", text::PROSE),
+            ("BODY", text::BODY),
+            ("SMALL", text::SMALL),
+            ("XS", text::XS),
+        ];
+        let theme = cx.theme();
+        let family = |name: &'static str, family: &'static str| {
+            v_flex()
+                .gap(space::M)
+                .child(
+                    div()
+                        .text_size(text::SMALL)
+                        .text_color(theme.muted_foreground)
+                        .child(format!("{name} — {family}")),
+                )
+                .children(sizes.iter().map(|(label, size)| {
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .gap(space::L)
+                        .child(
+                            div()
+                                .w(px(96.))
+                                .flex_none()
+                                .text_size(text::XS)
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{label} {}", f32::from(*size))),
+                        )
+                        .child(div().font_family(family).text_size(*size).child(SAMPLE))
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .gap(space::L)
+                        .font_family(family)
+                        .text_size(text::LEAD)
+                        .child(div().font_weight(FontWeight::NORMAL).child("Normal"))
+                        .child(div().font_weight(FontWeight::MEDIUM).child("Medium"))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child("Semibold"))
+                        .child(div().font_weight(FontWeight::BOLD).child("Bold"))
+                        .child(div().italic().child("Italique")),
+                )
+        };
+        v_flex()
+            .size_full()
+            .p(space::XXL)
+            .gap(space::XXL)
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .child(family("Texte", theme::font::TEXT))
+            .child(family("Titres", theme::font::HEADING))
+    }
 }
 
 /// The gallery: the list of stories, the one shown, and light or dark.
