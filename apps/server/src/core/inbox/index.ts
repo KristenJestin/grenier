@@ -9,6 +9,8 @@ export {
   InboxInput,
   InboxItem,
   listInbox,
+  peekItem,
   takeItem,
+  takeItems,
 } from './operations.ts'
 export { INBOX } from './store.ts'

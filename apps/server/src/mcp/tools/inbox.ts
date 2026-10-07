@@ -7,7 +7,9 @@ import {
   InboxFilter,
   InboxInput,
   listInbox,
+  peekItem,
   takeItem,
+  takeItems,
 } from '../../core/inbox/index.ts'
 import { Effect, Schema } from 'effect'
 import { defineTool } from '../tool.ts'
@@ -24,7 +26,7 @@ export const inboxAddTool = defineTool({
 export const inboxListTool = defineTool({
   name: 'inbox_list',
   description:
-    'Lists the items of the inbox: those waiting first, then those taken; or those of a `status`.',
+    'Lists the items of the inbox: those waiting first, then those taken; or those of a `status`. With `preview`, the first lines of each text, to plan which items to take together.',
   input: InboxFilter,
   right: 'read',
   run: (filter) => Effect.map(listInbox(filter), (items) => ({ items })),
@@ -33,10 +35,25 @@ export const inboxListTool = defineTool({
 export const inboxTakeTool = defineTool({
   name: 'inbox_take',
   description:
-    'Takes an item to process, the one `id` names or the oldest waiting, with its content; no other agent gets it. Then read it, search what exists, write or update the entries it gives (split it when it holds several things), and call `inbox_done`.',
-  input: Schema.Struct({ id: Schema.optionalKey(Schema.String) }),
+    'Takes an item to process, the one `id` names or the oldest waiting, with its content; no other agent gets it. `ids` takes several at once, all or none. Then read it, search what exists, write or update the entries it gives (split it when it holds several things), and call `inbox_done`.',
+  input: Schema.Struct({
+    id: Schema.optionalKey(Schema.String),
+    ids: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
   right: 'write',
-  run: (input) => Effect.map(takeItem(input), (item) => ({ item })),
+  run: ({ id, ids }) =>
+    ids === undefined
+      ? Effect.map(takeItem(id === undefined ? {} : { id }), (item) => ({ item }))
+      : Effect.map(takeItems(id === undefined ? ids : [id, ...ids]), (items) => ({ items })),
+})
+
+export const inboxPeekTool = defineTool({
+  name: 'inbox_peek',
+  description:
+    'Reads an item with its content without taking it, to decide how to group items before taking them.',
+  input: Schema.Struct({ id: Schema.String }),
+  right: 'read',
+  run: ({ id }) => Effect.map(peekItem(id), (item) => ({ item })),
 })
 
 export const inboxDoneTool = defineTool({

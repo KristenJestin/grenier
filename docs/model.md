@@ -204,6 +204,11 @@ image the agent sees, its longest side 1568 pixels at most; any other file is gi
 address, `/media/<hash>`, fetched only when needed, served to a key with `write` while the
 item is pending or taken, and afterwards only through the entries that hold it); it then marks the item processed with those
 entries, each of which cites the item in its `sources` (`{ "source": "inbox", "item": "<id>" }`).
+Before taking, an agent may plan a batch: the list gives, on request, the first lines of each
+text (five lines, 300 characters at most) and its size, `inbox_peek` reads an item whole without
+taking it, and `inbox_take` takes several items at once, all or none. Answers that follow a write
+(`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
+summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no
 mechanical re-import. The owner drops a folder into the inbox, one item per file, with
 `inbox:add <folder>`. The Markdown importer stays, to try the model on a collection; it is not

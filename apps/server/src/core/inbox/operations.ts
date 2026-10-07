@@ -1,10 +1,10 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
-import { Effect, Schema } from 'effect'
+import { Effect, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
-import { findEntry, writeEntry } from '../entries/operations.ts'
+import { findEntry, identityOf, writeEntry } from '../entries/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { mimeOf, storeFile } from '../media/files.ts'
 import { Refused } from '../refused.ts'
@@ -62,7 +62,10 @@ const SUMMARY = {
   id: inbox.id,
   kind: inbox.kind,
   name: inbox.name,
-  size: inbox.size,
+  // A file's size, or the length of a text, in bytes.
+  size: sql<
+    number | null
+  >`CASE WHEN ${inbox.kind} = 'text' THEN octet_length(${inbox.content}) ELSE ${inbox.size} END`,
   mime: inbox.mime,
   origin: inbox.origin,
   received_at: sql<string>`to_char(${inbox.received_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
@@ -140,20 +143,62 @@ export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) 
 
 export const InboxFilter = Schema.Struct({
   status: Schema.optionalKey(Schema.Literals(ITEM_STATUSES)),
+  preview: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description: 'With the first lines of each text, or its URL, to plan before taking.',
+    }),
+  ),
 })
 export type InboxFilter = typeof InboxFilter.Type
 
-/** The items of the inbox: those waiting and those taken, pending first; or those of a status. */
+/** How much of an item a preview shows: its first lines, cut short. */
+const PREVIEW_LINES = 5
+const PREVIEW_LENGTH = 300
+
+const previewed = rowsOf(
+  Schema.Struct({ ...InboxItem.fields, preview: Schema.NullOr(Schema.String) }),
+)
+
+/**
+ * The items of the inbox: those waiting and those taken, pending first; or those of a status.
+ * With `preview`, each with the first lines of its text, or its URL (none for a file that is not
+ * text).
+ */
 export const listInbox = Effect.fn('listInbox')(function* (filter: InboxFilter) {
   const db = yield* drizzle
   const statuses = filter.status === undefined ? ['pending', 'taken'] : [filter.status]
-  return yield* summaries(
+  const order = [desc(sql`${inbox.status} = 'pending'`), asc(inbox.received_at)]
+  const where = inArray(inbox.status, statuses)
+  if (filter.preview !== true)
+    return yield* summaries(
+      db
+        .select(SUMMARY)
+        .from(inbox)
+        .where(where)
+        .orderBy(...order),
+    )
+  return yield* previewed(
     db
-      .select(SUMMARY)
+      .select({
+        ...SUMMARY,
+        preview: sql<
+          string | null
+        >`left(array_to_string((string_to_array(left(${inbox.content}, 2000), E'\\n'))[1:${PREVIEW_LINES}], E'\\n'), ${PREVIEW_LENGTH})`,
+      })
       .from(inbox)
-      .where(inArray(inbox.status, statuses))
-      .orderBy(desc(sql`${inbox.status} = 'pending'`), asc(inbox.received_at)),
+      .where(where)
+      .orderBy(...order),
   )
+})
+
+/** An item with its content, as it is, without taking it. */
+export const peekItem = Effect.fn('peekItem')(function* (id: string) {
+  const db = yield* drizzle
+  const [item] = /^[0-9a-f-]{36}$/i.test(id)
+    ? yield* items(db.select(FULL).from(inbox).where(eq(inbox.id, id)))
+    : []
+  if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
+  return item
 })
 
 /** The item of that id, locked until the transaction ends; refused when there is none. */
@@ -211,6 +256,40 @@ export const takeItem = Effect.fn('takeItem')(function* (input: { readonly id?: 
   )
 })
 
+/**
+ * Takes several items at once, in the order given, all or none: one that cannot be taken refuses
+ * them all, with a sentence for each.
+ */
+export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<string>) {
+  const client = yield* SqlClient.SqlClient
+  const db = yield* drizzle
+  const actor = yield* currentActor
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      const found = yield* Effect.forEach(ids, (id) =>
+        lockedItem(id).pipe(
+          Effect.flatMap((item) => {
+            const refused = refusalFor(item, actor)
+            return refused === undefined ? Effect.succeed(item) : Effect.fail(refused)
+          }),
+          Effect.result,
+        ),
+      )
+      const problems = found.flatMap((result) =>
+        Result.isFailure(result) ? [result.failure.message] : [],
+      )
+      if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
+      const taken = found.flatMap((result) => (Result.isSuccess(result) ? [result.success.id] : []))
+      yield* db
+        .update(inbox)
+        .set({ status: 'taken', taken_by: actor, taken_at: sql`now()` })
+        .where(inArray(inbox.id, taken))
+      const read = yield* items(db.select(FULL).from(inbox).where(inArray(inbox.id, taken)))
+      return taken.flatMap((id) => read.filter((item) => item.id === id))
+    }),
+  )
+})
+
 export const FinishInput = Schema.Struct({
   id: Schema.String,
   entries: Schema.Array(Schema.String),
@@ -255,17 +334,21 @@ export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput)
           const written = already
             ? entry
             : yield* writeEntry({ entry: entry.id, sources: [...kept, cited] })
-          return { id: written.id, slug: written.slug, title: written.title }
+          return yield* identityOf(written)
         }),
       )
       yield* db
         .update(inbox)
         .set({ status: 'processed', closed_by: actor, closed_at: sql`now()` })
         .where(eq(inbox.id, item.id))
-      return { ...item, status: 'processed' as const, entries }
+      return { ...summaryOf(item), status: 'processed' as const, entries }
     }),
   )
 })
+
+/** An item as it is listed, without its content. */
+const summaryOf = (item: typeof Full.Type) =>
+  Struct.omit(item, ['text', 'url', 'sha256', 'media_url'])
 
 export const DismissInput = Schema.Struct({
   id: Schema.String,
@@ -292,7 +375,7 @@ export const dismissItem = Effect.fn('dismissItem')(function* (input: DismissInp
           closed_at: sql`now()`,
         })
         .where(and(eq(inbox.id, item.id)))
-      return { ...item, status: 'dismissed' as const, reason: input.reason }
+      return { ...summaryOf(item), status: 'dismissed' as const, reason: input.reason }
     }),
   )
 })
