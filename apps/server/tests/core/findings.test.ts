@@ -205,6 +205,24 @@ describe('the call a finding is about is kept masked', () => {
     expect(unknown).not.toContain('1234')
   })
 
+  test('nothing of a link to or from an entry of a sensitive type appears, its note included', async () => {
+    await run(writeEntry({ type: 'diary-page', title: 'A windy day' }))
+    const linked = await run(
+      maskedCall({
+        source: 'office-safe',
+        target: 'a-windy-day',
+        relation: 'written_in',
+        note: 'velvet hours',
+      }),
+    )
+    expect(linked).not.toContain('velvet')
+    expect(linked).not.toContain('windy')
+    const plain = await run(
+      maskedCall({ source: 'office-safe', target: 'office-safe', relation: 'near', note: 'shelf' }),
+    )
+    expect(plain).toContain('shelf')
+  })
+
   test('the arguments are cut to a few hundred characters', async () => {
     const long = await run(maskedCall({ type: 'safe', title: 'Long', body: 'x'.repeat(5000) }))
     expect(long.length).toBeLessThanOrEqual(300)

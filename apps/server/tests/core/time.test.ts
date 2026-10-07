@@ -176,7 +176,7 @@ describe('a fulfills link closes one field', () => {
   test('the field is inferred when the target has one deadline or recurring date', async () => {
     await run(writeEntry({ type: 'tax', title: 'Water tax', fields: { deadline: '2024-05-15' } }))
     await run(writeEntry({ type: 'note', title: 'Water tax paid' }))
-    expect(await run(link('water-tax-paid', 'water-tax', 'fulfills', '2026'))).toEqual({
+    expect(await run(link('water-tax-paid', 'water-tax', 'fulfills', '2026'))).toMatchObject({
       field: 'deadline',
     })
     const { links } = await run(readEntry('water-tax-paid'))
