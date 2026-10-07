@@ -275,10 +275,44 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
       .orderBy(asc(table.title)),
   )
   // A part of this entry comes with its fields, as the caller may see them on its own page.
+  const parts = all.filter((child) => child.in_parent && !hiddenTypes.includes(child.type))
+  // The entries the parts name in their fields, by id, for a reader to show their titles.
+  const naming = (yield* findType(entry.type))?.fields.filter(({ kind }) => kind === 'entry') ?? []
+  const namedIds = parts.flatMap(({ fields }) =>
+    naming.map(({ name }) => fields[name]).filter(Predicate.isString),
+  )
+  const hidden = yield* hiddenIn(namedIds)
+  const titles = Object.fromEntries(
+    namedIds.length === 0
+      ? []
+      : (yield* cited(
+          db
+            .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
+            .from(table)
+            .where(inArray(table.id, namedIds)),
+        ))
+          .filter(({ id }) => !hidden.has(id))
+          .map(({ id, title }) => [id, title] as const),
+  )
   const shown: Array<Child> = []
   for (const { fields, ...child } of all) {
     if (hiddenTypes.includes(child.type)) continue
-    shown.push(child.in_parent ? { ...child, fields: maskFields(child.type, fields) } : child)
+    if (!child.in_parent) {
+      shown.push(child)
+      continue
+    }
+    const seen = Object.fromEntries(
+      Object.entries(maskFields(child.type, fields)).map(([name, value]) => [
+        name,
+        withoutHidden(value, hidden),
+      ]),
+    )
+    const own = Object.fromEntries(
+      Object.values(seen)
+        .filter(Predicate.isString)
+        .flatMap((value) => (titles[value] === undefined ? [] : [[value, titles[value]]])),
+    )
+    shown.push({ ...child, fields: seen, titles: own })
   }
   const citing = yield* cited(
     db

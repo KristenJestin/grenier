@@ -80,6 +80,11 @@ pub struct Child {
     pub slug: ::std::string::String,
     pub summary: ::std::string::String,
     pub title: ::std::string::String,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub titles: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }

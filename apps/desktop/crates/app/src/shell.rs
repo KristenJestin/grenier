@@ -1,7 +1,7 @@
 //! The viewer fed by a server: it turns what the user asks for into requests, keeps what was
 //! opened for back and forward, and gives the screens the answers, or the problem.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use api::{TreeEntry, TypeDefinition};
 use gpui_kit::{
@@ -255,15 +255,29 @@ impl Shell {
 /// whose parent this key does not see stands at the top, so that none goes missing. A part of its
 /// parent (`in_parent`) is read in the parent's page, not listed under it.
 pub fn tree_of(entries: &[TreeEntry]) -> Vec<TreeNode> {
-    let known: HashSet<&str> = entries.iter().map(|entry| entry.id.as_str()).collect();
+    let by_id: HashMap<&str, &TreeEntry> = entries
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
     let mut under: HashMap<Option<&str>, Vec<&TreeEntry>> = HashMap::new();
     for entry in entries {
         let parent = entry
             .parent_id
             .as_deref()
-            .filter(|parent| known.contains(parent));
+            .filter(|parent| by_id.contains_key(parent));
         if entry.in_parent && parent.is_some() {
             continue;
+        }
+        // An entry filed under a part, which the tree does not list, goes under the whole.
+        let mut parent = parent;
+        while let Some(part) = parent
+            .and_then(|id| by_id.get(id))
+            .filter(|part| part.in_parent)
+        {
+            parent = part
+                .parent_id
+                .as_deref()
+                .filter(|above| by_id.contains_key(above));
         }
         under.entry(parent).or_default().push(entry);
     }
@@ -300,6 +314,30 @@ impl Render for Shell {
 mod tests {
     use super::tree_of;
     use api::TreeEntry;
+
+    #[test]
+    fn the_children_of_a_part_are_filed_under_the_whole_it_belongs_to() {
+        let mut disk = entry("disk", Some("computer"));
+        disk.in_parent = true;
+        let tree = tree_of(&[
+            entry("computer", None),
+            disk,
+            entry("disk-manual", Some("disk")),
+        ]);
+        let shape: Vec<(&str, Vec<&str>)> = tree
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_ref(),
+                    node.children
+                        .iter()
+                        .map(|child| child.id.as_ref())
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(shape, vec![("computer", vec!["disk-manual"])]);
+    }
 
     fn entry(id: &str, parent: Option<&str>) -> TreeEntry {
         TreeEntry {

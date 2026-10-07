@@ -121,7 +121,8 @@ fn item_type() -> TypeDefinition {
             { "name": "serial", "kind": "text" },
             { "name": "capacity", "kind": "text" },
             { "name": "warranty_until", "kind": "date" },
-            { "name": "price", "kind": "money", "sensitive": true }
+            { "name": "price", "kind": "money", "sensitive": true },
+            { "name": "bought_with", "kind": "entry" }
         ]
     }))
     .expect("a fixture type")
@@ -130,6 +131,11 @@ fn item_type() -> TypeDefinition {
 /// A machine and its parts, one of them with a value the key may not see; and a note beside them.
 pub fn machine() -> EntryData {
     let part = |id: &str, title: &str, fields: Value| json!({ "id": id, "slug": id, "type": "item", "title": title, "summary": "", "in_parent": true, "fields": fields });
+    // A part with the titles of the entries its fields name, as the server gives them.
+    let titled = |mut part: Value, titles: Value| {
+        part["titles"] = titles;
+        part
+    };
     EntryData {
         read: read(around(
             entry(
@@ -148,7 +154,10 @@ pub fn machine() -> EntryData {
                     part("alimentation", "Alimentation", json!({})),
                     part("carte-graphique", "Carte graphique", json!({ "serial": "GPU-7781", "warranty_until": "2027-11-30" })),
                     part("disque-de-sauvegarde", "Disque de sauvegarde", json!({ "serial": "HDD-5512", "capacity": "4 To", "price": "[hidden]" })),
-                    part("disque-principal", "Disque principal", json!({ "serial": "SSD-0193", "capacity": "1 To", "warranty_until": "2029-06-15" })),
+                    titled(
+                        part("disque-principal", "Disque principal", json!({ "serial": "SSD-0193", "capacity": "1 To", "warranty_until": "2029-06-15", "bought_with": "facture-du-disque" })),
+                        json!({ "facture-du-disque": "Facture du disque" })
+                    ),
                     { "id": "notes-de-montage", "slug": "notes-de-montage", "type": "note", "title": "Notes de montage", "summary": "L'ordre des câbles et les vis à garder.", "in_parent": false }
                 ]
             }),

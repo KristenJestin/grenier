@@ -14,7 +14,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, ClipboardItem, Context, Div,
     ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
-    IntoElement, KeyBinding, ParentElement as _, Render, ScrollHandle, SharedString,
+    IntoElement, KeyBinding, MouseButton, ParentElement as _, Render, ScrollHandle, SharedString,
     SpringAnimation, StatefulInteractiveElement as _, Styled as _, Subscription, Window, actions,
     div, linear_color_stop, linear_gradient, point, px, radians,
 };
@@ -32,6 +32,7 @@ use crate::theme::{self, space, text, width};
 
 const CONTEXT: &str = "Viewer";
 const TREE: &str = "ViewerTree";
+const PANE: &str = "ViewerPane";
 
 actions!(viewer, [SelectPrevious, SelectNext, Collapse, Expand]);
 
@@ -41,6 +42,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-k", FocusSearch, Some(CONTEXT)),
         // Not from the whole viewer: a `/` typed in the search field, or any field, is text.
         KeyBinding::new("/", FocusSearch, Some(TREE)),
+        KeyBinding::new("/", FocusSearch, Some(PANE)),
         KeyBinding::new("alt-left", Back, Some(CONTEXT)),
         KeyBinding::new("alt-right", Forward, Some(CONTEXT)),
         KeyBinding::new("up", SelectPrevious, Some(TREE)),
@@ -93,6 +95,8 @@ pub struct Viewer {
     connection: Option<SharedString>,
     focus: FocusHandle,
     tree_focus: FocusHandle,
+    /// The main pane, focused by a click in it: `/` from there goes to the search field.
+    pane_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -133,6 +137,7 @@ impl Viewer {
             connection: None,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),
+            pane_focus: cx.focus_handle(),
             _subscriptions: vec![searched],
         }
     }
@@ -257,6 +262,11 @@ impl Viewer {
     /// Puts the keyboard in the tree.
     pub fn focus_tree(&self, window: &mut Window, cx: &mut App) {
         window.focus(&self.tree_focus, cx);
+    }
+
+    /// Gives the main pane the keys, as a click in it does.
+    pub fn focus_pane(&self, window: &mut Window, cx: &mut App) {
+        window.focus(&self.pane_focus, cx);
     }
 
     fn on_intent(&self, cx: &mut Context<Self>) -> OnIntent {
@@ -708,7 +718,13 @@ impl Viewer {
             ));
         }
         let theme = cx.theme();
+        let pane_focus = self.pane_focus.clone();
         v_flex()
+            .track_focus(&self.pane_focus)
+            .key_context(PANE)
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                window.focus(&pane_focus, cx)
+            })
             .flex_1()
             .min_w_0()
             .m(space::S)

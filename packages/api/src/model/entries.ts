@@ -85,6 +85,8 @@ export const Child = Schema.Struct({
   /** Read in this page as a part of it (its type says `read_in_parent`), with its `fields`. */
   in_parent: Schema.Boolean,
   fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
+  /** The titles of the entries its fields of kind `entry` name, by id, as a reader shows them. */
+  titles: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 }).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
