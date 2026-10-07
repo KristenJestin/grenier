@@ -222,3 +222,12 @@ describe('the owner reads the findings of diagnostics from the command line', ()
     expect(exported).toContain('`briefing` {"period":"week"}')
   })
 })
+
+describe('the lead agent merges two findings of one problem', () => {
+  test('findings:merge moves the occurrences and closes the merged finding', async () => {
+    const before = cli('findings:list').trim().split('\n').length
+    expect(cli('findings:merge', '1', '2')).toBe('The finding 2 is merged into 1.\n')
+    expect(cli('findings:list').trim().split('\n')).toHaveLength(before - 1)
+    expect(cli('findings:show', '1').match(/^### Occurrence/gm)).toHaveLength(3)
+  })
+})

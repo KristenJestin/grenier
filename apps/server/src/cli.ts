@@ -17,6 +17,7 @@
  *   bun src/cli.ts findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
  *   bun src/cli.ts findings:show <number>                 (with its occurrences, as Markdown)
  *   bun src/cli.ts findings:export [--kind …] [--place …] [--severity …]   (Markdown on stdout)
+ *   bun src/cli.ts findings:merge <into> <from>          (one problem reported twice)
  *   bun src/cli.ts rules:set <file>                       (the rules every agent is given)
  *   bun src/cli.ts rules:show
  *   bun src/cli.ts export:markdown <folder> [--include-sensitive] [--remote <url>]
@@ -31,7 +32,7 @@ import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
-import { FindingFilter, findingsWithOccurrences } from './core/findings/index.ts'
+import { FindingFilter, findingsWithOccurrences, mergeFindings } from './core/findings/index.ts'
 import { addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
@@ -54,6 +55,7 @@ const USAGE = `Usage:
   findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
   findings:show <number>
   findings:export [--kind <kind>] [--place <place>] [--severity <severity>]
+  findings:merge <into> <from>
   rules:set <file>
   rules:show
   export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]`
@@ -293,6 +295,13 @@ const command = Effect.gen(function* () {
       if (found === undefined)
         return yield* Effect.fail({ message: `There is no finding ${number}.` })
       return markdownOf(found)
+    }
+    case 'findings:merge': {
+      const [into, from] = positionals.slice(1).map(Number)
+      if (!Number.isInteger(into) || !Number.isInteger(from))
+        return yield* Effect.fail({ message: USAGE })
+      yield* mergeFindings(into ?? 0, from ?? 0)
+      return `The finding ${from} is merged into ${into}.`
     }
     case 'findings:export': {
       const found = yield* findingsWithOccurrences(yield* findingFilter)

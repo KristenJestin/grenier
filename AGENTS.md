@@ -114,7 +114,7 @@ item per file, for agents to process (`inbox_take`, then `inbox_done`).
 no longer sensitive, which only the owner may do.
 `findings:list [--kind <kind>] [--place <place>] [--severity <severity>]`, `findings:show <number>`
 and `findings:export` (Markdown on stdout) read what diagnostics found, occurrences included: the
-owner's only way to read them in full.
+owner's only way to read them in full; `findings:merge <into> <from>` makes one finding of two.
 `rules:set <file>` sets the rules every agent is given in its instructions (`rules:show` prints
 them); only the owner sets them.
 `export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]` writes

@@ -464,6 +464,8 @@ export const findings = pgTable(
     // The worst severity of its occurrences.
     severity: text().notNull(),
     occurrences: integer().notNull().default(1),
+    // The finding it was merged into, which holds its occurrences now; a merged finding is closed.
+    merged_into: integer(),
     first_seen: timestamp(at)
       .notNull()
       .default(sql`clock_timestamp()`),
