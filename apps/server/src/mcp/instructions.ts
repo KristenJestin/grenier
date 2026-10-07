@@ -65,7 +65,10 @@ const openingOf = (rules: string) => {
     if ([...kept, paragraph].join('\n\n').length > RULES_LIMIT) break
     kept.push(paragraph)
   }
-  return kept.join('\n\n')
+  if (kept.length > 0) return kept.join('\n\n')
+  // A first paragraph longer than the limit: cut inside it, at the last space that fits.
+  const head = rules.trim().slice(0, RULES_LIMIT - 1)
+  return `${head.slice(0, head.lastIndexOf(' ') > 0 ? head.lastIndexOf(' ') : head.length)}…`
 }
 
 /** The rules of the instance, as its owner wrote them, or their opening when they are long. */

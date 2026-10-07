@@ -21,6 +21,7 @@ import { listFindings } from '../../src/core/findings/index.ts'
 import { Instance } from '../../src/core/instance.ts'
 import { attachMedia } from '../../src/core/media/index.ts'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
+import { setInstanceRules } from '../../src/core/rules.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { exportOnce } from '../../src/export/nightly.ts'
 
@@ -37,11 +38,15 @@ const database = ManagedRuntime.make(
 let url = ''
 
 /** Runs the owner's command line on the suite's database: its status and what it printed. */
-const cli = (...args: ReadonlyArray<string>) => {
+const cli = (...args: ReadonlyArray<string>) => cliWith({}, ...args)
+
+/** The same, with more of the environment. */
+const cliWith = (env: Readonly<Record<string, string>>, ...args: ReadonlyArray<string>) => {
   const { status, stdout, stderr } = spawnSync(process.execPath, ['src/cli.ts', ...args], {
     cwd: APP,
     encoding: 'utf8',
     env: {
+      ...env,
       PATH: process.env['PATH'] ?? '',
       HOME: scratch,
       DATABASE_URL: url,
@@ -196,6 +201,7 @@ describe('the nightly export into a git repository', () => {
         name: 'recipe',
         label: 'Recipe',
         sensitive: false,
+        read_in_parent: false,
         fields: [
           { name: 'servings', kind: 'integer', required: true },
           { name: 'cost', kind: 'money', sensitive: true },
@@ -303,5 +309,79 @@ describe('the nightly export into a git repository', () => {
     expect(refused.status).toBe(1)
     expect(refused.stderr).toContain('holds files and is not a git repository')
     expect(readdirSync(elsewhere)).toEqual(['notes.md'])
+  })
+})
+
+describe('the export never pushes a sensitive value, and holds everything', () => {
+  test('a nightly export on a folder that once held a sensitive export is refused with a sentence', () => {
+    const privy = join(scratch, 'privy')
+    expect(cli('export:markdown', privy, '--include-sensitive').status).toBe(0)
+    const nightly = cli('export:markdown', privy)
+    expect(nightly.status).toBe(1)
+    expect(nightly.stderr).toBe(
+      `The folder ${privy} holds an export with sensitive data: export without it into another folder.\n`,
+    )
+    const plainFolder = join(scratch, 'plain')
+    expect(cli('export:markdown', plainFolder).status).toBe(0)
+    expect(cli('export:markdown', plainFolder, '--include-sensitive').stderr).toBe(
+      `The folder ${plainFolder} holds an export without sensitive data: export with it into another folder, kept private.\n`,
+    )
+  })
+
+  test('sensitive data is never sent to a remote, nor written where the nightly export goes', () => {
+    const elsewhere = join(scratch, 'elsewhere-private')
+    expect(
+      cli('export:markdown', elsewhere, '--include-sensitive', '--remote', join(scratch, 'r.git'))
+        .stderr,
+    ).toBe('An export with sensitive data is never pushed: leave out --remote.\n')
+    expect(
+      cliWith({ EXPORT_DIR: elsewhere }, 'export:markdown', elsewhere, '--include-sensitive')
+        .stderr,
+    ).toBe(
+      'The folder of the nightly export (EXPORT_DIR) never holds sensitive data: give another folder.\n',
+    )
+    expect(existsSync(elsewhere)).toBe(false)
+  })
+
+  test('the types keep their read_in_parent, and the rules of the instance are exported', async () => {
+    await run(
+      Effect.gen(function* () {
+        yield* defineType({
+          name: 'item',
+          label: 'Item',
+          description: 'A thing owned.',
+          fields: [],
+          read_in_parent: true,
+        })
+        yield* setInstanceRules('Ask before writing anything private.\n').pipe(
+          Effect.provideService(Rights, ['read', 'write', 'sensitive', 'owner']),
+        )
+      }),
+    )
+    const whole = join(scratch, 'whole')
+    expect(cli('export:markdown', whole).status).toBe(0)
+    expect(read(whole, '_types/item.md').front).toMatchObject({ read_in_parent: true })
+    expect(readFileSync(join(whole, '_rules.md'), 'utf8')).toBe(
+      'Ask before writing anything private.\n',
+    )
+  })
+
+  test('the summary counts what changed since the last commit, not a file left half written', async () => {
+    const counted = join(scratch, 'counted')
+    expect(cli('export:markdown', counted).status).toBe(0)
+    // As a run stopped in the middle would leave it.
+    writeFileSync(join(counted, 'garden.md'), 'half written')
+    await run(writeEntry({ entry: 'kitchen', summary: 'Where we cook.' }))
+    expect(cli('export:markdown', counted).stdout).toMatch(
+      /: 0 created, 1 updated, 0 archived\.\n$/,
+    )
+    expect(git(counted, 'show', '--format=', '--name-only', 'HEAD')).toBe('kitchen.md\n')
+  })
+
+  test('a remote that looks like an option is taken as a remote', () => {
+    const optioned = join(scratch, 'optioned')
+    const pushed = cli('export:markdown', optioned, '--remote=--dry-run')
+    expect(pushed.status).toBe(1)
+    expect(pushed.stderr).toMatch(/^The push failed: .*strange pathname '--dry-run'/)
   })
 })

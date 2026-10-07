@@ -61,8 +61,13 @@ describe('the server listens on localhost by default', () => {
     expect(said).toBe(`http://127.0.0.1:${port}`)
   }, 30_000)
 
-  test('HOST opens it to the network when asked', async () => {
-    const { port, said } = await listeningOf({ HOST: '0.0.0.0' })
+  test('GRENIER_HOST opens it to the network when asked', async () => {
+    const { port, said } = await listeningOf({ GRENIER_HOST: '0.0.0.0' })
     expect(said).toBe(`http://0.0.0.0:${port}`)
+  }, 30_000)
+
+  test('an empty GRENIER_HOST, or the HOST some shells set to the machine name, changes nothing', async () => {
+    const { port, said } = await listeningOf({ GRENIER_HOST: '', HOST: 'workstation' })
+    expect(said).toBe(`http://127.0.0.1:${port}`)
   }, 30_000)
 })

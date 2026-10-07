@@ -108,8 +108,10 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 `entry:unverified [--type <type>] [--under <slug>]` lists what waits for the owner's review;
 `entry:verify <slug>…` and `entry:unverify <slug>…` set it, as the owner (no key with `owner` is
 ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
-entry:verify <slug>`. `inbox:add <folder> [--origin <name>]` drops a folder into the inbox, one
-item per file, for agents to process (`inbox_take`, then `inbox_done`).
+entry:verify <slug>`. `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
+into the inbox, one item per file, sub-folders included (hidden files and links are skipped), for
+agents to process (`inbox_take`, then `inbox_done`); `--dry-run` says what it would add, and a file
+already in the inbox (same path, origin and content) is added again only with `--again`.
 `type:sensitive <type> --off` and `field:sensitive <type> <field> --off` make a type or a field
 no longer sensitive, which only the owner may do.
 `findings:list [--kind <kind>] [--place <place>] [--severity <severity>]`, `findings:show <number>`
@@ -159,7 +161,7 @@ by the stdio MCP server:
 The server speaks plain HTTP: published on a network, every key crosses it in clear, in the
 `Authorization` header of each request. Reach it from other machines only through an encrypted
 path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
-By default it listens on `127.0.0.1` only; `HOST` changes that (the image sets `HOST=0.0.0.0`
+By default it listens on `127.0.0.1` only; `GRENIER_HOST` changes that (the image sets `GRENIER_HOST=0.0.0.0`
 inside the container, and compose publishes the port on `GRENIER_BIND`).
 
 The clients never hand-write what they exchange with the server: `bun run generate` writes the

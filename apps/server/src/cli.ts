@@ -33,7 +33,7 @@ import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
 import { FindingFilter, findingsWithOccurrences, mergeFindings } from './core/findings/index.ts'
-import { addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
+import { addFileOnce, addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
@@ -94,6 +94,8 @@ const filesUnder = (folder: string) => {
     for (const found of readdirSync(join(folder, inside), { withFileTypes: true })) {
       const path = inside === '' ? found.name : `${inside}/${found.name}`
       if (found.name.startsWith('.')) skipped.push(found.isDirectory() ? `${path}/` : path)
+      // A link is never followed: it may lead out of the folder, or round in circles.
+      else if (found.isSymbolicLink()) skipped.push(`${path} (a link)`)
       else if (found.isDirectory()) walk(path)
       else if (found.isFile()) files.push(path)
     }
@@ -229,19 +231,25 @@ const command = Effect.gen(function* () {
       for (const file of files) {
         const bytes = readFileSync(join(folder, file))
         const input = { kind: 'file' as const, name: file, data: bytes.toString('base64'), origin }
-        if (values.again !== true && (yield* fileInInbox({ name: file, origin, bytes })))
-          already += 1
-        else {
-          const refusal =
-            values['dry-run'] === true
-              ? inboxRefusalOf(input)
-              : yield* asOwner(addToInbox(input)).pipe(
-                  Effect.as(undefined),
-                  Effect.catchTag('Refused', Effect.succeed),
-                )
-          if (refusal === undefined) added.push(file)
-          else refused.push(`${file} (${refusal.message})`)
+        if (values['dry-run'] === true) {
+          if (values.again !== true && (yield* fileInInbox({ name: file, origin, bytes })))
+            already += 1
+          else {
+            const refusal = inboxRefusalOf(input)
+            if (refusal === undefined) added.push(file)
+            else refused.push(`${file} (${refusal.message})`)
+          }
+          continue
         }
+        // The check and the write together: two drops at once add each file once.
+        const adding = values.again === true ? addToInbox(input) : addFileOnce(input, bytes)
+        const outcome = yield* asOwner(adding).pipe(
+          Effect.map((item) => (item === null ? 'already' : 'added')),
+          Effect.catchTag('Refused', ({ message }) => Effect.succeed(message)),
+        )
+        if (outcome === 'already') already += 1
+        else if (outcome === 'added') added.push(file)
+        else refused.push(`${file} (${outcome})`)
       }
       return [
         values['dry-run'] === true
@@ -323,6 +331,7 @@ const command = Effect.gen(function* () {
       // Sensitive data only when asked: the export of every night leaves it out.
       const { commit, push } = yield* exportMarkdown({
         folder: resolve(folder),
+        sensitive: values['include-sensitive'] === true,
         remote: values.remote,
         deployKey: values['deploy-key'],
       }).pipe(

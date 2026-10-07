@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Runs the server: the instance is read from `GRENIER_INSTANCE` (required), the database is brought
- * to the latest version, then the server listens on `PORT` (3000 by default) of `HOST` (`127.0.0.1`
+ * to the latest version, then the server listens on `PORT` (3000 by default) of `GRENIER_HOST` (`127.0.0.1`
  * by default: this machine only; `0.0.0.0` in the container), and exports everything
  * to Markdown every night when `EXPORT_DIR` is set (see `export/nightly.ts`). A missing or unknown
  * instance, a failed migration or a wrong `EXPORT_SCHEDULE` stops it with its message.
@@ -23,8 +23,9 @@ const server = HttpRouter.serve(GrenierRoutes, {
   Layer.provide(
     BunHttpServer.layer({
       port: Number(process.env['PORT'] ?? 3000),
-      // This machine only, unless `HOST` opens it: keys cross the network in clear HTTP.
-      hostname: process.env['HOST'] ?? '127.0.0.1',
+      // This machine only, unless `GRENIER_HOST` opens it: keys cross the network in clear HTTP.
+      // Empty is unset; a generic `HOST` is not read, since some shells set it to the machine name.
+      hostname: process.env['GRENIER_HOST']?.trim() || '127.0.0.1',
       // A backstop for a body that does not say its length; the routes refuse the others.
       maxRequestBodySize: MCP_BODY_LIMIT + 1024 * 1024,
     }),

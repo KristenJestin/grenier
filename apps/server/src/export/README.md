@@ -27,6 +27,7 @@ _types/recipe.md                  each type: its definition in the front matter,
 kitchen.md                        an entry at the root
 kitchen/plum-tart.md              an entry filed under `kitchen`, beside its parent's file
 kitchen/plum-tart/shortcrust.md   and one below it
+_rules.md                         the rules of the instance, as the owner wrote them, when set
 ```
 
 - One file per entry, `<slug>.md`, in the folder of its parent: `<parent slug>/`, beside the
@@ -40,8 +41,11 @@ kitchen/plum-tart/shortcrust.md   and one below it
   type, size, description). Media files are not copied.
 - Then the body, as it is stored, `[[slug]]` references left as they are.
 - Archived entries are exported where they are filed, with their `archived_at`.
+- Everything is read in one snapshot of the database (`REPEATABLE READ`), so a write during the
+  export never leaves it half before and half after. A type's file keeps `sensitive` and
+  `read_in_parent`.
 - The same content gives the same bytes: keys in a fixed order, fields and provenance by name,
-  links by relation and target, media in their order.
+  links by relation and target, media in their order (then by id).
 
 ## Sensitive data
 
@@ -50,11 +54,19 @@ written, and an entry whose parent is left out stands at the root. `--include-se
 everything, for an export the owner keeps private and encrypted. The repository of the nightly
 export must be private all the same.
 
+An export with sensitive data is never pushed: `--include-sensitive` is refused with `--remote`,
+in a folder that has a remote, and in the folder of the nightly export (`EXPORT_DIR`). A folder
+holds one kind of export for good (a mark in its `.git`, never committed): the other kind is
+refused there, so a nightly export never commits on top of a sensitive one and pushes it. A field
+made sensitive later stays as it was in the commits already made, and pushed: rewriting that
+history is the owner's call, outside Grenier.
+
 ## The git side
 
 The folder is the export's: a file it did not write is removed. A folder that holds files but is
 not a git repository is refused. A commit is made only when something changed, by `Grenier
 <grenier@localhost>`, with a summary: `Export of 2026-10-07: 3 created, 2 updated, 1 archived`
-(then, when there are some, the entries no longer exported and the types changed). The push never
+(then, when there are some, the entries no longer exported and the types changed), counted
+against the last commit, whatever a run stopped in the middle left in the folder. The push never
 forces; when it fails, the commit stays and the next export pushes it with its own, and the
 failure is written to the server's output and, when diagnostics are on, recorded as a finding.

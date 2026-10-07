@@ -150,6 +150,25 @@ export const fileInInbox = Effect.fn('fileInInbox')(function* (file: {
   return found.length > 0
 })
 
+/**
+ * Puts a file in the inbox unless it holds it already (`fileInInbox`), the check and the write in
+ * one transaction under a lock of that origin and path: two drops of one folder at the same
+ * moment add each file once. `null` when it was there already.
+ */
+export const addFileOnce = Effect.fn('addFileOnce')(function* (
+  input: InboxInput & { readonly name: string; readonly origin: string },
+  bytes: Uint8Array,
+) {
+  const client = yield* SqlClient.SqlClient
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      yield* client`SELECT pg_advisory_xact_lock(hashtext(${`grenier.inbox ${input.origin} ${input.name}`}))`
+      if (yield* fileInInbox({ name: input.name, origin: input.origin, bytes })) return null
+      return yield* addToInbox(input)
+    }),
+  )
+})
+
 /** Puts something in the inbox, pending, for an agent to turn into entries. */
 export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) {
   const db = yield* drizzle

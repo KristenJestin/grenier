@@ -293,6 +293,14 @@ const firstLine = (text: string, length: number) => {
   return line.length > length ? `${line.slice(0, length - 1)}…` : line
 }
 
+/**
+ * A message of a failed query without the values it was given: Drizzle writes them after
+ * `params:`, and a write's values may be sensitive. The text of the query stays, to investigate.
+ */
+const withoutParameters = (text: string) =>
+  // Up to the stack that follows, or the end: a value may hold new lines.
+  text.replace(/\nparams: [\s\S]*?(?=\n {4}at |$)/g, '\nparams: [left out]')
+
 /** The tag of a tagged error, such as `SqlError`. */
 const Tagged = Schema.Struct({ _tag: Schema.String })
 
@@ -331,7 +339,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
   // The defect itself, not a failure the same cause may carry beside it.
   const error = Result.getOrElse(Cause.findDefect(cause), () => Cause.squash(cause))
   const production = instance.name === 'production'
-  const message = error instanceof Error ? error.message : String(error)
+  const message = withoutParameters(error instanceof Error ? error.message : String(error))
   const name = classOf(error)
   const at = new Date(yield* Clock.currentTimeMillis).toISOString()
   const key = yield* Actor
@@ -347,7 +355,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
         tool: call?.tool ?? null,
         key: key ?? null,
         instance: instance.name,
-        stack: Cause.pretty(cause),
+        stack: withoutParameters(Cause.pretty(cause)),
       })}\n`,
     ),
   )
@@ -361,7 +369,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
       trying: call === undefined ? `A request to ${place}.` : `A call of the tool ${call.tool}.`,
       happened: production
         ? 'The server failed unexpectedly; in production, its message and stack are kept only in the server output.'
-        : Cause.pretty(cause).slice(0, 4000),
+        : withoutParameters(Cause.pretty(cause)).slice(0, 4000),
       expected: 'An answer or a refusal, not an unexpected error.',
     },
     call === undefined || !production ? call : { tool: call.tool, arguments: null },
