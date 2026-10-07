@@ -39,6 +39,7 @@ const ancestors = rowsOf(
   Schema.Struct({ id: Schema.String, title: Schema.String, type: Schema.String }),
 )
 const slugs = rowsOf(Schema.Struct({ slug: Schema.String }))
+const typedSlugs = rowsOf(Schema.Struct({ slug: Schema.String, type: Schema.String }))
 const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
 
 const { entries: table } = tables
@@ -823,24 +824,29 @@ const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEn
   const renamed = new Map<string, string>()
   const displaced = new Map<string, { title: string; slug: string }>()
   const planned: Array<WriteEntryInput> = []
+  // The slug each entry will have, and its type, by which the batch is ordered.
+  const ends: Array<End> = []
   for (const input of batch) {
     if (input.entry !== undefined) {
-      const [found] = yield* slugs(
-        db.select({ slug: table.slug }).from(table).where(named(input.entry)),
+      const [found] = yield* typedSlugs(
+        db.select({ slug: table.slug, type: table.type }).from(table).where(named(input.entry)),
       )
       const to = input.slug ?? found?.slug
       if (to !== undefined) coming.add(to)
       if (found !== undefined && to !== undefined && to !== found.slug) renamed.set(found.slug, to)
       planned.push(input)
+      ends.push({ slug: to, type: input.type ?? found?.type })
     } else if (input.slug === undefined && input.title !== undefined) {
       const slug = yield* freeSlugOf(input.title, coming)
       coming.add(slug)
       if (slug !== slugOf(input.title))
         displaced.set(slugOf(input.title), { title: input.title, slug })
       planned.push({ ...input, slug })
+      ends.push({ slug, type: input.type })
     } else {
       if (input.slug !== undefined) coming.add(input.slug)
       planned.push(input)
+      ends.push({ slug: input.slug, type: input.type })
     }
   }
   // A slug one entry leaves and another takes, in the same batch, names the one that takes it.
@@ -848,7 +854,82 @@ const planBatch = Effect.fn('planBatch')(function* (batch: ReadonlyArray<WriteEn
     renamed.delete(slug)
     displaced.delete(slug)
   }
-  return { planned, known: { coming, renamed, displaced } }
+  return { planned, order: yield* orderOf(planned, ends), known: { coming, renamed, displaced } }
+})
+
+/** The slug an entry of a batch will have, and its type, when the write says them. */
+type End = { readonly slug: string | undefined; readonly type: string | undefined }
+
+/**
+ * The order to write a batch in: each entry after the entries of the batch it names as its
+ * parent, as `superseded_by` or in a field of kind `entry`, otherwise in the order given. Parents
+ * that loop within the batch are refused; another loop keeps the order given, and the reference it
+ * makes to an entry not written yet is refused as any reference to no entry.
+ */
+const orderOf = Effect.fn('orderOf')(function* (
+  planned: ReadonlyArray<WriteEntryInput>,
+  ends: ReadonlyArray<End>,
+) {
+  const at = new Map<string, number>()
+  planned.forEach((input, index) => {
+    const slug = ends[index]?.slug
+    if (slug !== undefined) at.set(slug, index)
+    if (input.entry !== undefined) at.set(input.entry, index)
+  })
+  const inBatch = (reference: string | null | undefined) =>
+    reference === null || reference === undefined
+      ? []
+      : [at.get(reference)].filter(Predicate.isNumber)
+  const parentOf = planned.map((input) => inBatch(input.parent))
+  const othersOf = yield* Effect.forEach(planned, (input, index) =>
+    Effect.gen(function* () {
+      const name = ends[index]?.type
+      const type = name === undefined ? undefined : yield* findType(name)
+      const fields = (type?.fields ?? [])
+        .filter(({ kind }) => kind === 'entry')
+        .map((field) => input.fields?.[field.name])
+        .filter(Predicate.isString)
+      return [...inBatch(input.superseded_by), ...fields.flatMap(inBatch)]
+    }),
+  )
+
+  // A loop of parents, as the slugs of its entries from the first one given.
+  const state = new Map<number, 'visiting' | 'done'>()
+  const path: Array<number> = []
+  const loopFrom = (index: number): ReadonlyArray<number> | undefined => {
+    if (state.get(index) === 'done') return undefined
+    if (state.get(index) === 'visiting') return path.slice(path.indexOf(index))
+    state.set(index, 'visiting')
+    path.push(index)
+    for (const parent of parentOf[index] ?? []) {
+      const loop = loopFrom(parent)
+      if (loop !== undefined) return loop
+    }
+    path.pop()
+    state.set(index, 'done')
+    return undefined
+  }
+  for (const index of planned.keys()) {
+    const loop = loopFrom(index)
+    if (loop !== undefined)
+      return yield* new Refused({
+        message: `The entries ${loop.map((one) => `\`${ends[one]?.slug ?? planned[one]?.title}\``).join(', ')} are filed under one another in this batch: an entry cannot be filed under itself or one of its descendants.`,
+      })
+  }
+
+  const order: Array<number> = []
+  const placed = new Set<number>()
+  const visiting = new Set<number>()
+  const place = (index: number) => {
+    if (placed.has(index) || visiting.has(index)) return
+    visiting.add(index)
+    for (const before of [...(parentOf[index] ?? []), ...(othersOf[index] ?? [])]) place(before)
+    visiting.delete(index)
+    placed.add(index)
+    order.push(index)
+  }
+  for (const index of planned.keys()) place(index)
+  return order
 })
 
 /**
@@ -868,11 +949,18 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
   return yield* refusingContention(
     client.withTransaction(
       Effect.gen(function* () {
-        const { planned, known } = yield* planBatch(batch)
-        // A refusal is kept as a value, so that every entry of the batch is checked.
-        const results = yield* Effect.forEach(planned, (input) =>
-          writeEntry(input, known).pipe(Effect.catchIf(Schema.is(Refused), Effect.succeed)),
+        const { planned, order, known } = yield* planBatch(batch)
+        // A refusal is kept as a value, so that every entry of the batch is checked; each entry
+        // after those of the batch it names, then answered in the order given.
+        const answers = yield* Effect.forEach(order, (index) =>
+          writeEntry(planned[index] ?? {}, known).pipe(
+            Effect.catchIf(Schema.is(Refused), Effect.succeed),
+            Effect.map((result) => [index, result] as const),
+          ),
         )
+        const results = answers
+          .toSorted(([left], [right]) => left - right)
+          .map(([, result]) => result)
         const isRefused = Schema.is(Refused)
         const refusals = results.flatMap((result, index) =>
           isRefused(result) ? [`${labelOf(batch[index] ?? {}, index)}: ${result.message}`] : [],

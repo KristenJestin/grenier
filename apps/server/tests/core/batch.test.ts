@@ -132,3 +132,77 @@ describe('several entries written at once', () => {
     ])
   })
 })
+
+describe('a batch resolves parents, superseded_by and entry fields within itself', () => {
+  beforeAll(() =>
+    run(
+      defineType({
+        name: 'dish',
+        label: 'Dish',
+        description: 'A dish, and the one it is served with.',
+        fields: [{ name: 'served_with', kind: 'entry' }],
+      }),
+    ),
+  )
+
+  test('a project and three notes under it in one batch', async () => {
+    const written = await run(
+      writeEntries([
+        { type: 'note', title: 'Bed plan', parent: 'vegetable-garden' },
+        { type: 'note', title: 'Mulching', parent: 'vegetable-garden' },
+        { type: 'note', title: 'Harvest log', parent: 'vegetable-garden' },
+        { type: 'note', title: 'Vegetable garden' },
+      ]),
+    )
+    // Answered in the order of the batch.
+    expect(written.map(({ slug }) => slug)).toEqual([
+      'bed-plan',
+      'mulching',
+      'harvest-log',
+      'vegetable-garden',
+    ])
+    const { children } = await run(readEntry('vegetable-garden'))
+    expect(children.map(({ slug }) => slug)).toEqual(['bed-plan', 'harvest-log', 'mulching'])
+  })
+
+  test('two decisions where one supersedes the other', async () => {
+    await run(
+      writeEntries([
+        { type: 'note', title: 'Water at dawn', superseded_by: 'water-at-dusk' },
+        { type: 'note', title: 'Water at dusk' },
+      ]),
+    )
+    const { entry } = await run(readEntry('water-at-dawn'))
+    const { entry: replacing } = await run(readEntry('water-at-dusk'))
+    expect(entry.superseded_by).toBe(replacing.id)
+  })
+
+  test('a field naming an entry written later in the batch', async () => {
+    await run(
+      writeEntries([
+        { type: 'dish', title: 'Roast', fields: { served_with: 'gravy' } },
+        { type: 'dish', title: 'Gravy' },
+      ]),
+    )
+    const { entry } = await run(readEntry('roast'))
+    const { entry: gravy } = await run(readEntry('gravy'))
+    expect(entry.fields).toEqual({ served_with: gravy.id })
+  })
+
+  test('a cycle refused', async () => {
+    const refusal = await run(
+      Effect.flip(
+        writeEntries([
+          { type: 'note', title: 'Hen house', parent: 'coop' },
+          { type: 'note', title: 'Coop', parent: 'hen-house' },
+          { type: 'note', title: 'Feed store' },
+        ]),
+      ),
+    )
+    expect(refusal.message).toBe(
+      'The entries `hen-house`, `coop` are filed under one another in this batch: an entry cannot be filed under itself or one of its descendants.',
+    )
+    expect(await run(search('coop'))).toEqual([])
+    expect(await run(search('store'))).toEqual([])
+  })
+})
