@@ -490,3 +490,50 @@ describe('a long body written in parts', () => {
     expect(await run(entryHistory('pond-journal'))).toHaveLength(2)
   })
 })
+
+describe('a few words of a long body changed in place', () => {
+  test('three edits are applied in order, in one event', async () => {
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Orchard diary',
+        body: 'Pruned the plum tree.\nWatered the pear.\nPicked apples.\n',
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'orchard-diary',
+        edits: [
+          { find: 'plum tree', replace: 'cherry tree' },
+          { find: 'Watered', replace: 'Mulched' },
+          { find: 'Picked apples.', replace: 'Picked apples, then pears.' },
+        ],
+      }),
+    )
+    expect((await run(readEntry('orchard-diary'))).entry.body).toBe(
+      'Pruned the cherry tree.\nMulched the pear.\nPicked apples, then pears.\n',
+    )
+    expect(await run(entryHistory('orchard-diary'))).toHaveLength(2)
+  })
+
+  test('an edit that matches twice or never is refused, naming it, and changes nothing', async () => {
+    await run(writeEntry({ type: 'note', title: 'Hedge diary', body: 'Trim. Trim again. Rest.\n' }))
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'hedge-diary',
+            edits: [
+              { find: 'Rest', replace: 'Sleep' },
+              { find: 'Trim', replace: 'Cut' },
+              { find: 'Water', replace: 'Rain' },
+            ],
+          }),
+        ),
+      ),
+    ).toBe(
+      'The edit 2 (`Trim`) matches the body 2 times: give a longer `find` that matches once. The edit 3 (`Water`) matches nothing in the body.',
+    )
+    expect((await run(readEntry('hedge-diary'))).entry.body).toBe('Trim. Trim again. Rest.\n')
+  })
+})

@@ -316,6 +316,29 @@ const changedSinceCreated = Effect.fn('changedSinceCreated')(function* (id: stri
   return found.length > 0
 })
 
+/**
+ * A body with its edits applied in order, each `find` replaced where it matches the body as the
+ * edits before it left it, once and only once; the edits that match twice or never, said.
+ */
+const editsOf = (
+  body: string,
+  edits: ReadonlyArray<{ readonly find: string; readonly replace: string }>,
+) => {
+  const problems: Array<string> = []
+  let edited = body
+  for (const [index, { find, replace }] of edits.entries()) {
+    const edit = `The edit ${index + 1} (\`${find}\`)`
+    const count = find === '' ? 0 : edited.split(find).length - 1
+    if (count === 1) edited = edited.replace(find, () => replace)
+    else if (count === 0) problems.push(`${edit} matches nothing in the body.`)
+    else
+      problems.push(
+        `${edit} matches the body ${count} times: give a longer \`find\` that matches once.`,
+      )
+  }
+  return { body: edited, problems }
+}
+
 /** The instant a date or a date and time names, in ISO 8601; a date is taken at midnight UTC. */
 const instantOf = (value: string | undefined) => {
   if (value === undefined) return null
@@ -477,13 +500,26 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // lock lets other writes still point to the entry (as a parent, through a foreign key).
         const existing =
           input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
-        const { entry: _, fields = {}, provenance = {}, created, updated, append, ...given } = input
+        const {
+          entry: _,
+          fields = {},
+          provenance = {},
+          created,
+          updated,
+          append,
+          edits,
+          ...given
+        } = input
         const base = existing === undefined ? CREATED : stateOf(existing)
+        const edited = editsOf(base.body, edits ?? [])
         const state = {
           ...base,
           ...given,
-          // A part of a long body, added at the end of what is there.
-          body: append === true ? base.body + (given.body ?? '') : (given.body ?? base.body),
+          // A part of a long body, added at the end of what is there; or words changed in place.
+          body:
+            append === true
+              ? base.body + (given.body ?? '')
+              : (given.body ?? (edits === undefined ? base.body : edited.body)),
           fields: withoutNulls({ ...base.fields, ...fields }),
           provenance: withoutNulls({ ...base.provenance, ...provenance }),
         }
@@ -546,6 +582,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
+        if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
+          problems.push(
+            'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',
+          )
+        }
+        problems.push(...edited.problems)
         const instants = { created, updated }
         for (const [field, value] of Object.entries(instants)) {
           if (value === undefined) continue

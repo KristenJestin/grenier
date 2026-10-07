@@ -103,7 +103,8 @@ export type TreeEntry = typeof TreeEntry.Type
  * entry is created, or on an update while the entry has not changed since its creation. `updated`
  * is the time of the write, unless an import gives it when it creates the entry. With `append`, the
  * `body` given is added at the end of the entry's body: a body too long for one call is written in
- * parts, each part one write. The rules are checked by the write, not by this schema, so that every problem is
+ * parts, each part one write. With `edits`, a few words of the body change in place: each `find`
+ * must match the body exactly once, and the edits apply in order, in one write. The rules are checked by the write, not by this schema, so that every problem is
  * reported at once.
  */
 export const WriteEntryInput = Schema.Struct({
@@ -119,6 +120,9 @@ export const WriteEntryInput = Schema.Struct({
   sources: Schema.optionalKey(Schema.Array(SourceGiven)),
   body: Schema.optionalKey(Schema.String),
   append: Schema.optionalKey(Schema.Boolean),
+  edits: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ find: Schema.String, replace: Schema.String })),
+  ),
   summary: Schema.optionalKey(Schema.String),
   verified: Schema.optionalKey(Schema.Boolean),
   valid_from: Schema.optionalKey(Schema.NullOr(Schema.String)),
