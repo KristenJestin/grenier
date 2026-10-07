@@ -26,7 +26,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
 fn around(entry: Value, extra: Value) -> Value {
     let mut base = json!({
         "entry": entry, "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
-        "children": [], "hidden_children": 0, "cited_by": []
+        "children": [], "hidden_children": 0, "cited_by": [], "titles": {}
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
         base.extend(extra);
@@ -92,11 +92,11 @@ pub fn contract() -> EntryData {
                     { "reference": "facture-de-septembre", "id": "facture-de-septembre", "title": "Facture de septembre" }
                 ],
                 "links": [
-                    { "relation": "mentions", "period": null, "field": null, "id": "box-du-salon", "slug": "box-du-salon", "title": "Box du salon" },
-                    { "relation": "signed_by", "period": null, "field": null, "id": "camille-exemple", "slug": "camille-exemple", "title": "Camille Exemple" }
+                    { "relation": "mentions", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "box-du-salon", "slug": "box-du-salon", "title": "Box du salon" },
+                    { "relation": "signed_by", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "camille-exemple", "slug": "camille-exemple", "title": "Camille Exemple" }
                 ],
                 "backlinks": [
-                    { "relation": "fulfills", "period": "2026-09", "field": "start", "id": "facture-de-septembre", "slug": "facture-de-septembre", "title": "Facture de septembre" }
+                    { "relation": "fulfills", "period": "2026-09", "field": "start", "note": null, "valid_from": null, "valid_until": null, "id": "facture-de-septembre", "slug": "facture-de-septembre", "title": "Facture de septembre" }
                 ],
                 "children": [
                     { "id": "facture-de-septembre", "slug": "facture-de-septembre", "type": "invoice", "title": "Facture de septembre", "summary": "", "in_parent": false },
@@ -163,6 +163,66 @@ pub fn machine() -> EntryData {
             }),
         )),
         type_definition: Some(item_type()),
+    }
+}
+
+fn person_type() -> TypeDefinition {
+    serde_json::from_value(json!({
+        "name": "person", "label": "Personne", "description": "Quelqu'un que l'on connaît.",
+        "fields": [
+            { "name": "employer", "kind": "entry", "types": ["organization"] },
+            { "name": "bought_from", "kind": "entry", "types": ["organization"], "many": true },
+            { "name": "languages", "kind": "text", "many": true },
+            { "name": "interests", "kind": "enum", "values": ["vélo", "jardin", "cuisine"], "many": true },
+            { "name": "codes", "kind": "text", "many": true, "sensitive": true }
+        ]
+    }))
+    .expect("a fixture type")
+}
+
+/// A person tied to organizations: repeated values, entries among them, and links that say a
+/// role and the dates they held between.
+pub fn person() -> EntryData {
+    let link = |relation: &str, id: &str, title: &str, note: Value, from: Value, until: Value| {
+        json!({ "relation": relation, "period": null, "field": null, "note": note,
+                "valid_from": from, "valid_until": until, "id": id, "slug": id, "title": title })
+    };
+    EntryData {
+        read: read(around(
+            entry(
+                "camille-exemple",
+                "Camille Exemple",
+                "person",
+                json!({
+                    "summary": "Une amie de longue date, comptable.",
+                    "fields": {
+                        "employer": "atelier-des-lampes",
+                        "bought_from": ["boutique-du-coin", "atelier-des-lampes", "marche-couvert"],
+                        "languages": ["français", "gallois", "basque"],
+                        "interests": ["vélo", "jardin"],
+                        "codes": "[hidden]"
+                    }
+                }),
+            ),
+            json!({
+                "path": ["Proches"],
+                "ancestors": [{ "id": "proches", "title": "Proches" }],
+                "titles": {
+                    "atelier-des-lampes": "Atelier des lampes",
+                    "boutique-du-coin": "Boutique du coin",
+                    "marche-couvert": "Marché couvert"
+                },
+                "links": [
+                    link("works_at", "atelier-des-lampes", "Atelier des lampes", json!("comptable"), json!("2024-01-01"), Value::Null),
+                    link("worked_at", "boutique-du-coin", "Boutique du coin", json!("vendeuse"), json!("2019-09-01"), json!("2023-12-31")),
+                    link("bought_from", "marche-couvert", "Marché couvert", json!("une lampe de bureau"), Value::Null, Value::Null)
+                ],
+                "backlinks": [
+                    link("signed_by", "fibre-maison", "Abonnement fibre de la maison", Value::Null, Value::Null, json!("2026-03-15"))
+                ]
+            }),
+        )),
+        type_definition: Some(person_type()),
     }
 }
 

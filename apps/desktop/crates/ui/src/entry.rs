@@ -1,11 +1,13 @@
 //! The open entry: where it sits, what it is, its fields, its body, and what it is tied to; and
 //! beside it, the contents of the page, which follow the reading and jump to a section.
 
+use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
 use api::{
-    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, Medium, Source, TypeDefinition,
+    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, Link, Medium, Source,
+    TypeDefinition,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::text::TextView;
@@ -439,7 +441,11 @@ fn fields(
                             .child(div().flex_1().min_w_0().child(value_of(
                                 &values[&name],
                                 kind,
-                                read,
+                                &Shown {
+                                    scope: format!("field-{name}"),
+                                    titles: &read.titles,
+                                    read,
+                                },
                                 on_intent,
                                 cx,
                             )))
@@ -481,6 +487,7 @@ fn fields(
                 .bg(mix(card_bg, over, hover.0))
                 .font_weight(FontWeight::MEDIUM)
                 .cursor_pointer()
+                .debug_selector(|| "fields-header".into())
                 .on_click(move |_, _, cx| {
                     open_state.update(cx, |open, cx| {
                         *open = !*open;
@@ -545,11 +552,32 @@ fn reference(
         .into_any_element()
 }
 
-/// A value as its kind reads best: a hidden value as hidden, dates in words, links that open.
+/// Where a value is shown: the scope its elements are named in, and the titles of the entries it
+/// may name, by id.
+struct Shown<'a> {
+    scope: String,
+    titles: &'a HashMap<String, String>,
+    read: &'a EntryRead,
+}
+
+/// The title of the entry an id names: as the server gave it with the value, else as a link of
+/// the entry names it, else the id itself.
+pub fn title_of(id: &str, titles: &HashMap<String, String>, read: &EntryRead) -> String {
+    titles.get(id).cloned().unwrap_or_else(|| {
+        read.links
+            .iter()
+            .chain(&read.backlinks)
+            .find(|link| link.id == id || link.slug == id)
+            .map_or_else(|| id.to_string(), |link| link.title.clone())
+    })
+}
+
+/// A value as its kind reads best: a hidden value as hidden, dates in words, links that open; a
+/// list as its values in their order, each by its kind (each entry a link to it).
 fn value_of(
     value: &Value,
     kind: Option<FieldDefinitionKind>,
-    read: &EntryRead,
+    shown: &Shown,
     on_intent: &OnIntent,
     cx: &App,
 ) -> AnyElement {
@@ -561,6 +589,34 @@ fn value_of(
             .child(Icon::new(IconName::EyeOff).xsmall())
             .child("••••••")
             .child("masqué")
+            .into_any_element();
+    }
+    if let Value::Array(items) = value {
+        let last = items.len().saturating_sub(1);
+        // Labels stand apart by themselves; any other value is followed by a comma.
+        let comma = kind != Some(FieldDefinitionKind::Enum);
+        return h_flex()
+            .flex_wrap()
+            .gap_x(px(6.))
+            .gap_y(px(4.))
+            .children(items.iter().enumerate().map(|(index, item)| {
+                let one = value_of(
+                    item,
+                    kind,
+                    &Shown {
+                        scope: format!("{}-{index}", shown.scope),
+                        titles: shown.titles,
+                        read: shown.read,
+                    },
+                    on_intent,
+                    cx,
+                );
+                if comma && index < last {
+                    h_flex().child(one).child(",").into_any_element()
+                } else {
+                    one
+                }
+            }))
             .into_any_element();
     }
     let text_value = match value {
@@ -589,22 +645,19 @@ fn value_of(
             .into_any_element(),
         Some(FieldDefinitionKind::Url) => h_flex()
             .child(reference(
-                SharedString::from(format!("field-url-{text_value}")),
+                SharedString::from(format!("{}-url-{text_value}", shown.scope)),
                 without_scheme(&text_value),
                 browser(on_intent, text_value.clone()),
                 cx,
             ))
             .into_any_element(),
         Some(FieldDefinitionKind::Entry) => {
-            let title = read
-                .links
-                .iter()
-                .chain(&read.backlinks)
-                .find(|link| link.id == text_value || link.slug == text_value)
-                .map_or_else(|| text_value.clone(), |link| link.title.clone());
+            let title = title_of(&text_value, shown.titles, shown.read);
+            let selector = format!("{}-entry", shown.scope);
             h_flex()
+                .debug_selector(|| selector)
                 .child(reference(
-                    SharedString::from(format!("field-entry-{text_value}")),
+                    SharedString::from(format!("{}-entry-{text_value}", shown.scope)),
                     title,
                     opener(on_intent, text_value),
                     cx,
@@ -842,22 +895,17 @@ fn parts_table(
                         },
                         |value| {
                             // An entry a part names: by the title the server gave with the part.
-                            match (kind, value.as_str().and_then(|id| part.titles.get(id))) {
-                                (Some(FieldDefinitionKind::Entry), Some(title)) => reference(
-                                    SharedString::from(format!(
-                                        "part-{}-{}",
-                                        part.id,
-                                        value.as_str().unwrap_or_default()
-                                    )),
-                                    title.clone(),
-                                    opener(
-                                        on_intent,
-                                        value.as_str().unwrap_or_default().to_string(),
-                                    ),
-                                    cx,
-                                ),
-                                _ => value_of(value, *kind, read, on_intent, cx),
-                            }
+                            value_of(
+                                value,
+                                *kind,
+                                &Shown {
+                                    scope: format!("part-{}-{name}", part.id),
+                                    titles: &part.titles,
+                                    read,
+                                },
+                                on_intent,
+                                cx,
+                            )
                         },
                     ))
                     .into_any_element()
@@ -907,7 +955,25 @@ fn parts_table(
         .into_any_element()
 }
 
-/// The links of the entry, both ways: each card says how it relates.
+/// What a link says of itself, in a line: its note, then the dates it held between, such as
+/// `comptable · depuis le 1 janv. 2024`; nothing when it says nothing.
+pub fn link_detail(link: &Link) -> Option<String> {
+    let dates = match (&link.valid_from, &link.valid_until) {
+        (Some(from), Some(until)) => Some(format!(
+            "du {} au {}",
+            date_in_words(from),
+            date_in_words(until)
+        )),
+        (Some(from), None) => Some(format!("depuis le {}", date_in_words(from))),
+        (None, Some(until)) => Some(format!("jusqu'au {}", date_in_words(until))),
+        (None, None) => None,
+    };
+    let said: Vec<String> = link.note.iter().cloned().chain(dates).collect();
+    (!said.is_empty()).then(|| said.join(" · "))
+}
+
+/// The links of the entry, both ways: each card says how it relates, and what the link says of
+/// itself.
 fn links(
     article: &mut Article,
     read: &EntryRead,
@@ -936,7 +1002,7 @@ fn links(
                         IconName::ArrowLeft
                     }),
                     title: link.title.clone().into(),
-                    detail: None,
+                    detail: link_detail(link).map(Into::into),
                     relation: Some(relation.into()),
                 },
                 opener(on_intent, link.slug.clone()),
@@ -1238,7 +1304,40 @@ fn glide(scroll: ScrollHandle, place: Pixels, window: &mut Window, cx: &mut App)
 
 #[cfg(test)]
 mod tests {
-    use super::parts_of;
+    use super::{link_detail, parts_of};
+    use api::Link;
+
+    fn link(note: Option<&str>, from: Option<&str>, until: Option<&str>) -> Link {
+        Link {
+            relation: "works_at".into(),
+            period: None,
+            field: None,
+            note: note.map(Into::into),
+            valid_from: from.map(Into::into),
+            valid_until: until.map(Into::into),
+            id: "atelier".into(),
+            slug: "atelier".into(),
+            title: "Atelier".into(),
+        }
+    }
+
+    #[test]
+    fn a_link_says_its_note_and_its_dates_in_one_line() {
+        let said = |note, from, until| link_detail(&link(note, from, until));
+        assert_eq!(
+            said(Some("comptable"), Some("2024-01-01"), None).as_deref(),
+            Some("comptable · depuis le 1 janv. 2024")
+        );
+        assert_eq!(
+            said(None, Some("2024-01-01"), Some("2025-06-30")).as_deref(),
+            Some("du 1 janv. 2024 au 30 juin 2025")
+        );
+        assert_eq!(
+            said(Some("processeur"), None, Some("2025-06-30")).as_deref(),
+            Some("processeur · jusqu'au 30 juin 2025")
+        );
+        assert_eq!(said(None, None, None), None);
+    }
 
     #[test]
     fn a_body_is_cut_at_its_headings_but_not_in_code() {

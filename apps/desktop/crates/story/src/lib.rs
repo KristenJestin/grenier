@@ -170,6 +170,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "entry/relations",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    None,
+                    Pane::Entry(Box::new(Load::Ready(fixtures::person()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "entry/bare",
             build: |window, cx| {
                 viewer(

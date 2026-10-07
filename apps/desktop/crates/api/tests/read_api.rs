@@ -8,7 +8,7 @@ const ENTRY: &str = r#"{
   "entry": {
     "id": "01a1-entry", "type": "recipe", "title": "Plum tart", "slug": "plum-tart",
     "aliases": ["tarte aux prunes"], "tags": ["dessert"], "parent_id": "01a1-kitchen",
-    "fields": { "serves": 6, "cost": "[hidden]" }, "provenance": { "serves": "extracted" },
+    "fields": { "serves": 6, "cost": "[hidden]", "bought_from": ["01a1-market", "01a1-farm"] }, "provenance": { "serves": "extracted" },
     "sources": [
       { "entry": "01a1-notebook", "slug": "kitchen-notebook", "title": "Kitchen notebook" },
       { "url": "https://example.org/tarts/plum", "note": "the original" },
@@ -22,7 +22,10 @@ const ENTRY: &str = r#"{
   "path": ["Kitchen"],
   "ancestors": [{ "id": "01a1-kitchen", "title": "Kitchen" }],
   "references": [{ "reference": "pastry", "id": "01a1-pastry", "title": "Pastry" }],
-  "links": [{ "relation": "mentions", "period": null, "field": null, "id": "01a1-pastry", "slug": "pastry", "title": "Pastry" }],
+  "links": [
+    { "relation": "mentions", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "01a1-pastry", "slug": "pastry", "title": "Pastry" },
+    { "relation": "bought_at", "period": null, "field": null, "note": "the plums", "valid_from": "2026-09-01", "valid_until": "2026-09-30", "id": "01a1-market", "slug": "market", "title": "Market" }
+  ],
   "media": [{
     "id": "01a1-medium", "kind": "image", "mime": "image/png", "size": 68, "sha256": "ab12",
     "width": 1, "height": 1, "duration": null, "source_url": null, "alt": "", "position": 1,
@@ -31,7 +34,8 @@ const ENTRY: &str = r#"{
   "backlinks": [],
   "children": [{ "id": "01a1-child", "slug": "plum-jam", "type": "recipe", "title": "Plum jam", "summary": "", "in_parent": false }],
   "hidden_children": 1,
-  "cited_by": [{ "id": "01a1-menu", "slug": "sunday-menu", "title": "Sunday menu" }]
+  "cited_by": [{ "id": "01a1-menu", "slug": "sunday-menu", "title": "Sunday menu" }],
+  "titles": { "01a1-market": "Market", "01a1-farm": "Farm" }
 }"#;
 
 #[test]
@@ -48,6 +52,21 @@ fn an_entry_reads_with_its_sources_media_and_links() {
     );
     assert!(matches!(&read.entry.sources[2], Source::Identifier(_)));
     assert!(matches!(&read.entry.sources[3], Source::Item(item) if item.source == "inbox"));
+}
+
+#[test]
+fn a_repeated_field_and_a_link_with_a_note_and_dates_read() {
+    let read: EntryRead = serde_json::from_str(ENTRY).expect("an entry as the API returns it");
+    assert_eq!(
+        read.entry.fields["bought_from"],
+        serde_json::json!(["01a1-market", "01a1-farm"])
+    );
+    assert_eq!(read.titles["01a1-farm"], "Farm");
+    let bought = &read.links[1];
+    assert_eq!(bought.note.as_deref(), Some("the plums"));
+    assert_eq!(bought.valid_from.as_deref(), Some("2026-09-01"));
+    assert_eq!(bought.valid_until.as_deref(), Some("2026-09-30"));
+    assert_eq!(read.links[0].note, None);
 }
 
 #[test]
