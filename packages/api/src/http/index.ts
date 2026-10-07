@@ -87,6 +87,20 @@ const entries = HttpApiGroup.make('entries')
     }),
   )
   .add(
+    HttpApiEndpoint.get('pending', '/api/pending-references', {
+      success: Schema.Struct({
+        pending: Schema.Array(
+          Schema.Struct({
+            slug: Schema.String,
+            cited_by: Schema.Array(
+              Schema.Struct({ id: Schema.String, slug: Schema.String, title: Schema.String }),
+            ),
+          }).annotate({ identifier: 'PendingReference' }),
+        ),
+      }).annotate({ identifier: 'PendingReferences' }),
+    }),
+  )
+  .add(
     HttpApiEndpoint.get('read', '/api/entries/:entry', {
       params: { entry: Schema.String.annotate({ description: 'The slug or id of an entry.' }) },
       success: EntryRead,

@@ -21,6 +21,7 @@ const ENTRY: &str = r#"{
   },
   "path": ["Kitchen"],
   "ancestors": [{ "id": "01a1-kitchen", "title": "Kitchen" }],
+  "references": [{ "reference": "pastry", "id": "01a1-pastry", "title": "Pastry" }],
   "links": [{ "relation": "mentions", "period": null, "field": null, "id": "01a1-pastry", "slug": "pastry", "title": "Pastry" }],
   "media": [{
     "id": "01a1-medium", "kind": "image", "mime": "image/png", "size": 68, "sha256": "ab12",

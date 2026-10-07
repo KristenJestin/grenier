@@ -2,6 +2,7 @@ import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
+import { pendingOf } from '../../src/core/links/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { search } from '../../src/core/search/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
@@ -82,11 +83,9 @@ describe('several entries written at once', () => {
     )
   })
 
-  test('a single write still checks references against what exists', async () => {
-    expect(
-      (await run(Effect.flip(writeEntry({ type: 'note', title: 'Lonely', body: '[[nowhere]]' }))))
-        .message,
-    ).toBe('The field `body` refers to `nowhere`, which is not the slug of any entry.')
+  test('a single write keeps a reference to what does not exist yet, waiting', async () => {
+    const lonely = await run(writeEntry({ type: 'note', title: 'Lonely', body: '[[nowhere]]' }))
+    expect(await run(pendingOf(lonely.id))).toEqual(['nowhere'])
   })
 
   test('a reference to a slug the batch renames away is refused, whatever the order', async () => {

@@ -187,6 +187,7 @@ pub struct EntryRead {
     pub links: ::std::vec::Vec<Link>,
     pub media: ::std::vec::Vec<Medium>,
     pub path: ::std::vec::Vec<::std::string::String>,
+    pub references: ::std::vec::Vec<EntryReadReferencesItem>,
 }
 #[doc = "`EntryReadAncestorsItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -203,6 +204,16 @@ pub struct EntryReadCitedByItem {
     pub id: ::std::string::String,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
+}
+#[doc = "`EntryReadReferencesItem`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct EntryReadReferencesItem {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub id: ::std::option::Option<::std::string::String>,
+    pub reference: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub title: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`FieldDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -621,6 +632,27 @@ impl ::std::convert::TryFrom<::std::string::String> for NotFoundEncodedTag {
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+#[doc = "`PendingReference`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PendingReference {
+    pub cited_by: ::std::vec::Vec<PendingReferenceCitedByItem>,
+    pub slug: ::std::string::String,
+}
+#[doc = "`PendingReferenceCitedByItem`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PendingReferenceCitedByItem {
+    pub id: ::std::string::String,
+    pub slug: ::std::string::String,
+    pub title: ::std::string::String,
+}
+#[doc = "`PendingReferences`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PendingReferences {
+    pub pending: ::std::vec::Vec<PendingReference>,
 }
 #[doc = "`SearchResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

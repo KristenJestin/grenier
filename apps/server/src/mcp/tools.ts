@@ -39,6 +39,7 @@ import { linkTool } from './tools/link.ts'
 import { listProposalsTool } from './tools/list-proposals.ts'
 import { instanceRulesTool } from './tools/instance-rules.ts'
 import { listTypesTool } from './tools/list-types.ts'
+import { pendingReferencesTool } from './tools/pending-references.ts'
 import { proposeTypeChangeTool } from './tools/propose-type-change.ts'
 import { readTool } from './tools/read.ts'
 import { searchTool } from './tools/search.ts'
@@ -52,6 +53,7 @@ export const GrenierTools = Toolkit.make(
   addFieldTool.tool,
   getTypeTool.tool,
   listTypesTool.tool,
+  pendingReferencesTool.tool,
   instanceRulesTool.tool,
   writeTool.tool,
   readTool.tool,
@@ -171,6 +173,7 @@ export const GrenierHandlers = GrenierTools.toLayer(
       add_field: handlerOf(addFieldTool),
       get_type: handlerOf(getTypeTool),
       list_types: handlerOf(listTypesTool),
+      pending_references: handlerOf(pendingReferencesTool),
       instance_rules: handlerOf(instanceRulesTool),
       write: handlerOf(writeTool),
       read: handlerOf(readTool),

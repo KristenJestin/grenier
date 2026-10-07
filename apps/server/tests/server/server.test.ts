@@ -544,7 +544,7 @@ describe('the read API', () => {
 })
 
 describe('the API documentation', () => {
-  test('/api/openapi.json is a valid OpenAPI document of the five read routes, behind a bearer key', async () => {
+  test('/api/openapi.json is a valid OpenAPI document of the six read routes, behind a bearer key', async () => {
     const document = await fetch(`${base}/api/openapi.json`).then((response) => response.json())
     expect(await new Validator().validate(document)).toMatchObject({ valid: true })
     const Document = Schema.Struct({
@@ -568,6 +568,7 @@ describe('the API documentation', () => {
       '/api/about',
       '/api/entries',
       '/api/entries/{entry}',
+      '/api/pending-references',
       '/api/search',
       '/api/types',
     ])

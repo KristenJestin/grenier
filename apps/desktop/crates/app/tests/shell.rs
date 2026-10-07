@@ -25,7 +25,7 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
             "updated": "2026-10-01T08:00:00.000Z", "valid_from": null, "valid_until": null,
             "superseded_by": null, "archived_at": null
         },
-        "path": [], "ancestors": [], "links": [], "media": [], "backlinks": [], "children": [],
+        "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
         "hidden_children": 0, "cited_by": []
     })
 }

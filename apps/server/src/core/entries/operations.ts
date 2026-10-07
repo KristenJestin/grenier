@@ -11,7 +11,8 @@ import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
-import { incoming, MENTIONS, outgoing, replaceMentions } from '../links/store.ts'
+import { incoming, MENTIONS, outgoing } from '../links/store.ts'
+import { keepReferences, referencesOf, resolvePending } from '../links/pending.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
@@ -271,6 +272,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   return {
     entry,
     path: yield* pathOf(entry.id),
+    references: yield* referencesOf(entry.body),
     ancestors: yield* ancestorsOf(entry.id),
     links: yield* outgoing(entry.id, hiddenTypes),
     media: yield* mediaOf(entry.id),
@@ -770,15 +772,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             problems.push(
               `The field \`body\` refers to \`${reference}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
             )
-          } else if (
-            reference !== slug &&
-            !coming.has(reference) &&
-            (yield* visibleIdOf(reference)) === undefined
-          ) {
-            problems.push(
-              `The field \`body\` refers to \`${reference}\`, which is not the slug of any entry.`,
-            )
           }
+          // A reference to a slug no entry has yet waits for it (`pending_references`).
         }
 
         if (Result.isFailure(decoded) || problems.length > 0) {
@@ -870,9 +865,15 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           existing === undefined ? 'create' : 'update',
           changes,
         )
-        const mentioned = yield* Effect.forEach(referencesIn(entry.body), idOf)
-        yield* replaceMentions(id, mentioned.filter(Predicate.isString))
+        yield* keepReferences(id, entry.body, coming)
         if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
+        // A new slug or alias is what references written before may wait for.
+        if (
+          existing === undefined ||
+          renamed ||
+          JSON.stringify(existing.aliases) !== JSON.stringify(entry.aliases)
+        )
+          yield* resolvePending(actor, { id, slug: entry.slug, aliases: entry.aliases })
         return yield* findEntry(id)
       }),
     ),
@@ -1112,11 +1113,7 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
         if (refusals.length > 0) return yield* new Refused({ message: refusals.join(' ') })
         const written = results.flatMap((result) => (isRefused(result) ? [] : [result]))
         // The references to entries written later in the batch are linked now that all exist.
-        yield* Effect.forEach(written, (entry) =>
-          Effect.flatMap(Effect.forEach(referencesIn(entry.body), idOf), (mentioned) =>
-            replaceMentions(entry.id, mentioned.filter(Predicate.isString)),
-          ),
-        )
+        yield* Effect.forEach(written, (entry) => keepReferences(entry.id, entry.body))
         return written
       }),
     ),

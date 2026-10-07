@@ -670,12 +670,13 @@ pub fn parts_of(body: &str) -> Vec<(Option<(u8, String)>, String)> {
 /// The body, from Markdown, part by part, with `[[slug]]` references as links that open the
 /// entry, titled when the entry is among its links.
 fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &App) {
-    let titled = with_entry_links(body, |slug| {
-        read.links
+    // What the server says each reference names: an alias as well as a slug; nothing yet for a
+    // reference that waits for its entry.
+    let titled = with_entry_links(body, |reference| {
+        read.references
             .iter()
-            .chain(&read.backlinks)
-            .find(|link| link.slug == slug)
-            .map(|link| link.title.clone())
+            .find(|known| known.reference == reference)
+            .and_then(|known| Some((known.id.clone()?, known.title.clone()?)))
     });
     for (index, (title_of_part, text)) in parts_of(&titled).into_iter().enumerate() {
         let prose = (!text.trim().is_empty()).then(|| {

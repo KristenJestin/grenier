@@ -491,10 +491,10 @@ describe('a long body written in parts', () => {
     expect(
       await run(
         refusalOf(
-          writeEntry({ entry: 'pond-journal', body: 'See [[no-such-entry]].\n', append: true }),
+          writeEntry({ entry: 'pond-journal', body: 'Rain.\n', append: true, verified: true }),
         ),
       ),
-    ).toBe('The field `body` refers to `no-such-entry`, which is not the slug of any entry.')
+    ).toBe('The field `verified` can be set to true by the owner only.')
     await run(writeEntry({ entry: 'pond-journal', body: 'Day two.\n', append: true }))
     expect((await run(readEntry('pond-journal'))).entry.body).toBe('Day one.\nDay two.\n')
     expect(await run(entryHistory('pond-journal'))).toHaveLength(2)
