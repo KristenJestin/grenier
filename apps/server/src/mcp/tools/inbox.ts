@@ -85,7 +85,7 @@ export const inboxReleaseTool = defineTool({
 export const inboxDoneTool = defineTool({
   name: 'inbox_done',
   description:
-    'Marks an item you took as processed, with the `entries` (slugs or ids) it produced or updated: each of them then cites the item in its sources.',
+    "Marks an item you took as processed, with the `entries` (slugs or ids) it produced or updated: each of them then cites the item in its sources. Give an entry as `{ entry, attach: { alt } }` to attach the item's file to it, with what it shows as `alt`; all of it is written, or nothing.",
   input: FinishInput,
   right: 'write',
   run: (input) => Effect.map(finishItem(input), (item) => ({ item })),

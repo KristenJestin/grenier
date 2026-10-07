@@ -8,7 +8,6 @@ import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { findEntry } from '../entries/operations.ts'
-import { itemFile } from '../inbox/operations.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
@@ -62,6 +61,53 @@ const dimensionsOf = (kind: string, head: Uint8Array) => {
     ? { width: measured.success.width, height: measured.success.height }
     : { width: null, height: null }
 }
+
+const owned = rowsOf(
+  Schema.Struct({
+    kind: Schema.String,
+    status: Schema.String,
+    taken_by: Schema.NullOr(Schema.String),
+    closed_by: Schema.NullOr(Schema.String),
+    content: Schema.NullOr(Schema.String),
+    sha256: Schema.NullOr(Schema.String),
+  }),
+)
+
+/**
+ * The bytes of the file of an item the caller has taken, or has just marked processed: what an
+ * agent attaches to an entry without sending it again.
+ */
+const itemFile = Effect.fn('itemFile')(function* (id: string) {
+  const db = yield* drizzle
+  const { inbox } = tables
+  const actor = yield* currentActor
+  const [item] = /^[0-9a-f-]{36}$/i.test(id)
+    ? yield* owned(
+        db
+          .select({
+            kind: inbox.kind,
+            status: inbox.status,
+            taken_by: inbox.taken_by,
+            closed_by: inbox.closed_by,
+            content: inbox.content,
+            sha256: inbox.sha256,
+          })
+          .from(inbox)
+          .where(eq(inbox.id, id)),
+      )
+    : []
+  if (item === undefined) return yield* new Refused({ message: `There is no item \`${id}\`.` })
+  const mine =
+    (item.status === 'taken' && item.taken_by === actor) ||
+    (item.status === 'processed' && item.closed_by === actor)
+  if (!mine)
+    return yield* new Refused({ message: `Take the item \`${id}\` before attaching its file.` })
+  if (item.kind !== 'file')
+    return yield* new Refused({ message: `The item \`${id}\` holds no file to attach.` })
+  return item.sha256 === null
+    ? new Uint8Array(Buffer.from(item.content ?? '', 'utf8'))
+    : new Uint8Array(yield* readFileOf(item.sha256))
+})
 
 /** A file given as bytes, typed, measured and kept. */
 const keptFromBytes = Effect.fn('keptFromBytes')(function* (bytes: Uint8Array) {

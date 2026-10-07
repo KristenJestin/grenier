@@ -8,7 +8,7 @@ import { ConfigProvider, Effect, Predicate } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { getPinned, isPrivateAddress } from '../../src/core/media/files.ts'
-import { addToInbox, takeItem } from '../../src/core/inbox/index.ts'
+import { addToInbox, finishItem, peekItem, takeItem } from '../../src/core/inbox/index.ts'
 import { attachMedia, describeMedia, HostResolver, readMedia } from '../../src/core/media/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { search } from '../../src/core/search/index.ts'
@@ -417,5 +417,61 @@ describe('the file of an inbox item, attached to an entry', () => {
     expect(
       await run(withMedia()(refusalOf(attachMedia({ entry: 'shed-door', item: item.id })))),
     ).toBe(`Take the item \`${item.id}\` before attaching its file.`)
+  })
+})
+
+describe("inbox_done names, per entry, whether the item's file is attached to it", () => {
+  test('the file goes to the entries that ask for it, with their description, and all cite the item', async () => {
+    await run(
+      Effect.gen(function* () {
+        yield* writeEntry({ type: 'thing', title: 'Barn' })
+        yield* writeEntry({ type: 'thing', title: 'Barn roof' })
+      }),
+    )
+    const done = await run(
+      withMedia()(
+        Effect.gen(function* () {
+          const item = yield* addToInbox({ kind: 'file', name: 'barn.png', data: PIXEL })
+          yield* takeItem({ id: item.id })
+          return yield* finishItem({
+            id: item.id,
+            entries: ['barn', { entry: 'barn-roof', attach: { alt: 'Slates missing' } }],
+          })
+        }),
+      ),
+    )
+    expect(done).toMatchObject({
+      status: 'processed',
+      entries: [{ slug: 'barn' }, { slug: 'barn-roof' }],
+      media: [{ entry: 'barn-roof', medium: { mime: 'image/png', alt: 'Slates missing' } }],
+    })
+    const [barn, roof] = await Promise.all([run(readEntry('barn')), run(readEntry('barn-roof'))])
+    expect(barn.media).toEqual([])
+    expect(roof.media).toMatchObject([{ kind: 'image', alt: 'Slates missing' }])
+    const cited = { source: 'inbox', item: done.id }
+    expect(barn.entry.sources).toContainEqual(cited)
+    expect(roof.entry.sources).toContainEqual(cited)
+    expect((await run(search('slates'))).map(({ slug }) => slug)).toContain('barn-roof')
+  })
+
+  test('an item without a file to attach is refused, and stays taken with nothing written', async () => {
+    const [id, refused] = await run(
+      withMedia()(
+        Effect.gen(function* () {
+          const item = yield* addToInbox({ kind: 'text', text: 'Paint the barn.' })
+          yield* takeItem({ id: item.id })
+          const refusal = yield* refusalOf(
+            finishItem({ id: item.id, entries: ['barn', { entry: 'barn-roof', attach: {} }] }),
+          )
+          return [item.id, refusal] as const
+        }),
+      ),
+    )
+    expect(refused).toBe(`The item \`${id}\` holds no file to attach.`)
+    expect(await run(peekItem(id))).toMatchObject({ status: 'taken' })
+    expect((await run(readEntry('barn'))).entry.sources).not.toContainEqual({
+      source: 'inbox',
+      item: id,
+    })
   })
 })
