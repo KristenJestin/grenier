@@ -10,7 +10,7 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
-import { hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
+import { hiddenAmong, hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
@@ -1067,10 +1067,29 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           }
         }
 
+        // The stored sources of entries the caller may not see, read as the marker: written back
+        // as read, or without them, they stay, as a parent or the items of a list do. Each marker
+        // takes the place of the next one; the others are kept at the end.
+        const storedSourceIds = (existing?.sources ?? []).flatMap((held) =>
+          'entry' in held ? [held.entry] : [],
+        )
+        const hiddenSources = yield* hiddenAmong(storedSourceIds)
+        const unseenSources = (existing?.sources ?? []).filter(
+          (held) =>
+            'entry' in held &&
+            hiddenSources.has(held.entry) &&
+            !state.sources.some((sent) => 'entry' in sent && sent.entry === held.entry),
+        )
         // The entries a source names, by id; a URL that is a web address; an item the inbox holds.
         const sources: Array<SourceKept> = []
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
+          const unseen =
+            'entry' in source && source.entry === HIDDEN ? unseenSources.shift() : undefined
+          if (unseen !== undefined) {
+            sources.push(unseen)
+            continue
+          }
           if ('entry' in source) {
             // An entry it already cites stays cited, whether the caller may see it or not.
             const kept = existing?.sources.some(
@@ -1103,6 +1122,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           } else sources.push(source)
         }
+        sources.push(...unseenSources)
 
         for (const reference of referencesIn(state.body)) {
           const away = renamedAway.get(reference)
