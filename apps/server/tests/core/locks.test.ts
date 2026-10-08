@@ -270,6 +270,15 @@ describe('several inbox items taken at once', () => {
     expect(refused.message).toBe(`Give each item once: \`${id}\` comes twice.`)
   })
 
+  test('an id in upper case takes its item and answers it; the same id in two cases is twice', async () => {
+    const id = await run(
+      Effect.map(addToInbox({ kind: 'text', text: 'Shout.' }), (item) => item.id),
+    )
+    const refused = await run(Effect.flip(takeItems([id, id.toUpperCase()])))
+    expect(refused.message).toBe(`Give each item once: \`${id.toUpperCase()}\` comes twice.`)
+    expect(await run(takeItems([id.toUpperCase()]))).toMatchObject([{ id, status: 'taken' }])
+  })
+
   test('a long text is cut between characters, never inside one', async () => {
     const text = `${'a'.repeat(15_999)}😀b`
     const id = await run(Effect.map(addToInbox({ kind: 'text', text }), (item) => item.id))
