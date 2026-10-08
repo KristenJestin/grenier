@@ -488,16 +488,17 @@ impl Render for Gallery {
                             .pt(space::S)
                             .text_size(text::HEADING)
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Galerie"),
+                            .child("Gallery"),
                     )
                     .child(
                         div().px(space::S).pt(space::S).child(
-                            Switch::new("dark").label("Sombre").checked(dark).on_change(
-                                cx.listener(|_, dark: &bool, _, cx| {
+                            Switch::new("dark")
+                                .label("Dark")
+                                .checked(dark)
+                                .on_change(cx.listener(|_, dark: &bool, _, cx| {
                                     theme::set_dark(*dark, cx);
                                     cx.notify();
-                                }),
-                            ),
+                                })),
                         ),
                     )
                     .children(list),

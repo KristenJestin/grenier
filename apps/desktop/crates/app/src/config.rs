@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::client::{Client, Key};
+use ui::text as words;
 
 /// The environment variable that names another configuration file.
 pub const CONFIG_VARIABLE: &str = "GRENIER_DESKTOP_CONFIG";
@@ -31,32 +32,25 @@ pub fn path() -> Option<PathBuf> {
 
 /// The client the configuration describes, or a sentence that says what to fix.
 pub fn client() -> Result<Client, String> {
-    let path = path().ok_or("Aucun dossier de configuration sur ce système.")?;
+    let path = path().ok_or(words::NO_CONFIGURATION_FOLDER)?;
     client_from(&path, dirs::home_dir().as_deref())
 }
 
 fn client_from(path: &Path, home: Option<&Path>) -> Result<Client, String> {
-    let text = std::fs::read_to_string(path).map_err(|_| {
-        format!(
-            "Créez {} avec l'adresse du serveur et le fichier de la clé : \
-             {{ \"server\": \"http://127.0.0.1:3000\", \"key_file\": \"~/.config/grenier/key\" }}",
-            path.display()
-        )
+    let text = std::fs::read_to_string(path)
+        .map_err(|_| words::create_configuration(&path.display().to_string()))?;
+    let config: Config = serde_json::from_str(&text).map_err(|error| {
+        words::unreadable_configuration(&path.display().to_string(), &error.to_string())
     })?;
-    let config: Config = serde_json::from_str(&text)
-        .map_err(|error| format!("{} ne se lit pas : {error}", path.display()))?;
     let key_file = match (config.key_file.strip_prefix("~/"), home) {
         (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(&config.key_file),
     };
     let key = std::fs::read_to_string(&key_file)
-        .map_err(|_| format!("Le fichier de la clé {} ne se lit pas.", key_file.display()))?;
+        .map_err(|_| words::unreadable_key(&key_file.display().to_string()))?;
     let key = key.trim();
     if key.is_empty() {
-        return Err(format!(
-            "Le fichier de la clé {} est vide.",
-            key_file.display()
-        ));
+        return Err(words::empty_key(&key_file.display().to_string()));
     }
     Ok(Client::new(config.server, Key::new(key)))
 }
@@ -94,7 +88,7 @@ mod tests {
         assert!(
             client_from(&config, None)
                 .expect_err("no configuration")
-                .contains("Créez")
+                .contains("Create")
         );
         std::fs::write(
             &config,

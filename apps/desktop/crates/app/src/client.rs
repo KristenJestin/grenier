@@ -9,6 +9,7 @@ use api::{EntryList, EntryRead, SearchResult, SearchResults, TreeEntry, TypeDefi
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use ui::load::Problem;
+use ui::text as words;
 
 /// The key the server knows this viewer by. It is sent, never shown.
 pub struct Key(String);
@@ -108,13 +109,13 @@ impl Client {
         let body = response.body_mut();
         if status == 200 {
             return body.read_json::<T>().map_err(|error| {
-                Problem::Refused(format!("La réponse du serveur ne se lit pas : {error}").into())
+                Problem::Refused(words::unreadable_answer(&error.to_string()).into())
             });
         }
         let sentence = body
             .read_json::<Refusal>()
             .map(|refusal| refusal.message)
-            .unwrap_or_else(|_| format!("Le serveur a répondu {status}."));
+            .unwrap_or_else(|_| words::server_answered(status));
         Err(match status {
             401 | 403 => Problem::KeyRefused(sentence.into()),
             _ => Problem::Refused(sentence.into()),

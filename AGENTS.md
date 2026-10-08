@@ -33,7 +33,8 @@ what is wanted, where, and how to verify it: read it before touching code, and n
 suite after the scenario it covers.
 
 Everything in this repository is in English: documents, code, comments, commits, issues and
-pull requests. The interface may be in French.
+pull requests. The interfaces are in English; the content of an instance is in whatever language
+it was written.
 
 ```
 packages/api      @grenier/api     The contract between the server and its clients: the HTTP
