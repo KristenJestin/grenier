@@ -3,3 +3,10 @@
 pub mod client;
 pub mod config;
 pub mod shell;
+
+/// The version of the viewer: the tag a release builds it from (`GRENIER_VERSION`), `unknown` in a
+/// local build.
+pub const VERSION: &str = match option_env!("GRENIER_VERSION") {
+    Some(version) => version,
+    None => "unknown",
+};

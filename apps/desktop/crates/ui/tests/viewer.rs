@@ -169,3 +169,16 @@ fn a_slash_from_the_entry_pane_goes_to_the_search_field(cx: &mut TestAppContext)
     let typed = viewer.read_with(cx, |viewer, cx| viewer.search_text(cx));
     assert_eq!(typed.as_ref(), "rake");
 }
+
+#[gpui_kit::test]
+fn the_version_of_the_viewer_stands_beside_the_server(cx: &mut TestAppContext) {
+    let (viewer, cx, _) = viewer(cx);
+    cx.update(|_, cx| {
+        viewer.update(cx, |viewer, cx| {
+            viewer.set_connection(Some("grenier.example:3000".into()), cx);
+            viewer.set_version("1.2.3".into(), cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("viewer-version").is_some());
+}

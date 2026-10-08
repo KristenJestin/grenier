@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Provisional: an attic under its roof, in the colours of the viewer's theme. -->
+  <rect width="256" height="256" rx="56" fill="#121212"/>
+  <path d="M40 132 L128 56 L216 132" fill="none" stroke="#5ed39a" stroke-width="20"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="76" y="132" width="104" height="72" rx="10" fill="none" stroke="#ededed"
+    stroke-width="14"/>
+  <path d="M76 168 H180" stroke="#ededed" stroke-width="10"/>
+</svg>

@@ -93,6 +93,7 @@ pub struct Viewer {
     /// Whether the sidebar shows, once asked; until then, as wide as the window allows.
     sidebar_open: Option<bool>,
     connection: Option<SharedString>,
+    version: Option<SharedString>,
     focus: FocusHandle,
     tree_focus: FocusHandle,
     /// The main pane, focused by a click in it: `/` from there goes to the search field.
@@ -135,6 +136,7 @@ impl Viewer {
             jump: None,
             sidebar_open: None,
             connection: None,
+            version: None,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),
             pane_focus: cx.focus_handle(),
@@ -166,6 +168,12 @@ impl Viewer {
     /// The server the viewer reads, named at the foot of the sidebar.
     pub fn set_connection(&mut self, name: Option<SharedString>, cx: &mut Context<Self>) {
         self.connection = name;
+        cx.notify();
+    }
+
+    /// The version of the viewer, beside the server it reads.
+    pub fn set_version(&mut self, version: SharedString, cx: &mut Context<Self>) {
+        self.version = Some(version);
         cx.notify();
     }
 
@@ -475,6 +483,12 @@ impl Viewer {
                     .text_color(muted)
                     .child(div().size(px(6.)).rounded_full().bg(success))
                     .child(format!("Connecté à {name}"))
+                    .children(self.version.clone().map(|version| {
+                        div()
+                            .debug_selector(|| "viewer-version".into())
+                            .ml_auto()
+                            .child(format!("v{version}"))
+                    }))
             }));
         div()
             .h_full()
