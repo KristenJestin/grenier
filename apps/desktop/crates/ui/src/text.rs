@@ -30,9 +30,12 @@ pub fn connected_to(server: &str) -> String {
     format!("Connected to {server}")
 }
 
-/// The version of the viewer, beside the server.
+/// The version of the viewer, beside the server; a build of no release says so.
 pub fn version(version: &str) -> String {
-    format!("v{version}")
+    match version {
+        "unknown" => "local build".to_string(),
+        version => format!("v{version}"),
+    }
 }
 
 // The toolbar of an entry.
