@@ -16,17 +16,18 @@ pub mod font {
     /// The text: Open Sauce Sans.
     pub const TEXT: &str = "Open Sauce Sans";
     /// The headings: the titles of entries, the sections of a page, the headings of a body. Peace
-    /// Sans is chosen for them; until its file is in `assets/fonts`, Open Sauce Sans.
-    pub const HEADING: &str = TEXT;
+    /// Sans has one weight, and every letter of French.
+    pub const HEADING: &str = "Peace Sans";
 }
 
 /// The font files, read into the program when it is built.
-const FONTS: [&[u8]; 5] = [
+pub const FONTS: [&[u8]; 6] = [
     include_bytes!("../../../assets/fonts/OpenSauceSans-Regular.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-Italic.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-Medium.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-Bold.ttf"),
+    include_bytes!("../../../assets/fonts/PeaceSans-Regular.ttf"),
 ];
 
 /// Gives the text system the viewer's fonts: once, at start-up, before the first window.
