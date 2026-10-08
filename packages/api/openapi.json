@@ -956,6 +956,16 @@
                 "type": "null"
               }
             ]
+          },
+          "archived_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -977,7 +987,8 @@
           "valid_from",
           "valid_until",
           "superseded_by",
-          "archived_at"
+          "archived_at",
+          "archived_reason"
         ],
         "additionalProperties": false
       },

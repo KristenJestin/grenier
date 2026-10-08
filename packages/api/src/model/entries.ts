@@ -72,6 +72,7 @@ export const Entry = Schema.Struct({
   valid_until: Schema.NullOr(Schema.String),
   superseded_by: Schema.NullOr(Schema.String),
   archived_at: Schema.NullOr(Schema.String),
+  archived_reason: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'Entry' })
 export type Entry = typeof Entry.Type
 

@@ -109,6 +109,7 @@ describe('answers carry the entry, not its content', () => {
         summary: 'A year in the garden.',
         path: ['Garden'],
         archived_at: expect.any(String),
+        archived_reason: null,
       },
     })
   })
