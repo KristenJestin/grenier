@@ -51,6 +51,24 @@ Linux from the latest release; its tests (`crates/app/tests/update_script.rs`) r
 local fake release server. The launcher and the icon of an archive are in `assets/release/` (the
 icon is provisional).
 
+The dispatch of `release.yml` (`workflow_dispatch`) is a dry run of the viewer's build: it builds
+the tag it is given and attaches the archives to that tag's release, and tags nothing. A tag
+cut before the viewer was released (such as `v0.4.0`) has no `scripts/package.sh` and no
+`grenier-desktop` target, and the job makes no release, so a dry run needs a tag and a release of
+its own, on the branch under test:
+
+```
+git tag v0.0.0-dry-run.1 <branch> && git push origin v0.0.0-dry-run.1
+gh release create v0.0.0-dry-run.1 --prerelease --title "dry run" --notes "Deleted after the run."
+gh workflow run release.yml --ref <branch> -f tag=v0.0.0-dry-run.1
+gh run watch                                    # then check both archives on the release
+gh release delete v0.0.0-dry-run.1 --yes --cleanup-tag
+git tag -d v0.0.0-dry-run.1
+```
+
+The release is a pre-release, so `releases/latest`, which `update.sh` reads, never points at it;
+`--cleanup-tag` deletes the tag on GitHub with it.
+
 ## When the viewer fails at start
 
 The viewer and the gallery print the errors GPUI logs on standard error; `RUST_LOG` shows more.
