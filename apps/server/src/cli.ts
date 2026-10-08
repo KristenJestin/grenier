@@ -590,8 +590,10 @@ export const grenier = Command.make('grenier').pipe(
 if (import.meta.main) {
   // A command run on a machine where Grenier is installed reaches that Grenier.
   loadInstalledEnvironment()
-  // The version a release builds in (`bun build --define`), unless the environment gives one.
-  process.env['GRENIER_VERSION'] ??= process.env.GRENIER_BUILT_VERSION
+  // The version a release builds in (`bun build --define`), unless the environment gives one;
+  // in a clone, none: the server says `unknown`.
+  const built = process.env.GRENIER_BUILT_VERSION
+  if (built !== undefined) process.env['GRENIER_VERSION'] ??= built
   Command.run(grenier, { version: process.env['GRENIER_VERSION'] ?? 'unknown' }).pipe(
     Effect.provide(BunServices.layer),
     // The command line has said what was wrong already.
