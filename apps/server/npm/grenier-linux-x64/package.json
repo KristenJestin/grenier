@@ -2,7 +2,7 @@
   "name": "@netsirk/grenier-linux-x64",
   "version": "0.0.0",
   "description": "The executable of Grenier for Linux x64, with its migrations and its PostgreSQL.",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "repository": "github:KristenJestin/grenier",
   "files": [
     "bin"

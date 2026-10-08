@@ -2,7 +2,7 @@
   "name": "@netsirk/grenier",
   "version": "0.0.0",
   "description": "Grenier, a personal knowledge system kept by AI agents: the server, its MCP tools and its command line.",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "repository": "github:KristenJestin/grenier",
   "bin": {
     "grenier": "bin/grenier.js"
