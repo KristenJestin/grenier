@@ -264,7 +264,7 @@ describe('six agents work the inbox in parallel', () => {
 })
 
 describe('several images taken at once', () => {
-  test('each is shown to the agent', async () => {
+  test('none is inlined: each comes with the address of its file', async () => {
     const ids = await Promise.all(
       ['one.png', 'two.png'].map(
         async (name) =>
@@ -280,6 +280,7 @@ describe('several images taken at once', () => {
     const { content } = Schema.decodeUnknownSync(
       Schema.Struct({ content: Schema.Array(Schema.Struct({ type: Schema.String })) }),
     )(result)
-    expect(content.map(({ type }) => type)).toEqual(['text', 'image', 'image'])
+    expect(content.map(({ type }) => type)).toEqual(['text'])
+    expect(JSON.stringify(result)).toContain('/media/')
   })
 })
