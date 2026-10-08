@@ -3,7 +3,7 @@ import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
 import { refusingContention } from '../entries/contention.ts'
-import { textsOf, visibleIdOf, visibleOf } from '../entries/operations.ts'
+import { textsOf, visibleIdOf, visibleTypesOf } from '../entries/operations.ts'
 import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
@@ -204,12 +204,14 @@ const mismatchedOf = Effect.fn('mismatchedOf')(function* (
 ) {
   const accepted = type.fields.find((field) => field.name === name)?.types
   if (accepted === undefined) return []
+  // Every entry the values name, in one read rather than one per value.
+  const typesOf = yield* visibleTypesOf(rewrites.flatMap(({ fields }) => textsOf(fields[name])))
   const found: Array<{ slug: string; problem: string }> = []
   for (const { slug, fields } of rewrites) {
     const kinds = new Set<string>()
     for (const value of textsOf(fields[name])) {
-      const other = yield* visibleOf(value)
-      if (other !== undefined && !accepted.includes(other.type)) kinds.add(other.type)
+      const other = typesOf.get(value)
+      if (other !== undefined && !accepted.includes(other)) kinds.add(other)
     }
     for (const kind of kinds)
       found.push({

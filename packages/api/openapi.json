@@ -103,7 +103,64 @@
           "Entries"
         ],
         "operationId": "entries.list",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false
+          },
+          {
+            "name": "verified",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "under",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
+            },
+            "required": false
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
         "security": [
           {
             "bearer": []
@@ -116,6 +173,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EntryList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidEncoded"
                 }
               }
             }
@@ -182,6 +249,108 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ForbiddenEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/entries/{entry}/history": {
+      "get": {
+        "tags": [
+          "Entries"
+        ],
+        "operationId": "entries.history",
+        "parameters": [
+          {
+            "name": "entry",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "description": "The slug or id of an entry."
+            },
+            "required": true
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
+            },
+            "required": false
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "event",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "One event, by its id, with its values whole."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HistoryPage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundEncoded"
                 }
               }
             }
@@ -288,6 +457,29 @@
           },
           {
             "name": "archived",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false
+          },
+          {
+            "name": "verified",
             "in": "query",
             "schema": {
               "type": "string",
@@ -956,6 +1148,16 @@
                 "type": "null"
               }
             ]
+          },
+          "archived_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -977,7 +1179,8 @@
           "valid_from",
           "valid_until",
           "superseded_by",
-          "archived_at"
+          "archived_at",
+          "archived_reason"
         ],
         "additionalProperties": false
       },
@@ -1072,6 +1275,79 @@
         ],
         "additionalProperties": false
       },
+      "HistoryPage": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryEvent"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor"
+        ],
+        "additionalProperties": false
+      },
+      "HistoryEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryChange"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "actor",
+          "action",
+          "changes"
+        ],
+        "additionalProperties": false
+      },
+      "HistoryChange": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "before": {},
+          "after": {}
+        },
+        "required": [
+          "field",
+          "before",
+          "after"
+        ],
+        "additionalProperties": false
+      },
       "PendingReferences": {
         "type": "object",
         "properties": {
@@ -1131,6 +1407,16 @@
             "items": {
               "$ref": "#/components/schemas/TreeEntry"
             }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1379,7 +1665,7 @@
     },
     {
       "name": "Entries",
-      "description": "The tree of entries, and an entry with its place in it, its children and its links."
+      "description": "The tree of entries, or the entries a filter keeps; an entry with its place in it, its children and its links; and its history."
     },
     {
       "name": "Search",

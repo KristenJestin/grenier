@@ -157,6 +157,35 @@ describe('reads give no hidden id', () => {
   })
 })
 
+describe('sources written back as read keep the hidden ones', () => {
+  test('a URL added to the sources as read, with or without the marker, keeps the hidden source', async () => {
+    await owner(
+      writeEntry({
+        type: 'pointer',
+        title: 'Rain log',
+        sources: [
+          { entry: 'monday', note: 'the page of that day' },
+          { url: 'https://example.org/rain' },
+        ],
+      }),
+    )
+    const read = await plain(readEntry('rain-log'))
+    expect(read.entry.sources[0]).toMatchObject({ entry: HIDDEN })
+    const asRead = read.entry.sources.map((source) =>
+      'entry' in source ? { entry: source.entry } : source,
+    )
+    await plain(
+      writeEntry({ entry: 'rain-log', sources: [...asRead, { url: 'https://example.org/more' }] }),
+    )
+    await plain(writeEntry({ entry: 'rain-log', sources: [{ url: 'https://example.org/only' }] }))
+    const stored = (await owner(readEntry('rain-log'))).entry.sources
+    expect(stored).toContainEqual(
+      expect.objectContaining({ entry: monday, note: 'the page of that day' }),
+    )
+    expect(stored).toContainEqual({ url: 'https://example.org/only' })
+  })
+})
+
 describe('a processed inbox item is read through its entries', () => {
   test('its text is not served to a key without the right; the owner keeps it', async () => {
     const id = await owner(

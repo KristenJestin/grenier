@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { Effect, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
@@ -9,7 +10,7 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
-import { hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
+import { hiddenAmong, hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
@@ -46,7 +47,9 @@ const ancestors = rowsOf(
 )
 const typedSlugs = rowsOf(Schema.Struct({ slug: Schema.String, type: Schema.String }))
 const rowsBodies = rowsOf(Schema.Struct({ slug: Schema.String, body: Schema.String }))
-const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
+const bodies = rowsOf(
+  Schema.Struct({ id: Schema.String, body: Schema.String, hiding: Schema.Boolean }),
+)
 
 const { entries: table } = tables
 
@@ -70,6 +73,7 @@ const COLUMNS = {
   valid_until: table.valid_until,
   superseded_by: table.superseded_by,
   archived_at: table.archived_at,
+  archived_reason: table.archived_reason,
 }
 
 /** The entry named by its slug or its id, given as text so that any text may name none. */
@@ -119,6 +123,37 @@ export const visibleOf = Effect.fn('visibleOf')(function* (reference: string) {
     db.select({ id: table.id, type: table.type }).from(table).where(named(reference)),
   )
   return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row
+})
+
+const typedNames = rowsOf(
+  Schema.Struct({ id: Schema.String, slug: Schema.String, type: Schema.String }),
+)
+
+/**
+ * The type of each entry these references name, by slug or id, in one read: those the caller may
+ * not see, and names of no entry, are absent.
+ */
+export const visibleTypesOf = Effect.fn('visibleTypesOf')(function* (
+  references: ReadonlyArray<string>,
+) {
+  const wanted = [...new Set(references)]
+  if (wanted.length === 0) return new Map<string, string>()
+  const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
+  const rows = yield* typedNames(
+    db
+      .select({ id: table.id, slug: table.slug, type: table.type })
+      .from(table)
+      .where(or(inArray(table.slug, wanted), inArray(sql`${table.id}::text`, wanted))),
+  )
+  return new Map(
+    rows
+      .filter(({ type }) => !hidesType(type))
+      .flatMap(({ id, slug, type }) => [
+        [id, type],
+        [slug, type],
+      ]),
+  )
 })
 
 /** Names in a sentence: `a`, `a` or `b`, `a`, `b` or `c`. */
@@ -390,6 +425,78 @@ export const listEntries = Effect.fn('listEntries')(function* () {
   )
 })
 
+/** What a listing keeps: entries of a type, with every tag given, verified or not, under one. */
+export type EntryFilter = {
+  readonly type?: string | undefined
+  readonly tags?: ReadonlyArray<string> | undefined
+  readonly verified?: boolean | undefined
+  readonly under?: string | undefined
+  readonly limit?: number | undefined
+  readonly cursor?: string | undefined
+}
+
+/** Where a page of a listing ended: the title and the id of its last entry. */
+const ListCursor = Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String]))
+
+const cursorOf = (entry: { readonly title: string; readonly id: string }) =>
+  Buffer.from(Schema.encodeSync(ListCursor)([entry.title, entry.id])).toString('base64url')
+
+/**
+ * The entries a filter keeps, not archived, the caller may see, by title, a page at a time
+ * (`limit`, 50 by default and 200 at most; then `cursor` with the `next_cursor` given).
+ */
+export const filterEntries = Effect.fn('filterEntries')(function* (filter: EntryFilter) {
+  const client = yield* SqlClient.SqlClient
+  const { hiddenTypes } = yield* sensitivity
+  const under = filter.under === undefined ? null : (yield* findEntry(filter.under)).id
+  const after =
+    filter.cursor === undefined
+      ? null
+      : Result.getOrUndefined(
+          Schema.decodeUnknownResult(ListCursor)(
+            Buffer.from(filter.cursor, 'base64url').toString('utf8'),
+          ),
+        )
+  if (after === undefined)
+    return yield* new Refused({
+      message: `The cursor \`${filter.cursor ?? ''}\` is not one a listing gave: start again without it.`,
+    })
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200)
+  const rows = yield* listed(client`
+    WITH RECURSIVE subtree AS (
+      SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
+      UNION ALL
+      SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
+      WHERE s.depth < ${TREE_DEPTH}
+    ) CYCLE id SET looped USING trail
+    SELECT e.id::text AS id, e.slug, e.type, e.title, e.parent_id::text AS parent_id,
+      EXISTS (SELECT 1 FROM entries p JOIN types t ON t.name = p.type
+        WHERE p.id = e.parent_id AND p.type = e.type AND t.read_in_parent) AS in_parent
+    FROM entries e
+    WHERE e.archived_at IS NULL
+      AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
+      AND (${filter.type ?? null}::text IS NULL OR e.type = ${filter.type ?? null})
+      AND e.tags @> ${JSON.stringify(filter.tags ?? [])}::jsonb
+      AND (${filter.verified ?? null}::boolean IS NULL OR e.verified = ${filter.verified ?? null})
+      AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
+      AND (${after?.[0] ?? null}::text IS NULL
+        OR (e.title, e.id::text) > (${after?.[0] ?? null}, ${after?.[1] ?? null}))
+    ORDER BY e.title, e.id::text
+    LIMIT ${limit + 1}`)
+  const page = rows.slice(0, limit)
+  // A parent the caller may not see is no parent: its child stands at the root.
+  const hidden = yield* hiddenIn(page.map(({ parent_id }) => parent_id))
+  const last = page.at(-1)
+  return {
+    entries: page.map((entry) =>
+      entry.parent_id !== null && hidden.has(entry.parent_id)
+        ? Object.assign(entry, { parent_id: null })
+        : entry,
+    ),
+    next_cursor: rows.length > limit && last !== undefined ? cursorOf(last) : null,
+  }
+})
+
 /** The slug of a title: `Château de Bois` gives `chateau-de-bois`. */
 export const slugOf = (title: string) =>
   title
@@ -555,6 +662,7 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   valid_until: base.valid_until,
   superseded_by: base.superseded_by,
   archived_at: base.archived_at,
+  archived_reason: base.archived_reason,
   // Kept as the database keeps them: an entry by its id.
   sources: base.sources.map((source): SourceKept => {
     if (!('entry' in source)) return source
@@ -563,6 +671,44 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   }),
   ...prefixed('fields', fields),
   ...prefixed('provenance', provenance),
+})
+
+const namingRows = rowsOf(
+  Schema.Struct({
+    slug: Schema.String,
+    type: Schema.String,
+    field: Schema.String,
+    types: Schema.Array(Schema.String),
+  }),
+)
+
+/**
+ * Why an entry may not take another type when fields of other entries name it and accept only
+ * other types: each such entry and field, said, so that a type change never leaves a value its
+ * field refuses. Entries the caller may not see are left out of it, as everywhere.
+ */
+const namedAgainst = Effect.fn('namedAgainst')(function* (entry: Kept, to: string) {
+  const client = yield* SqlClient.SqlClient
+  const { hidesType } = yield* sensitivity
+  const found = yield* namingRows(client`
+    SELECT e.slug, e.type, f ->> 'name' AS field,
+      ARRAY(SELECT jsonb_array_elements_text(f -> 'types')) AS types
+    FROM entries e JOIN types t ON t.name = e.type, jsonb_array_elements(t.fields) AS f
+    -- Its own fields are its new type's, not the ones they were.
+    WHERE e.id <> ${entry.id}::uuid
+      AND f ->> 'kind' = 'entry' AND jsonb_typeof(f -> 'types') = 'array'
+      AND NOT (f -> 'types') ? ${to}
+      AND (e.fields -> (f ->> 'name') = to_jsonb(${entry.id}::text)
+        OR e.fields -> (f ->> 'name') @> jsonb_build_array(${entry.id}::text))
+    ORDER BY e.slug, f ->> 'name'`)
+  const visible = found.filter(({ type }) => !hidesType(type))
+  if (visible.length === 0) return undefined
+  return `The entry \`${entry.slug}\` cannot become a \`${to}\`: ${visible
+    .map(
+      ({ slug, field, types }) =>
+        `\`${slug}\` names it in \`fields.${field}\`, which accepts ${eitherOf(types)}`,
+    )
+    .join('; ')}.`
 })
 
 /**
@@ -614,6 +760,35 @@ type Batch = {
 
 const ALONE: Batch = { coming: new Set(), renamed: new Map(), displaced: new Map() }
 
+/** The slug and the body an entry has before a write, if the write names an entry. */
+const storedOf = Effect.fn('storedOf')(function* (entry: string | undefined) {
+  if (entry === undefined) return undefined
+  const db = yield* drizzle
+  const [stored] = yield* rowsBodies(
+    db.select({ slug: table.slug, body: table.body }).from(table).where(named(entry)),
+  )
+  return stored
+})
+
+/**
+ * The slugs a write locks before any row: those its body names, before and after, when it changes
+ * the body (a body sent as it is changes nothing it names); the entry's own when it is created or
+ * renamed; and its aliases.
+ */
+const slugsLockedBy = Effect.fn('slugsLockedBy')(function* (input: WriteEntryInput) {
+  const stored = yield* storedOf(input.entry)
+  const bodyChanges =
+    input.edits !== undefined || (input.body !== undefined && input.body !== stored?.body)
+  return [
+    ...(bodyChanges ? referencesIn(stored?.body ?? '') : []),
+    ...(bodyChanges ? referencesIn(input.body ?? '') : []),
+    ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
+    ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
+    ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
+    ...(input.aliases ?? []),
+  ]
+})
+
 /**
  * Creates an entry, or updates the one `entry` names. The result is validated against the
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
@@ -636,26 +811,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (input.entry !== undefined && Predicate.isString(input.parent)) {
           yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
-        // Before any row lock too: the slugs the body names, before and after, and the entry's
-        // own when it is renamed. A rename takes them first as well, so a write that cites the
-        // renamed slug and the rename never wait for each other in a circle.
-        if (input.body !== undefined || input.edits !== undefined || input.slug !== undefined) {
-          const [stored] =
-            input.entry === undefined
-              ? []
-              : yield* rowsBodies(
-                  db
-                    .select({ slug: table.slug, body: table.body })
-                    .from(table)
-                    .where(named(input.entry)),
-                )
-          yield* lockReferences([
-            ...referencesIn(stored?.body ?? ''),
-            ...referencesIn(input.body ?? ''),
-            ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
-            ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
-          ])
-        }
+        // Before any row lock too, every slug the write will lock, in one sorted order (see
+        // `slugsLockedBy`). Writes that cite, create, rename or alias the same slug then never
+        // wait for each other in a circle.
+        yield* lockReferences(yield* slugsLockedBy(input))
         // The types first, then the entry, in the order a change of a type takes them: two writes
         // never wait for each other in a circle.
         const current =
@@ -677,6 +836,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           created,
           updated,
           append,
+          prepend,
           edits,
           ...given
         } = input
@@ -685,11 +845,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const state = {
           ...base,
           ...given,
-          // A part of a long body, added at the end of what is there; or words changed in place.
+          // A part of a long body, added at the end of what is there, or at the top, one blank line
+          // before it; or words changed in place.
           body:
             append === true
               ? base.body + (given.body ?? '')
-              : (given.body ?? (edits === undefined ? base.body : edited.body)),
+              : prepend === true
+                ? [(given.body ?? '').replace(/\n+$/, ''), base.body].filter(Boolean).join('\n\n')
+                : (given.body ?? (edits === undefined ? base.body : edited.body)),
           fields: withoutNulls({ ...base.fields, ...fields }),
           provenance: withoutNulls({ ...base.provenance, ...provenance }),
         }
@@ -705,6 +868,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (existing !== undefined && type !== undefined && type.name !== existing.type) {
           const refusal = yield* retypeRefusal(existing, type, state.fields, byOwner)
           if (refusal !== undefined) return yield* new Refused({ message: refusal })
+          const naming = yield* namedAgainst(existing, type.name)
+          if (naming !== undefined) return yield* new Refused({ message: naming })
         }
         const forbidden =
           type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
@@ -752,8 +917,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
-        if (edits !== undefined && append === true) {
+        if (append === true && prepend === true) {
+          problems.push('Give `append` or `prepend`, not both: one write each.')
+        } else if (edits !== undefined && append === true) {
           problems.push('Give `edits` or `append`, not both: write the edits, then append.')
+        } else if (edits !== undefined && prepend === true) {
+          problems.push('Give `edits` or `prepend`, not both: write the edits, then prepend.')
         } else if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
           problems.push(
             'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',
@@ -804,6 +973,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           )
         }
 
+        // The stored ids of entries the caller may not see: read as `null` (a parent, a
+        // successor) or as the marker (a field), and kept when written back as read.
+        const storedHidden = yield* hiddenIn(
+          existing === undefined
+            ? []
+            : [existing.parent_id, existing.superseded_by, existing.fields],
+        )
+
         /**
          * The id of the entry a field names, or a problem when there is none. A reference the
          * write leaves as it is stored is kept unchecked: it may name an entry the caller may not
@@ -815,6 +992,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           stored: Schema.Json | undefined,
           accepted?: ReadonlyArray<string>,
         ) {
+          if (
+            (reference === null || reference === HIDDEN) &&
+            Predicate.isString(stored) &&
+            storedHidden.has(stored)
+          )
+            return stored
           if (reference === null) return null
           if (existing !== undefined && textsOf(stored).includes(reference)) return reference
           // A slug a new entry of the batch would have had, had it been free, names the old one.
@@ -834,7 +1017,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           }
           if (found !== undefined) return found.id
           problems.push(
-            `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
+            coming.has(reference)
+              ? // Only a required field closing a loop is written before the entry it names.
+                `The field \`${field}\` names \`${reference}\`, which this batch writes after it: two required fields cannot name each other in one batch; write one entry first, then the other.`
+              : `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
           )
           return null
         })
@@ -863,15 +1049,25 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           if (field.many !== true && Predicate.isString(value)) {
             references[field.name] = (yield* resolve(at, value, stored, field.types)) ?? value
           } else if (field.many === true && Array.isArray(value)) {
-            // Each item as one value; what is not text is the decoder's problem.
+            // Each item as one value; what is not text is the decoder's problem. The entries
+            // the caller may not see stay: each marker in place of the next one, the rest at the
+            // end, as a list written without them never drops what it could not read.
+            const unseen = textsOf(stored).filter(
+              (id) => storedHidden.has(id) && !value.includes(id),
+            )
             const resolved: Array<Schema.Json> = []
             for (const [index, item] of value.entries()) {
+              if (item === HIDDEN && unseen.length > 0) {
+                resolved.push(unseen.shift() ?? item)
+                continue
+              }
               resolved.push(
                 Predicate.isString(item)
                   ? ((yield* resolve(`${at}.${index}`, item, stored, field.types)) ?? item)
                   : item,
               )
             }
+            resolved.push(...unseen)
             // Two names of one entry, a slug and an id, are one value given twice; the same name
             // given twice is the decoder's problem.
             const again = resolved.findIndex((id, index) => resolved.indexOf(id) !== index)
@@ -885,17 +1081,42 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           }
         }
 
+        // The stored sources of entries the caller may not see, read as the marker: written back
+        // as read, or without them, they stay, as a parent or the items of a list do. Each marker
+        // takes the place of the next one; the others are kept at the end.
+        const storedSourceIds = (existing?.sources ?? []).flatMap((held) =>
+          'entry' in held ? [held.entry] : [],
+        )
+        const hiddenSources = yield* hiddenAmong(storedSourceIds)
+        const unseenSources = (existing?.sources ?? []).filter(
+          (held) =>
+            'entry' in held &&
+            hiddenSources.has(held.entry) &&
+            !state.sources.some((sent) => 'entry' in sent && sent.entry === held.entry),
+        )
         // The entries a source names, by id; a URL that is a web address; an item the inbox holds.
         const sources: Array<SourceKept> = []
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
+          const unseen =
+            'entry' in source && source.entry === HIDDEN ? unseenSources.shift() : undefined
+          if (unseen !== undefined) {
+            sources.push(unseen)
+            continue
+          }
           if ('entry' in source) {
             // An entry it already cites stays cited, whether the caller may see it or not.
             const kept = existing?.sources.some(
               (held) => 'entry' in held && held.entry === source.entry,
             )
             const id = kept === true ? source.entry : yield* visibleIdOf(source.entry)
-            if (id === undefined)
+            // A slug a new entry of the batch would have had, had it been free, names the old one.
+            const other = kept === true ? undefined : displaced.get(source.entry)
+            if (other !== undefined)
+              problems.push(
+                `The source ${at} names \`${source.entry}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+              )
+            else if (id === undefined)
               problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
             else sources.push({ ...source, entry: id })
           } else if (
@@ -915,6 +1136,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           } else sources.push(source)
         }
+        sources.push(...unseenSources)
 
         for (const reference of referencesIn(state.body)) {
           const away = renamedAway.get(reference)
@@ -968,6 +1190,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
               sources,
               superseded_by: supersededBy,
               archived_at: existing?.archived_at ?? null,
+              archived_reason: existing?.archived_reason ?? null,
             }),
           ),
           ...redating,
@@ -1028,7 +1251,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // A body left as it was keeps its links: its references only change with it.
         if (existing === undefined || existing.body !== entry.body)
           yield* keepReferences(id, entry.body, coming)
-        if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
+        if (renamed)
+          yield* rewriteReferences(actor, { id, aliases: entry.aliases }, existing.slug, entry.slug)
         // A new slug or alias is what references written before may wait for.
         if (
           existing === undefined ||
@@ -1045,14 +1269,22 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
 /**
  * The entries whose bodies mention an entry, with their bodies, locked in the order of their ids:
  * an edit of one of them at the same moment as a rename is either before the rename, and
- * rewritten with the rest, or after it.
+ * rewritten with the rest, or after it. `hiding` says whether that body may be read by a key the
+ * entry is hidden from: the entry is of a sensitive type, the body's own is not.
  */
 const mentioningOf = Effect.fn('mentioningOf')(function* (id: string) {
   const db = yield* drizzle
   const { links } = tables
+  const sensitive = (type: SQL) =>
+    sql`EXISTS (SELECT 1 FROM types t WHERE t.name = ${type} AND t.sensitive)`
   return yield* bodies(
     db
-      .select({ id: table.id, body: table.body })
+      .select({
+        id: table.id,
+        body: table.body,
+        hiding: sql<boolean>`${sensitive(sql`(SELECT e.type FROM entries e WHERE e.id = ${id}::uuid)`)}
+          AND NOT ${sensitive(sql`${table.type}`)}`,
+      })
       .from(links)
       .innerJoin(table, eq(table.id, links.source_id))
       .where(and(eq(links.target_id, id), eq(links.relation, MENTIONS), ne(links.source_id, id)))
@@ -1063,18 +1295,43 @@ const mentioningOf = Effect.fn('mentioningOf')(function* (id: string) {
 
 /**
  * After a slug changes from `from` to `to`, points the references of every body that mentions
- * the entry to the new slug, each rewrite recorded as a change of that body.
+ * the entry to the new slug, each rewrite recorded as a change of that body. A body that a key
+ * the entry is hidden from may read is never rewritten, which that key would see: its reference
+ * to the old slug waits, as one to a slug no entry has (unless it names the entry by an alias too).
  */
 const rewriteReferences = Effect.fn('rewriteReferences')(function* (
   actor: string,
-  id: string,
+  entry: { readonly id: string; readonly aliases: ReadonlyArray<string> },
   from: string,
   to: string,
 ) {
   const db = yield* drizzle
+  const { id } = entry
   const mentioning = yield* mentioningOf(id)
   yield* Effect.forEach(mentioning, (source) =>
     Effect.gen(function* () {
+      if (source.hiding) {
+        const references = referencesIn(source.body)
+        if (!references.includes(from)) return
+        yield* db
+          .insert(tables.pendingReferences)
+          .values({ source_id: source.id, slug: from })
+          .onConflictDoNothing()
+        if (references.some((reference) => entry.aliases.includes(reference))) return
+        yield* db
+          .delete(tables.links)
+          .where(
+            and(
+              eq(tables.links.source_id, source.id),
+              eq(tables.links.target_id, id),
+              eq(tables.links.relation, MENTIONS),
+            ),
+          )
+        yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'unlink', [
+          { field: `links.${MENTIONS}`, before: id, after: null },
+        ])
+        return
+      }
       const body = renameReferences(source.body, from, to)
       yield* db
         .update(table)
@@ -1087,18 +1344,30 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
   )
 })
 
-/** Archives an entry: it stays in place, keeps its slug, and leaves the default views. */
-export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: string) {
+/**
+ * Archives an entry: it stays in place, keeps its slug, and leaves the default views. A short
+ * `reason` says why, read with `archived_at`, so that no one takes the archive for a mistake.
+ */
+export const archiveEntry = Effect.fn('archiveEntry')(function* (
+  reference: string,
+  reason?: string,
+) {
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const entry = yield* findEntry(reference)
-      if (entry.archived_at !== null) return entry
+      // Archived already: a new reason is recorded, its date kept; without one, nothing changes.
+      const archivedAgain = entry.archived_at !== null
+      if (archivedAgain && (reason === undefined || reason === entry.archived_reason)) return entry
       yield* db
         .update(table)
-        .set({ archived_at: sql`now()`, updated: sql`now()` })
+        .set(
+          archivedAgain
+            ? { archived_reason: reason ?? null, updated: sql`now()` }
+            : { archived_at: sql`now()`, archived_reason: reason ?? null, updated: sql`now()` },
+        )
         .where(eq(table.id, entry.id))
       const archived = yield* findEntry(entry.id)
       yield* recordEvent(
@@ -1303,6 +1572,13 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
     client.withTransaction(
       Effect.gen(function* () {
         const { planned, order, deferred, known } = yield* planBatch(batch)
+        // The bodies as they are, so that one sent unchanged is not linked again.
+        const before = yield* Effect.forEach(planned, (input) => storedOf(input.entry))
+        // Every slug the whole batch locks, sorted, before the row of any of its entries: each
+        // write of it takes them again, which a transaction holding them does at once.
+        yield* lockReferences(
+          (yield* Effect.forEach(planned, (input) => slugsLockedBy(input))).flat(),
+        )
         // A refusal is kept as a value, so that every entry of the batch is checked; each entry
         // after those of the batch it names, then answered in the order given. A reference that
         // closes a loop waits for a second write, once every entry exists.
@@ -1334,8 +1610,12 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
             ),
           )
         })
-        // The references to entries written later in the batch are linked now that all exist.
-        yield* Effect.forEach(written, (entry) => keepReferences(entry.id, entry.body))
+        // The references to entries written later in the batch are linked now that all exist: of
+        // the bodies the batch wrote or changed only, whose slugs their write locked before any row.
+        yield* Effect.forEach(
+          written.filter((entry, index) => entry.body !== before[index]?.body),
+          (entry) => keepReferences(entry.id, entry.body),
+        )
         return written
       }),
     ),

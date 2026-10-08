@@ -231,6 +231,43 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
     )
   })
 
+  test('a source named by a slug the batch gives to no new entry is refused', async () => {
+    await run(writeEntry({ type: 'note', title: 'Ledger' }))
+    const refusal = await run(
+      Effect.flip(
+        writeEntries([
+          { type: 'note', title: 'Ledger' },
+          { type: 'note', title: 'Totals', sources: [{ entry: 'ledger' }] },
+        ]),
+      ),
+    )
+    expect(refusal.message).toBe(
+      'Entry 2 (`Totals`): The source `sources.0` names `ledger`, which this batch does not give to `Ledger`: that entry takes the slug `ledger-2`.',
+    )
+  })
+
+  test('two required entry fields naming each other are refused, saying why', async () => {
+    await run(
+      defineType({
+        name: 'twin',
+        label: 'Twin',
+        description: 'One of a pair.',
+        fields: [{ name: 'other', kind: 'entry', required: true }],
+      }),
+    )
+    const refusal = await run(
+      Effect.flip(
+        writeEntries([
+          { type: 'twin', title: 'Left glove', fields: { other: 'right-glove' } },
+          { type: 'twin', title: 'Right glove', fields: { other: 'left-glove' } },
+        ]),
+      ),
+    )
+    expect(refusal.message).toContain(
+      'The field `fields.other` names `right-glove`, which this batch writes after it: two required fields cannot name each other in one batch; write one entry first, then the other.',
+    )
+  })
+
   test('a cycle refused', async () => {
     const refusal = await run(
       Effect.flip(

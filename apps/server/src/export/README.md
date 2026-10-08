@@ -51,14 +51,18 @@ _rules.md                         the rules of the instance, as the owner wrote 
 ## Sensitive data
 
 Left out by default: a sensitive field is written `[hidden]`, an entry of a sensitive type is not
-written, and an entry whose parent is left out stands at the root. `--include-sensitive` writes
+written, and an entry whose parent is left out stands at the root. The id of an entry left out is
+written nowhere: a source or an entry field naming one says `[hidden]`. `--include-sensitive` writes
 everything, for an export the owner keeps private and encrypted. The repository of the nightly
 export must be private all the same.
 
 An export with sensitive data is never pushed: `--include-sensitive` is refused with `--remote`,
 in a folder that has a remote, and in the folder of the nightly export (`EXPORT_DIR`). A folder
 holds one kind of export for good (a mark in its `.git`, never committed): the other kind is
-refused there, so a nightly export never commits on top of a sensitive one and pushes it. A field
+refused there, so a nightly export never commits on top of a sensitive one and pushes it. A folder
+with commits but no mark (an export made before folders were marked) is refused until the owner
+marks it: `echo plain > <folder>/.git/grenier-export` when it holds no sensitive data. The folder
+of the nightly export is recognised through any link to it. A field
 made sensitive later stays as it was in the commits already made, and pushed: rewriting that
 history is the owner's call, outside Grenier.
 

@@ -14,6 +14,13 @@ name: release
 on:
   push:
     branches: [main]
+  # A dry run of the viewer's build on a tag that exists: nothing is tagged, both archives are
+  # attached to that tag's release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to build the viewer from, such as v0.4.0'
+        required: true
 
 # One release at a time per branch, in the order of the pushes: two tags are never computed
 # from the same history.
@@ -29,16 +36,131 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        if: github.event_name == 'push'
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+        if: github.event_name == 'push'
       - name: Tag what was merged, and write the release notes
+        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bunx semantic-release
+      # The tag semantic-release just put on this commit, if it made one; or the one asked for.
+      - name: The tag to build the viewer from
+        id: tag
+        env:
+          ASKED: ${{ inputs.tag }}
+        run: |
+          if [ -n "$ASKED" ]; then tag=$ASKED; else tag=$(git tag --points-at HEAD --list 'v*' | head -n 1); fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # The desktop viewer, built from the tag on Linux and on Windows, attached to its release with a
+  # checksum each. No tag, nothing built.
+  desktop:
+    needs: release
+    if: needs.release.outputs.tag != ''
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+          - os: windows-latest
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/desktop
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      # What GPUI needs on Linux to build the desktop app (as in ci.yml).
+      - name: Install the libraries of the desktop app
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev libwayland-dev libxkbcommon-x11-dev \
+            libx11-xcb-dev libssl-dev libzstd-dev libasound2-dev libvulkan1
+      # rustup installs the Rust of rust-toolchain.toml.
+      - name: Build the viewer, which takes its version from the tag
+        run: GRENIER_VERSION="${TAG#v}" cargo build --locked --release -p app
+      - name: Pack it with its checksum
+        id: pack
+        run: echo "archive=$(scripts/package.sh "${TAG#v}" ${{ matrix.platform }})" >> "$GITHUB_OUTPUT"
+      - name: Attach both to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE: ${{ steps.pack.outputs.archive }}
+        run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+
+  # The npm package of the tag: the executable of Linux x64, then the launcher that needs it
+  # (`npm i -g @netsirk/grenier`). Only a release from a push to `main` publishes, never the dry run
+  # of the viewer. Nothing is published before both tarballs are installed and answer /health with
+  # the tag's version. Publication goes through npm's trusted publishing (OIDC, with provenance):
+  # no token is kept; see docs/install.md for what the owner sets up once on npmjs.com. A version
+  # already on npm is skipped, so a re-run finishes what a failed run left; the launcher is never
+  # published without its executable.
+  npm:
+    needs: release
+    if: github.event_name == 'push' && needs.release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: apps/server
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - name: Pack both packages
+        run: bun scripts/pack.ts "${TAG#v}" "$RUNNER_TEMP/npm"
+      - name: Prove them before anything is published
+        run: scripts/prove-package.sh "${TAG#v}" "$RUNNER_TEMP/npm"
+      - name: Publish the executable, then the launcher that needs it
+        run: |
+          version="${TAG#v}"
+          publish() {
+            if npm view "$1@$version" version >/dev/null 2>&1; then
+              echo "$1@$version is on npm already: skipped."
+            else
+              npm publish "$2" --provenance --access public
+            fi
+          }
+          publish @netsirk/grenier-linux-x64 "$RUNNER_TEMP/npm/netsirk-grenier-linux-x64-$version.tgz"
+          # The registry may take a moment to show what was just published.
+          tries=0
+          until npm view "@netsirk/grenier-linux-x64@$version" version >/dev/null 2>&1; do
+            tries=$((tries + 1))
+            if [ "$tries" -gt 30 ]; then
+              echo "::error::The executable of $version is not on npm: the launcher is not published."
+              exit 1
+            fi
+            sleep 5
+          done
+          publish @netsirk/grenier "$RUNNER_TEMP/npm/netsirk-grenier-$version.tgz"

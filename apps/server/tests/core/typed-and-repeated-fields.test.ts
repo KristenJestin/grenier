@@ -225,6 +225,50 @@ describe('an entry field names the types it accepts', () => {
   })
 })
 
+describe('an entry named by a field keeps a type the field accepts', () => {
+  test('changing the type of an entry that a field names is refused, naming who names it', async () => {
+    await run(writeEntry({ type: 'organization', title: 'Tin Works' }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Oto Vale',
+        fields: { employer: 'tin-works', bought_from: ['tin-works'] },
+      }),
+    )
+    expect(await run(refusalOf(writeEntry({ entry: 'tin-works', type: 'recipe' })))).toBe(
+      'The entry `tin-works` cannot become a `recipe`: `oto-vale` names it in `fields.bought_from`, which accepts `organization` or `person`; `oto-vale` names it in `fields.employer`, which accepts `organization`.',
+    )
+    // A field that accepts any type does not hold it back.
+    await run(writeEntry({ type: 'organization', title: 'Brass Works' }))
+    await run(
+      writeEntry({ type: 'person', title: 'Pia Vale', fields: { mentors: ['brass-works'] } }),
+    )
+    expect((await run(writeEntry({ entry: 'brass-works', type: 'recipe' }))).type).toBe('recipe')
+  })
+})
+
+describe('a type change looks only at the fields of other entries', () => {
+  test('an entry whose own field names itself may change type', async () => {
+    await run(
+      defineType({
+        name: 'club',
+        label: 'Club',
+        description: 'A club, which may belong to another.',
+        fields: [{ name: 'within', kind: 'entry', types: ['club'] }],
+      }),
+    )
+    await run(writeEntry({ type: 'club', title: 'Chess circle' }))
+    await run(writeEntry({ entry: 'chess-circle', fields: { within: 'chess-circle' } }))
+    expect(
+      (
+        await run(
+          writeEntry({ entry: 'chess-circle', type: 'organization', fields: { within: null } }),
+        )
+      ).type,
+    ).toBe('organization')
+  })
+})
+
 describe('a repeated field', () => {
   test('keeps a list in the order given, refuses a duplicate, and `required` refuses an empty list', async () => {
     await run(

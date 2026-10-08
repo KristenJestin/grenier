@@ -3,6 +3,7 @@ import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { Effect, ManagedRuntime, Schema } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { startAndExit, startServer } from './stdio-client.ts'
+import { writeTool } from '../../src/mcp/tools/write.ts'
 
 const database = ManagedRuntime.make(scratchDatabase)
 const scratchUrl = Effect.gen(function* () {
@@ -106,7 +107,8 @@ describe('an agent works through MCP calls only', () => {
       result: { changes: [{ actor: 'agent-test', before: 'busy', after: 'calm' }] },
     })
     expect(await mcp().call('history', { entry: 'spring-tasks' })).toMatchObject({
-      result: { events: [{ action: 'create' }, { action: 'update' }] },
+      // Newest first, in pages.
+      result: { events: [{ action: 'update' }, { action: 'create' }], next_cursor: null },
     })
   })
 
@@ -252,6 +254,18 @@ describe('an agent works through MCP calls only', () => {
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Friday' })).toEqual({
       error: 'The entry `week` has no heading `Friday`: read its headings first.',
+    })
+  })
+
+  test('read gives only the parts asked for, the entry without its body unless asked', async () => {
+    const { result } = await mcp().call('read', { entry: 'week', parts: ['links', 'media'] })
+    expect(Object.keys(result ?? {}).toSorted()).toEqual(
+      ['backlinks', 'entry', 'heads_up', 'links', 'media'].toSorted(),
+    )
+    expect(JSON.stringify(result)).not.toContain('Rain all day.')
+    expect(result).toMatchObject({ entry: { slug: 'week', title: 'Week' } })
+    expect(await mcp().call('read', { entry: 'week', parts: ['body'] })).toMatchObject({
+      result: { entry: { slug: 'week', body: expect.stringContaining('Rain') } },
     })
   })
 })
@@ -509,6 +523,20 @@ describe('an agent writes several entries in one call', () => {
     expect(await mcp().call('read', { entry: 'hedge-plan' })).toMatchObject({
       result: { backlinks: [{ slug: 'hedge-plants' }] },
     })
+  })
+})
+
+describe('an agent adds a part at the top of a body', () => {
+  test('write and write_many take prepend, which the description of write gives', async () => {
+    await mcp().call('write', { type: 'note', title: 'Frog log', body: 'Spawn in the pond.\n' })
+    await mcp().call('write', { entry: 'frog-log', body: 'Tadpoles.', prepend: true })
+    await mcp().call('write_many', {
+      entries: [{ entry: 'frog-log', body: 'Frogs on the lawn.', prepend: true }],
+    })
+    expect(await mcp().call('read', { entry: 'frog-log' })).toMatchObject({
+      result: { entry: { body: 'Frogs on the lawn.\n\nTadpoles.\n\nSpawn in the pond.\n' } },
+    })
+    expect(writeTool.description).toContain('`prepend: true`')
   })
 })
 

@@ -5,10 +5,15 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use api::{EntryList, EntryRead, SearchResult, SearchResults, TreeEntry, TypeDefinition, TypeList};
+use api::{
+    EntryList, EntryRead, HistoryPage, SearchResult, SearchResults, TreeEntry, TypeDefinition,
+    TypeList,
+};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use ui::intent::ListFilter;
 use ui::load::Problem;
+use ui::text as words;
 
 /// The key the server knows this viewer by. It is sent, never shown.
 pub struct Key(String);
@@ -94,6 +99,43 @@ impl Client {
             .map(|found| found.results)
     }
 
+    /// A page of the entries a filter keeps, by title, after `cursor` when given; and where the
+    /// next page starts, if one does.
+    pub fn list(
+        &self,
+        filter: &ListFilter,
+        cursor: Option<&str>,
+    ) -> Result<(Vec<TreeEntry>, Option<String>), Problem> {
+        let mut parameters = Vec::new();
+        if let Some((name, _)) = &filter.type_name {
+            parameters.push(("type", name.to_string()));
+        }
+        if let Some(tag) = &filter.tag {
+            parameters.push(("tag", tag.to_string()));
+        }
+        if filter.unverified {
+            parameters.push(("verified", "false".to_string()));
+        }
+        if let Some(cursor) = cursor {
+            parameters.push(("cursor", cursor.to_string()));
+        }
+        let pairs: Vec<(&str, &str)> = parameters
+            .iter()
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect();
+        self.get::<EntryList>("/api/entries", &pairs)
+            .map(|list| (list.entries, list.next_cursor))
+    }
+
+    /// A page of the history of an entry, newest first, after `cursor` when given.
+    pub fn history(&self, entry: &str, cursor: Option<&str>) -> Result<HistoryPage, Problem> {
+        let query: Vec<(&str, &str)> = cursor
+            .map(|cursor| ("cursor", cursor))
+            .into_iter()
+            .collect();
+        self.get(&format!("/api/entries/{}/history", encoded(entry)), &query)
+    }
+
     fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T, Problem> {
         let mut request = self
             .agent
@@ -108,13 +150,13 @@ impl Client {
         let body = response.body_mut();
         if status == 200 {
             return body.read_json::<T>().map_err(|error| {
-                Problem::Refused(format!("La réponse du serveur ne se lit pas : {error}").into())
+                Problem::Refused(words::unreadable_answer(&error.to_string()).into())
             });
         }
         let sentence = body
             .read_json::<Refusal>()
             .map(|refusal| refusal.message)
-            .unwrap_or_else(|_| format!("Le serveur a répondu {status}."));
+            .unwrap_or_else(|_| words::server_answered(status));
         Err(match status {
             401 | 403 => Problem::KeyRefused(sentence.into()),
             _ => Problem::Refused(sentence.into()),

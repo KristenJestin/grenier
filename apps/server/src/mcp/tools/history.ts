@@ -1,19 +1,22 @@
-import { entryHistory, fieldHistory } from '../../core/events/index.ts'
-import { Effect, Schema } from 'effect'
+import { fieldHistoryPage, historyPage } from '../../core/events/index.ts'
+import { Schema } from 'effect'
 import { defineTool, Reference } from '../tool.ts'
 
 export const historyTool = defineTool({
   name: 'history',
-  description: 'Reads the history of an entry, or of one of its fields.',
+  description:
+    'Reads the history of an entry, newest first, a page at a time (`limit`, 20 by default and 100 at most; then `cursor` with the `next_cursor` given). A long text, such as a body, comes as its size and an excerpt: give `field` to read the changes of that one field whole.',
   input: Schema.Struct({
     entry: Reference,
     field: Schema.optionalKey(Schema.String).annotate({
-      description: 'Only the changes of this field: `title`, `body`, `fields.provider`…',
+      description: 'Only the changes of this field, whole: `title`, `body`, `fields.provider`…',
     }),
+    limit: Schema.optionalKey(Schema.Number),
+    cursor: Schema.optionalKey(Schema.String),
   }),
   right: 'read',
-  run: ({ entry, field }) =>
+  run: ({ entry, field, limit, cursor }) =>
     field === undefined
-      ? Effect.map(entryHistory(entry), (events) => ({ events }))
-      : Effect.map(fieldHistory(entry, field), (changes) => ({ changes })),
+      ? historyPage(entry, { limit, cursor })
+      : fieldHistoryPage(entry, field, { limit, cursor }),
 })

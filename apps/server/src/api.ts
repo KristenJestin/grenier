@@ -7,7 +7,8 @@ import {
   Unauthorized,
 } from '@grenier/api/http'
 import { Auth, Rights } from './core/auth/index.ts'
-import { listEntries, readEntry } from './core/entries/index.ts'
+import { filterEntries, listEntries, readEntry } from './core/entries/index.ts'
+import { cursorRefusal, historyPage } from './core/events/index.ts'
 import { Instance } from './core/instance.ts'
 import { pendingReferences } from './core/links/index.ts'
 import { Refused } from './core/refused.ts'
@@ -62,12 +63,31 @@ const types = HttpApiBuilder.group(GrenierApi, 'types', (handlers) =>
 const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
   Effect.succeed(
     handlers
-      .handle('list', () =>
-        listEntries().pipe(
-          Effect.map((listed) => ({ entries: listed })),
-          Effect.orDie,
+      .handle('list', ({ query }) =>
+        Effect.gen(function* () {
+          // Without a filter, the whole tree, as it always was.
+          if (Object.keys(query).length === 0) return { entries: yield* listEntries() }
+          return yield* filterEntries({ ...query, tags: query.tag })
+        }).pipe(
+          Effect.catch((error) =>
+            error instanceof Refused
+              ? Effect.fail(new Invalid({ message: error.message }))
+              : Effect.die(error),
+          ),
         ),
       )
+      .handle('history', ({ params, query }) => {
+        // A cursor that is not one is the request's mistake: 400, not 404.
+        const refusal = cursorRefusal(query.cursor)
+        if (refusal !== undefined) return Effect.fail(new Invalid({ message: refusal }))
+        return historyPage(params.entry, query).pipe(
+          Effect.catch((error) =>
+            error instanceof Refused
+              ? Effect.fail(new NotFound({ message: error.message }))
+              : Effect.die(error),
+          ),
+        )
+      })
       .handle('pending', () =>
         pendingReferences.pipe(
           Effect.map((pending) => ({ pending })),

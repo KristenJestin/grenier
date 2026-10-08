@@ -53,8 +53,10 @@ parent (`parent`) and `superseded_by` by id or slug. An update changes only the 
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
 the `body` given is added at the end of the current body: a body too long for one call (a
 journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
-sees a whole number of parts. With `edits: [{ find, replace }]`, a few words of the body change in
-place: each `find` must match the body, as the edits before it left it, exactly once, or the
+sees a whole number of parts. With `prepend: true`, the `body` given goes at the top, one blank
+line before the current body, in one write: a journal kept newest first, or a "Resume here" that
+comes before the rest; `append` and `prepend` together, or either with `edits`, are refused.
+With `edits: [{ find, replace }]`, a few words of the body change in place: each `find` must match the body, as the edits before it left it, exactly once, or the
 write is refused naming each edit that matches twice or never; all apply in one write and one
 event, so an agent never retypes a long body to change a word.
 
@@ -106,10 +108,15 @@ An entry of a sensitive type does not exist for such a key: reading refuses it, 
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
 its occurrences are left out. Its id is never given either: as the parent, the successor or the
 value of a field of a visible entry (`null`, or `[hidden]` for a field), in the tree, nor in a
-history; a reference to it waits like a reference to a slug no entry has, in `references`, in
-`pending_references` and in the answer of a write, so nothing tells the two apart. What is stored
-does not depend on who writes: a reference to it is kept as a link even when such a key rewrites
-the body that holds it. Such a key may not write a sensitive field
+history, where a change of a link to or from it is left out (and a write that did nothing else
+is not told at all); a reference to it waits like a reference to a slug no entry has, in
+`references`, in `pending_references` and in the answer of a write, so nothing tells the two
+apart. What is stored does not depend on who writes: a reference to it is kept as a link even when
+such a key rewrites the body that holds it. Its rename rewrites no body of an entry of a type that
+is not sensitive, which such a key would see change: that reference to the old slug then waits,
+for every key, as one to a slug no entry has (the owner may give the old slug back as an alias).
+Written back as read, `null` for a parent or a successor, `[hidden]` for a field, or a list
+without the entries it hides, keeps what is stored. Such a key may not write a sensitive field
 nor an entry of a sensitive type, nor change the type of an entry that holds a sensitive value,
 nor change a sensitive field or any field of a sensitive type; to its writes, an entry it may not
 see does not exist, and neither do its media. A reference a write or a change of a field leaves as
@@ -188,7 +195,8 @@ value of a field that becomes a link to an entry, by a change or a merge, is sto
 the entry its slug or id names; one that names no entry is refused. Deleting or merging a type is a
 proposal; only a key with the right `owner` confirms it, and no agent key has that right. A merge
 moves the entries to the other type, their fields renamed by its mapping, and is refused if a value
-would be lost or an entry left invalid. A deleted type is marked, not removed, so its history
+would be lost or an entry left invalid; a single field mapped onto a `many` one is refused too:
+make it `many` first with `change_field`, then merge. A deleted type is marked, not removed, so its history
 stays; its name cannot be used again. A change of a type locks the type, then its entries; a write of an
 entry locks its type, then the entry, in the same order. A write PostgreSQL still breaks off
 because of another one at the same moment is refused with one sentence: try the write again.
@@ -408,15 +416,17 @@ do, what happened, what it expected, the steps), and what the server adds (the i
 version and commit, the key, the time, and the tool call the report names, its arguments masked
 as for a key without the right `sensitive` and cut to 300 characters). A report is one more
 occurrence of the finding of the same kind and place whose title shares at least half of its
-words (lowercased, without punctuation or common English words). When none does but findings of
-that kind and place are open, an agent's report is not recorded yet: the answer names them, and
-the agent reports again with `same_as: <number>` (one more occurrence of it) or `new: true` (a
-finding of its own), since two agents describe one problem in different words, and only they can
+words (lowercased, without punctuation or common English words). When none does but findings
+are open at that place, of any kind (one agent sees as slow what another sees as a bug), an
+agent's report is not recorded yet: the answer names them, and the agent reports again with
+`same_as: <number>` (one more occurrence of it, at that place) or `new: true` (a finding of its
+own), since two agents describe one problem in different words, and only they can
 tell two problems of one tool apart. `grenier_reports` filters by place and kind, to check before
 reporting. The owner merges two findings of one problem with `findings:merge <into> <from>`: the
 occurrences move, and the merged finding is closed.
 
-An unexpected failure of the server (a defect, never a refusal), in a tool or a route, is first
+An unexpected failure of the server (a defect, never a refusal, nor the 404 of a route Grenier
+does not have), in a tool or a route, is first
 written to the server's standard error, in every instance and whether diagnostics are on or not:
 one line of JSON with the time, the class, the message and the stack, the tool or route, and the
 key's name, never the arguments of the call. That output stays on the machine (the container's

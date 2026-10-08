@@ -125,6 +125,15 @@ describe('agents that may write learn how an inbox item becomes entries', () => 
     expect(inboxTakeTool.description).toContain(INBOX_STANDARD)
   })
 
+  test('it says to report a value the key lacks the right for, and to cite entries as [[slug]]', () => {
+    expect(INBOX_STANDARD).toContain(
+      '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
+    )
+    expect(INBOX_STANDARD).toContain(
+      '- Cite another entry as `[[slug]]`, never by its title in plain text: the link is kept and follows renames.',
+    )
+  })
+
   test('it says to complete what an item brought before, never to take it as done', () => {
     expect(INBOX_STANDARD).toContain('`earlier`')
     expect(INBOX_STANDARD).toContain('Never assume')

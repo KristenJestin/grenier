@@ -422,10 +422,10 @@ describe('the file of an inbox item, attached to an entry', () => {
 
 describe("inbox_done names, per entry, whether the item's file is attached to it", () => {
   test('the file goes to the entries that ask for it, with their description, and all cite the item', async () => {
-    await run(
+    const roofId = await run(
       Effect.gen(function* () {
         yield* writeEntry({ type: 'thing', title: 'Barn' })
-        yield* writeEntry({ type: 'thing', title: 'Barn roof' })
+        return (yield* writeEntry({ type: 'thing', title: 'Barn roof' })).id
       }),
     )
     const done = await run(
@@ -435,7 +435,8 @@ describe("inbox_done names, per entry, whether the item's file is attached to it
           yield* takeItem({ id: item.id })
           return yield* finishItem({
             id: item.id,
-            entries: ['barn', { entry: 'barn-roof', attach: { alt: 'Slates missing' } }],
+            // Named by its id: the answer names it by its slug.
+            entries: ['barn', { entry: roofId, attach: { alt: 'Slates missing' } }],
           })
         }),
       ),

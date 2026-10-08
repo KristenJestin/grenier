@@ -268,6 +268,39 @@ describe('links take a note and dates', () => {
   })
 })
 
+describe('references left waiting by an old race are resolved', () => {
+  test('a pending reference to a slug or an alias that an entry has becomes a link', async () => {
+    const [links, waiting] = await onScratch(
+      Effect.gen(function* () {
+        yield* migrate
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO types (name, label, description, fields)
+          VALUES ('note', 'Note', 'A note.', '[]'::jsonb)`
+        const ids = rowsOf(Schema.Struct({ id: Schema.String }))
+        const entry = (slug: string, aliases: string) =>
+          ids(sql`INSERT INTO entries (type, title, slug, aliases)
+            VALUES ('note', ${slug}, ${slug}, ${aliases}::jsonb) RETURNING id::text AS id`)
+        const [citing] = yield* entry('citing', '[]')
+        yield* entry('cited', '["also-cited"]')
+        yield* sql`INSERT INTO pending_references (source_id, slug) VALUES
+          (${citing?.id ?? ''}::uuid, 'cited'), (${citing?.id ?? ''}::uuid, 'also-cited'),
+          (${citing?.id ?? ''}::uuid, 'nobody')`
+        yield* sql`DELETE FROM drizzle.__drizzle_migrations
+          WHERE name = '20261008075945_resolve_stale_pending'`
+        yield* migrate
+        return [
+          yield* ids(sql`SELECT target_id::text AS id FROM links WHERE relation = 'mentions'`),
+          yield* rowsOf(Schema.Struct({ slug: Schema.String }))(
+            sql`SELECT slug FROM pending_references`,
+          ),
+        ] as const
+      }),
+    )
+    expect(links).toHaveLength(1)
+    expect(waiting).toEqual([{ slug: 'nobody' }])
+  })
+})
+
 describe('Drizzle runs on the pool of the core', () => {
   test('no pg driver is installed: Drizzle goes through @effect/sql-pg', () => {
     const lockfile = readFileSync(new URL('../../../../bun.lock', import.meta.url), 'utf8')

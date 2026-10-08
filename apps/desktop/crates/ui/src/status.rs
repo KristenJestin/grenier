@@ -13,6 +13,7 @@ use crate::intent::{Intent, OnIntent};
 use crate::load::Problem;
 use crate::motion::hoverable;
 use crate::parts::mix;
+use crate::text as words;
 use crate::theme::{space, text};
 
 /// Placeholder lines while data loads, shaped like what comes: a title, then text.
@@ -94,13 +95,10 @@ pub fn failed(
     cx: &mut App,
 ) -> AnyElement {
     let (title, message): (SharedString, SharedString) = match problem {
-        Problem::Unreachable => (
-            "Le serveur ne répond pas".into(),
-            "Vérifiez que Grenier tourne et que cet ordinateur l'atteint, puis réessayez.".into(),
-        ),
-        Problem::KeyRefused(sentence) => ("La clé a été refusée".into(), sentence.clone()),
-        Problem::Refused(sentence) => ("Le serveur a refusé".into(), sentence.clone()),
-        Problem::Unconfigured(sentence) => ("Grenier n'est pas configuré".into(), sentence.clone()),
+        Problem::Unreachable => (words::UNREACHABLE.into(), words::UNREACHABLE_DETAIL.into()),
+        Problem::KeyRefused(sentence) => (words::KEY_REFUSED.into(), sentence.clone()),
+        Problem::Refused(sentence) => (words::SERVER_REFUSED.into(), sentence.clone()),
+        Problem::Unconfigured(sentence) => (words::UNCONFIGURED.into(), sentence.clone()),
     };
     let theme = cx.theme();
     let (idle, over, border, muted) = (
@@ -127,7 +125,7 @@ pub fn failed(
             .cursor_pointer()
             .on_click(move |_, window, cx| on_intent(Intent::Retry, window, cx))
             .child(Icon::new(IconName::RefreshCw).xsmall())
-            .child("Réessayer")
+            .child(words::RETRY)
     });
     state(IconName::TriangleAlert, title, message, true, cx)
         .child(h_flex().child(retry))

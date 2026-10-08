@@ -264,6 +264,36 @@ describe('an archived entry stays in place', () => {
     await run(archiveEntry('old-contract'))
     const { entry } = await run(readEntry('old-contract'))
     expect(entry.archived_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(entry.archived_reason).toBeNull()
+  })
+
+  test('an archive may say why, read with archived_at and kept in the history', async () => {
+    await run(writeEntry({ ...contract, slug: 'older-contract' }))
+    await run(archiveEntry('older-contract', 'Replaced by the 2026 contract.'))
+    const { entry } = await run(readEntry('older-contract'))
+    expect(entry.archived_reason).toBe('Replaced by the 2026 contract.')
+    expect((await run(entryHistory('older-contract'))).at(-1)?.changes).toContainEqual({
+      field: 'archived_reason',
+      before: null,
+      after: 'Replaced by the 2026 contract.',
+    })
+  })
+})
+
+describe('the reason of an archive', () => {
+  test('a new reason given to an entry archived already is recorded, its date kept', async () => {
+    await run(writeEntry({ ...contract, slug: 'oldest-contract' }))
+    const first = await run(archiveEntry('oldest-contract', 'Replaced.'))
+    const again = await run(archiveEntry('oldest-contract', 'Replaced by the 2026 contract.'))
+    expect(again.archived_reason).toBe('Replaced by the 2026 contract.')
+    expect(again.archived_at).toBe(first.archived_at)
+    expect((await run(entryHistory('oldest-contract'))).at(-1)?.changes).toEqual([
+      { field: 'archived_reason', before: 'Replaced.', after: 'Replaced by the 2026 contract.' },
+    ])
+    // Archived again without a reason, it keeps the one it has.
+    expect((await run(archiveEntry('oldest-contract'))).archived_reason).toBe(
+      'Replaced by the 2026 contract.',
+    )
   })
 })
 

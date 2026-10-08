@@ -13,22 +13,26 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, ClipboardItem, Context, Div,
-    ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement as _,
-    IntoElement, KeyBinding, MouseButton, ParentElement as _, Render, ScrollHandle, SharedString,
-    SpringAnimation, StatefulInteractiveElement as _, Styled as _, Subscription, Window, actions,
-    div, linear_color_stop, linear_gradient, point, px, radians,
+    DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement as _, Pixels,
+    Render, ScrollHandle, SharedString, SpringAnimation, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Window, actions, div, linear_color_stop, linear_gradient, point, px,
+    radians,
 };
 
 use gpui_kit::prelude::FluentBuilder as _;
 
 use crate::entry::{EntryData, EntryScreen};
 use crate::intent::{Back, FocusSearch, FollowLink, Forward, Intent, OnIntent, intent_of_link};
+use crate::links::LinksState;
+use crate::list::{ListData, ListScreen};
 use crate::load::{Load, Problem};
 use crate::motion::{SPRING, hoverable, reveal};
 use crate::parts::mix;
 use crate::search::{SearchData, SearchScreen};
 use crate::status;
-use crate::theme::{self, space, text, width};
+use crate::text as words;
+use crate::theme::{self, ThemeChoice, space, text, width};
 
 const CONTEXT: &str = "Viewer";
 const TREE: &str = "ViewerTree";
@@ -67,6 +71,7 @@ pub struct TreeNode {
 pub enum Pane {
     Entry(Box<Load<EntryData>>),
     Search(SearchData),
+    List(ListData),
 }
 
 /// One line of the tree as the keyboard walks it: the entry, its parent, and whether it holds
@@ -93,6 +98,13 @@ pub struct Viewer {
     /// Whether the sidebar shows, once asked; until then, as wide as the window allows.
     sidebar_open: Option<bool>,
     connection: Option<SharedString>,
+    version: Option<SharedString>,
+    /// How wide the sidebar is, set by dragging its edge.
+    sidebar_width: Pixels,
+    theme_choice: ThemeChoice,
+    /// The groups of links of the open entry shown whole, and the filter of the one open.
+    links_open: HashSet<SharedString>,
+    links_filter: Entity<InputState>,
     focus: FocusHandle,
     tree_focus: FocusHandle,
     /// The main pane, focused by a click in it: `/` from there goes to the search field.
@@ -110,19 +122,23 @@ impl Focusable for Viewer {
 
 impl Viewer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Chercher"));
+        let search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(words::SEARCH_PLACEHOLDER));
         let searched = cx.subscribe_in(&search, window, |viewer, state, event, _, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 let query: SharedString = state.read(cx).value().trim().to_string().into();
                 if !query.is_empty() {
                     let type_name = match &viewer.pane {
                         Pane::Search(search) => search.type_name.clone(),
-                        Pane::Entry(_) => None,
+                        Pane::Entry(_) | Pane::List(_) => None,
                     };
                     cx.emit(Intent::Search { query, type_name });
                 }
             }
         });
+        let links_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder(words::FILTER_BY_TITLE));
+        let filtered = cx.observe(&links_filter, |_, _, cx| cx.notify());
         Self {
             nodes: Vec::new(),
             tree_load: Load::Loading,
@@ -135,10 +151,15 @@ impl Viewer {
             jump: None,
             sidebar_open: None,
             connection: None,
+            version: None,
+            sidebar_width: width::SIDEBAR,
+            theme_choice: ThemeChoice::System,
+            links_open: HashSet::new(),
+            links_filter,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),
             pane_focus: cx.focus_handle(),
-            _subscriptions: vec![searched],
+            _subscriptions: vec![searched, filtered],
         }
     }
 
@@ -169,6 +190,45 @@ impl Viewer {
         cx.notify();
     }
 
+    /// The width of the sidebar, as the application kept it.
+    pub fn set_sidebar_width(&mut self, width: Pixels, cx: &mut Context<Self>) {
+        self.sidebar_width = width.clamp(width::SIDEBAR_MIN, width::SIDEBAR_MAX);
+        cx.notify();
+    }
+
+    /// The theme the owner chose, as the application kept it.
+    pub fn set_theme_choice(&mut self, choice: ThemeChoice, cx: &mut Context<Self>) {
+        self.theme_choice = choice;
+        cx.notify();
+    }
+
+    /// The width of the sidebar.
+    pub fn sidebar_width(&self) -> Pixels {
+        self.sidebar_width
+    }
+
+    /// The sidebar dragged to `edge`: its new width, shown at once.
+    fn resize_sidebar(&mut self, edge: Pixels, cx: &mut Context<Self>) {
+        let width = edge.clamp(width::SIDEBAR_MIN, width::SIDEBAR_MAX);
+        if width != self.sidebar_width {
+            self.sidebar_width = width;
+            cx.notify();
+        }
+    }
+
+    /// The drag of the sidebar's edge ended: its width, told to the application to keep, once.
+    fn resized_sidebar(&mut self, cx: &mut Context<Self>) {
+        cx.emit(Intent::SidebarWidth(
+            f32::from(self.sidebar_width).round() as u32
+        ));
+    }
+
+    /// The version of the viewer, beside the server it reads.
+    pub fn set_version(&mut self, version: SharedString, cx: &mut Context<Self>) {
+        self.version = Some(version);
+        cx.notify();
+    }
+
     /// Shows an entry, or a search, in the main pane, which comes in from the top; the field
     /// shows what was searched.
     pub fn set_pane(&mut self, pane: Pane, window: &mut Window, cx: &mut Context<Self>) {
@@ -177,11 +237,46 @@ impl Viewer {
             self.search
                 .update(cx, |field, cx| field.set_value(query, window, cx));
         }
+        // Another entry, or another pane, starts with its groups folded.
+        let same_entry = match (&self.pane, &pane) {
+            (Pane::Entry(was), Pane::Entry(now)) => match (was.as_ref(), now.as_ref()) {
+                (Load::Ready(was), Load::Ready(now)) => was.read.entry.id == now.read.entry.id,
+                _ => false,
+            },
+            _ => false,
+        };
+        if !same_entry {
+            self.links_open.clear();
+        }
         self.pane = pane;
         self.shown += 1;
         self.jump = None;
         self.scroll.set_offset(point(px(0.), px(0.)));
         cx.notify();
+    }
+
+    /// Changes the open entry in place, without playing the page's entrance again: its history
+    /// once read. Nothing when no entry is open.
+    pub fn update_entry(&mut self, change: impl FnOnce(&mut EntryData), cx: &mut Context<Self>) {
+        if let Pane::Entry(load) = &mut self.pane
+            && let Load::Ready(data) = load.as_mut()
+        {
+            change(data);
+            cx.notify();
+        }
+    }
+
+    /// Changes the listing shown in place: its next page once read. Nothing when none is shown.
+    pub fn update_list(&mut self, change: impl FnOnce(&mut ListData), cx: &mut Context<Self>) {
+        if let Pane::List(list) = &mut self.pane {
+            change(list);
+            cx.notify();
+        }
+    }
+
+    /// The entry the main pane shows, as read.
+    pub fn entry(&self) -> Option<&EntryData> {
+        self.opened_entry()
     }
 
     /// Glides the open entry to that heading of its body, once it is laid out.
@@ -194,7 +289,7 @@ impl Viewer {
     /// it already: from a search, or after a load that failed, it opens it again.
     pub fn select(&mut self, id: &SharedString, cx: &mut Context<Self>) {
         let elsewhere = match &self.pane {
-            Pane::Search(_) => true,
+            Pane::Search(_) | Pane::List(_) => true,
             Pane::Entry(load) => matches!(load.as_ref(), Load::Failed(_)),
         };
         if self.selected.as_ref() != Some(id) || elsewhere {
@@ -250,7 +345,7 @@ impl Viewer {
                 Load::Ready(data) => Some(data),
                 _ => None,
             },
-            Pane::Search(_) => None,
+            Pane::Search(_) | Pane::List(_) => None,
         }
     }
 
@@ -271,9 +366,32 @@ impl Viewer {
 
     fn on_intent(&self, cx: &mut Context<Self>) -> OnIntent {
         let viewer = cx.entity().downgrade();
-        Rc::new(move |intent, _, cx| {
-            viewer.update(cx, |_, cx| cx.emit(intent)).ok();
+        Rc::new(move |intent, window, cx| {
+            viewer
+                .update(cx, |viewer, cx| match intent {
+                    // Folding is the page's own: the application never hears of it.
+                    Intent::ToggleLinks(group) => viewer.toggle_links(group, window, cx),
+                    intent => cx.emit(intent),
+                })
+                .ok();
         })
+    }
+
+    /// Opens a group of links whole, any other one folding, its filter empty; or folds it.
+    pub fn toggle_links(
+        &mut self,
+        group: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let was_open = self.links_open.remove(&group);
+        self.links_open.clear();
+        if !was_open {
+            self.links_open.insert(group);
+        }
+        self.links_filter
+            .update(cx, |filter, cx| filter.set_value("", window, cx));
+        cx.notify();
     }
 
     /// The lines of the tree in the order they are shown: each top-level folder as a group with
@@ -371,13 +489,7 @@ impl Viewer {
 
     fn sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let (muted, primary, cyan, border) = (
-            theme.muted_foreground,
-            theme.primary,
-            theme.cyan,
-            theme.table_row_border,
-        );
-        let success = theme.success;
+        let (muted, primary, cyan) = (theme.muted_foreground, theme.primary, theme.cyan);
         let tree: AnyElement = match &self.tree_load {
             Load::Loading => v_flex()
                 .px(space::M)
@@ -386,18 +498,18 @@ impl Viewer {
                 .into_any_element(),
             Load::Empty => status::side_note(
                 IconName::Inbox,
-                "Aucune fiche",
-                "Les fiches écrites par les agents apparaîtront ici.",
+                words::NO_ENTRIES,
+                words::NO_ENTRIES_DETAIL,
                 false,
                 cx,
             )
             .into_any_element(),
             Load::Failed(problem) => {
                 let (title, detail) = match problem {
-                    Problem::Unreachable => ("Hors ligne", "Le serveur ne répond pas."),
-                    Problem::KeyRefused(_) => ("Clé refusée", "Demandez une nouvelle clé."),
-                    Problem::Refused(_) => ("Refusé", "Le serveur a refusé l'arbre."),
-                    Problem::Unconfigured(_) => ("Pas de serveur", "Voir la configuration."),
+                    Problem::Unreachable => (words::OFFLINE, words::OFFLINE_DETAIL),
+                    Problem::KeyRefused(_) => (words::KEY_REFUSED_SHORT, words::KEY_REFUSED_DETAIL),
+                    Problem::Refused(_) => (words::REFUSED_SHORT, words::TREE_REFUSED_DETAIL),
+                    Problem::Unconfigured(_) => (words::NO_SERVER, words::NO_SERVER_DETAIL),
                 };
                 status::side_note(IconName::TriangleAlert, title, detail, true, cx)
                     .into_any_element()
@@ -408,7 +520,7 @@ impl Viewer {
             "sidebar-close",
             IconName::PanelLeft,
             None,
-            "Replier",
+            words::COLLAPSE,
             cx.listener(|viewer, _, _, cx| {
                 viewer.sidebar_open = Some(false);
                 cx.notify();
@@ -416,8 +528,9 @@ impl Viewer {
             window,
             cx,
         );
+        let sidebar_width = self.sidebar_width;
         let content = v_flex()
-            .w(width::SIDEBAR)
+            .w(sidebar_width)
             .h_full()
             .flex_none()
             .px(space::M)
@@ -437,7 +550,7 @@ impl Viewer {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Grenier"),
+                            .child(words::GRENIER),
                     )
                     .child(toggle),
             )
@@ -463,31 +576,83 @@ impl Viewer {
                     .overflow_y_scrollbar()
                     .child(tree),
             )
-            .children(self.connection.clone().map(|name| {
-                h_flex()
-                    .gap(space::S)
-                    .px(space::S)
-                    .pt(space::S)
-                    .pb(space::M)
-                    .border_t_1()
-                    .border_color(border)
-                    .text_size(text::XS)
-                    .text_color(muted)
-                    .child(div().size(px(6.)).rounded_full().bg(success))
-                    .child(format!("Connecté à {name}"))
-            }));
+            .child(self.foot(window, cx));
+        // Its right edge, dragged, sets its width; the application keeps it.
+        let edge = div()
+            .id("sidebar-edge")
+            .debug_selector(|| "sidebar-edge".into())
+            .absolute()
+            .top_0()
+            .right_0()
+            .h_full()
+            .w(px(6.))
+            .cursor_col_resize()
+            .on_drag(ResizeSidebar, |_, _, _, cx| cx.new(|_| Dragged));
         div()
+            .relative()
             .h_full()
             .flex_none()
             .overflow_hidden()
             .child(content)
+            .child(edge)
             .with_spring(
                 "sidebar",
                 SpringAnimation::new(SPRING).to(self.sidebar_shown(window)),
-                |element, open| {
+                move |element, open| {
                     let open = open.0.clamp(0., 1.);
-                    element.w(width::SIDEBAR * open).opacity(open)
+                    element.w(sidebar_width * open).opacity(open)
                 },
+            )
+            .into_any_element()
+    }
+
+    /// The foot of the sidebar: the server it reads and the version of the viewer, then the theme.
+    fn foot(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let (border, muted, success) = (theme.border, theme.muted_foreground, theme.success);
+        let chosen = self.theme_choice;
+        let choices: Vec<AnyElement> = ThemeChoice::ALL
+            .into_iter()
+            .map(|choice| {
+                let (icon, hint, id) = match choice {
+                    ThemeChoice::System => (IconName::Monitor, words::THEME_SYSTEM, "theme-system"),
+                    ThemeChoice::Light => (IconName::Sun, words::THEME_LIGHT, "theme-light"),
+                    ThemeChoice::Dark => (IconName::Moon, words::THEME_DARK, "theme-dark"),
+                };
+                let pick = cx.listener(move |viewer, _: &ClickEvent, _, cx| {
+                    viewer.theme_choice = choice;
+                    cx.emit(Intent::Theme(choice));
+                    cx.notify();
+                });
+                choice_button(id, icon, hint, choice == chosen, pick, window, cx)
+            })
+            .collect();
+        v_flex()
+            .gap(space::XS)
+            .px(space::S)
+            .pt(space::S)
+            .pb(space::M)
+            .border_t_1()
+            .border_color(border)
+            .text_size(text::XS)
+            .text_color(muted)
+            .children(self.connection.clone().map(|name| {
+                h_flex()
+                    .gap(space::S)
+                    .child(div().size(px(6.)).rounded_full().bg(success))
+                    .child(words::connected_to(&name))
+                    .children(self.version.clone().map(|version| {
+                        div()
+                            .debug_selector(|| "viewer-version".into())
+                            .ml_auto()
+                            .child(words::version(&version))
+                    }))
+            }))
+            .child(
+                h_flex()
+                    .debug_selector(|| "theme-menu".into())
+                    .gap(px(2.))
+                    .children(choices),
             )
             .into_any_element()
     }
@@ -501,7 +666,7 @@ impl Viewer {
             .enumerate()
         {
             let header = self.group_title(group, index == 0, window, cx);
-            let items = self.items(&group.children, window, cx);
+            let items = self.items(&group.children, Some(&group.title), window, cx);
             groups.push(v_flex().child(header).children(items).into_any_element());
         }
         let loose: Vec<TreeNode> = self
@@ -511,10 +676,10 @@ impl Viewer {
             .cloned()
             .collect();
         if !loose.is_empty() {
-            let items = self.items(&loose, window, cx);
+            let items = self.items(&loose, None, window, cx);
             groups.push(
                 v_flex()
-                    .child(group_label("Sans dossier", groups.is_empty(), cx))
+                    .child(group_label(words::UNFILED, groups.is_empty(), cx))
                     .children(items)
                     .into_any_element(),
             );
@@ -563,6 +728,7 @@ impl Viewer {
     fn items(
         &self,
         nodes: &[TreeNode],
+        parent: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
@@ -570,9 +736,9 @@ impl Viewer {
         for node in nodes {
             let folder = !node.children.is_empty();
             let open = self.expanded.contains(&node.id);
-            items.push(self.item(node, folder, open, window, cx));
+            items.push(self.item(node, parent, folder, open, window, cx));
             if folder {
-                let children = self.items(&node.children, window, cx);
+                let children = self.items(&node.children, Some(&node.title), window, cx);
                 let guide = cx.theme().border;
                 items.push(
                     reveal(
@@ -595,6 +761,7 @@ impl Viewer {
     fn item(
         &self,
         node: &TreeNode,
+        parent: Option<&str>,
         folder: bool,
         open: bool,
         window: &mut Window,
@@ -624,7 +791,9 @@ impl Viewer {
         let id = node.id.clone();
         let click =
             cx.listener(move |viewer, _: &ClickEvent, _, cx| viewer.clicked(&id, folder, cx));
-        let title = node.title.clone();
+        // The beginning it shares with its parent dropped; whole on hover, and in the entry.
+        let title = SharedString::from(short_title(&node.title, parent).to_string());
+        let whole = node.title.clone();
         hoverable(
             SharedString::from(format!("item-{}", node.id)),
             window,
@@ -647,6 +816,7 @@ impl Viewer {
                     .text_color(fg)
                     .cursor_pointer()
                     .on_click(click)
+                    .tooltip(move |window, cx| Tooltip::new(whole.clone()).build(window, cx))
                     .child(Icon::new(icon).small())
                     .child(div().flex_1().min_w_0().truncate().child(title))
                     .children(chevron)
@@ -664,10 +834,17 @@ impl Viewer {
                 self.shown,
                 self.jump.clone(),
             )
+            .with_links(LinksState {
+                open: self.links_open.clone(),
+                filter: Some(self.links_filter.clone()),
+            })
             .into_any_element(),
             Pane::Search(search) => {
                 SearchScreen::new(search, on_intent, self.scroll.clone(), self.shown)
                     .into_any_element()
+            }
+            Pane::List(list) => {
+                ListScreen::new(list, on_intent, self.scroll.clone(), self.shown).into_any_element()
             }
         };
         let mut bar = h_flex().h(px(52.)).flex_none().px(space::L).gap(space::XS);
@@ -676,7 +853,7 @@ impl Viewer {
                 "sidebar-open",
                 IconName::PanelLeft,
                 None,
-                "Déplier",
+                words::EXPAND,
                 cx.listener(|viewer, _, _, cx| {
                     viewer.sidebar_open = Some(true);
                     cx.notify();
@@ -690,7 +867,7 @@ impl Viewer {
                 "back",
                 IconName::ArrowLeft,
                 None,
-                "Retour (Alt+←)",
+                words::BACK,
                 cx.listener(|_, _, _, cx| cx.emit(Intent::Back)),
                 window,
                 cx,
@@ -699,7 +876,7 @@ impl Viewer {
                 "forward",
                 IconName::ArrowRight,
                 None,
-                "Avancer (Alt+→)",
+                words::FORWARD,
                 cx.listener(|_, _, _, cx| cx.emit(Intent::Forward)),
                 window,
                 cx,
@@ -710,8 +887,8 @@ impl Viewer {
             bar = bar.child(ghost(
                 "copy-link",
                 IconName::Link,
-                Some("Copier le lien"),
-                "Copier le lien de la fiche",
+                Some(words::COPY_LINK),
+                words::COPY_LINK_DETAIL,
                 move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.clone())),
                 window,
                 cx,
@@ -845,11 +1022,102 @@ impl Render for Viewer {
                     .search
                     .update(cx, |search, cx| search.focus(window, cx));
             }))
+            .on_drag_move(
+                cx.listener(|viewer, event: &DragMoveEvent<ResizeSidebar>, _, cx| {
+                    viewer.resize_sidebar(event.event.position.x, cx);
+                }),
+            )
+            .on_drop(cx.listener(|viewer, _: &ResizeSidebar, _, cx| viewer.resized_sidebar(cx)))
             .size_full()
             .bg(page)
             .text_color(foreground)
             .text_size(text::BODY)
             .child(sidebar)
             .child(panel)
+    }
+}
+
+/// One choice of a small menu, marked when it is the one chosen, its hint on hover.
+fn choice_button(
+    id: &'static str,
+    icon: IconName,
+    hint: &'static str,
+    chosen: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let theme = cx.theme();
+    let (muted, foreground, over, radius) = (
+        theme.muted_foreground,
+        theme.foreground,
+        theme.accent,
+        theme.radius,
+    );
+    let tint = theme::accent_tint(cx);
+    let accent = theme.primary;
+    hoverable(
+        ElementId::Name(id.into()),
+        window,
+        cx,
+        move |element, hover| {
+            element
+                .debug_selector(move || id.into())
+                .size(px(26.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(radius)
+                .bg(if chosen { tint } else { over.opacity(hover.0) })
+                .text_color(if chosen {
+                    accent
+                } else {
+                    mix(muted, foreground, hover.0)
+                })
+                .cursor_pointer()
+                .on_click(on_click)
+                .tooltip(move |window, cx| Tooltip::new(hint).build(window, cx))
+                .child(Icon::new(icon).small())
+        },
+    )
+}
+
+/// What is dragged when the edge of the sidebar is.
+#[derive(Clone)]
+struct ResizeSidebar;
+
+/// Nothing follows the pointer while the sidebar is resized: the sidebar itself moves.
+struct Dragged;
+
+impl Render for Dragged {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
+/// A title of the tree without the beginning it shares with its parent's, when it starts with
+/// it: under `Contrats d'entretien`, `Contrats d'entretien : fibre` reads `fibre`. Whole when
+/// nothing would be left, or when the parent's title is not where it starts.
+pub fn short_title<'a>(title: &'a str, parent: Option<&str>) -> &'a str {
+    let Some(parent) = parent.filter(|parent| !parent.is_empty()) else {
+        return title;
+    };
+    let starts = title
+        .get(..parent.len())
+        .is_some_and(|start| start.to_lowercase() == parent.to_lowercase());
+    if !starts {
+        return title;
+    }
+    let rest = title[parent.len()..]
+        .trim_start_matches(|c: char| c.is_whitespace() || "-–—:·,/|".contains(c));
+    // A word cut in two, as `Contrat` under `Contra`, is not a shared beginning.
+    let cut_word = title[parent.len()..]
+        .chars()
+        .next()
+        .is_some_and(char::is_alphanumeric);
+    if rest.is_empty() || cut_word {
+        title
+    } else {
+        rest
     }
 }

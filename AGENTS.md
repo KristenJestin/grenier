@@ -33,7 +33,8 @@ what is wanted, where, and how to verify it: read it before touching code, and n
 suite after the scenario it covers.
 
 Everything in this repository is in English: documents, code, comments, commits, issues and
-pull requests. The interface may be in French.
+pull requests. The interfaces are in English; the content of an instance is in whatever language
+it was written.
 
 ```
 packages/api      @grenier/api     The contract between the server and its clients: the HTTP
@@ -96,7 +97,8 @@ the older revisions), `/health`, `/media/<hash>`, and the read API (`GET /api/ab
 `/api/openapi.json` and its documentation page at `/api/docs`. It needs `BETTER_AUTH_SECRET` and
 `GRENIER_INSTANCE` in `.env`; every request to
 `/mcp` and to the API carries a key, whose name is the actor of its writes (the API needs the
-right `read`). From `apps/server`:
+right `read`). A refused key is answered 401 with its reason, in the body and in
+`WWW-Authenticate`; Grenier offers no OAuth. From `apps/server`:
 
 ```
 bun run grenier owner:create --email owner@example.org
@@ -125,6 +127,10 @@ them); only the owner sets them.
 everything as Markdown into a git repository and commits what changed; the server runs it every
 night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
 entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`).
+The command line is built with `effect/cli` (`bun run grenier --help`); `grenier serve` runs the
+server, and `grenier service install|uninstall|start|stop|status|logs` and `grenier backup` run
+Grenier as a systemd user service with its own PostgreSQL (see `docs/install.md`, and
+`scripts/pack.ts` for the npm packages).
 
 Grenier with Docker, server and database in one command (the image is built from
 `apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database

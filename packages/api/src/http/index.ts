@@ -15,6 +15,8 @@ import {
 import {
   About,
   EntryRead,
+  HistoryPage,
+  ListOptions,
   SearchOptions,
   SearchResult,
   TreeEntry,
@@ -81,9 +83,13 @@ const types = HttpApiGroup.make('types')
 const entries = HttpApiGroup.make('entries')
   .add(
     HttpApiEndpoint.get('list', '/api/entries', {
-      success: Schema.Struct({ entries: Schema.Array(TreeEntry) }).annotate({
-        identifier: 'EntryList',
-      }),
+      query: ListOptions.fields,
+      success: Schema.Struct({
+        entries: Schema.Array(TreeEntry),
+        /** With a filter, where the next page starts (`null` at the end); the tree has none. */
+        next_cursor: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      }).annotate({ identifier: 'EntryList' }),
+      error: Invalid,
     }),
   )
   .add(
@@ -101,6 +107,20 @@ const entries = HttpApiGroup.make('entries')
     }),
   )
   .add(
+    HttpApiEndpoint.get('history', '/api/entries/:entry/history', {
+      params: { entry: Schema.String.annotate({ description: 'The slug or id of an entry.' }) },
+      query: {
+        limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
+        cursor: Schema.optionalKey(Schema.String),
+        event: Schema.optionalKey(
+          Schema.String.annotate({ description: 'One event, by its id, with its values whole.' }),
+        ),
+      },
+      success: HistoryPage,
+      error: [NotFound, Invalid],
+    }),
+  )
+  .add(
     HttpApiEndpoint.get('read', '/api/entries/:entry', {
       params: { entry: Schema.String.annotate({ description: 'The slug or id of an entry.' }) },
       success: EntryRead,
@@ -111,7 +131,7 @@ const entries = HttpApiGroup.make('entries')
     OpenApi.annotations({
       title: 'Entries',
       description:
-        'The tree of entries, and an entry with its place in it, its children and its links.',
+        'The tree of entries, or the entries a filter keeps; an entry with its place in it, its children and its links; and its history.',
     }),
   )
 

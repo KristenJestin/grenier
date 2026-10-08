@@ -128,7 +128,7 @@ const worst = (
 ): (typeof SEVERITIES)[number] =>
   SEVERITIES.indexOf(left) <= SEVERITIES.indexOf(right) ? left : right
 
-/** What a reporter says of a finding open at the same kind and place, once it has seen it. */
+/** What a reporter says of a finding open at the same place, once it has seen it. */
 export type ReportChoice = {
   /** The number of the open finding this report is one more occurrence of. */
   readonly same_as?: number | undefined
@@ -138,9 +138,10 @@ export type ReportChoice = {
 
 /**
  * Records a report: one more occurrence of the finding of the same kind and place whose title is
- * similar enough, or of the one `same_as` names, or a new finding. When the title matches none
- * but an agent's report has the kind and place of open findings, nothing is written: the answer
- * names them (`same_place`), and the agent reports again with `same_as` or `new`. The occurrence
+ * similar enough, or of the one `same_as` names at that place, or a new finding. When the title
+ * matches none but open findings exist at the place of an agent's report, of any kind, nothing is
+ * written: the answer names them (`same_place`), and the agent reports again with `same_as` or
+ * `new`. The occurrence
  * keeps what was reported, and what the server adds: the instance, its version and commit, the
  * current actor's key, and the call it is about, its arguments masked and cut short. Reports are
  * recorded one at a time, so two at once never make the same finding twice.
@@ -164,13 +165,7 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         db
           .select(FINDING)
           .from(findings)
-          .where(
-            and(
-              eq(findings.kind, report.kind),
-              eq(findings.place, report.place),
-              isNull(findings.merged_into),
-            ),
-          )
+          .where(and(eq(findings.place, report.place), isNull(findings.merged_into)))
           .orderBy(asc(findings.number)),
       )
       const named =
@@ -186,11 +181,16 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         return yield* new Refused({
           message: `There is no open finding ${choice.same_as}: read \`grenier_reports\`.`,
         })
-      if (named !== undefined && (named.kind !== report.kind || named.place !== report.place))
+      // One problem may be seen as slow by one agent and as a bug by another: a place, not a
+      // kind, is what a report joins.
+      if (named !== undefined && named.place !== report.place)
         return yield* new Refused({
-          message: `The finding ${named.number} is of another kind or place: report this one with \`new: true\`.`,
+          message: `The finding ${named.number} is at another place: report this one with \`new: true\`.`,
         })
+      // A title alone joins a finding of the same kind; any other open one at the place is
+      // listed for the agent to choose.
       const [similar] = candidates
+        .filter(({ kind }) => kind === report.kind)
         .map((finding) => ({ finding, similarity: titleSimilarity(finding.title, report.title) }))
         .filter(({ similarity }) => similarity >= SIMILAR)
         .toSorted((left, right) => right.similarity - left.similarity)
@@ -326,8 +326,53 @@ const firstLine = (text: string, length: number) => {
  * `params:`, and a write's values may be sensitive. The text of the query stays, to investigate.
  */
 const withoutParameters = (text: string) =>
-  // Up to the stack that follows, or the end: a value may hold new lines.
-  text.replace(/\nparams: [\s\S]*?(?=\n {4}at |$)/g, '\nparams: [left out]')
+  // To the end of the message: a value may hold new lines, even one that looks like the stack.
+  text.replace(/\nparams: [\s\S]*$/, '\nparams: [left out]')
+
+/** The messages of an error and of the errors under it, the way `Cause.pretty` writes them too. */
+const messagesOf = (value: ReturnType<typeof Cause.squash>): ReadonlyArray<string> =>
+  value instanceof Error
+    ? [
+        value.message,
+        ...messagesOf(Cause.isCause(value.cause) ? Cause.squash(value.cause) : value.cause),
+      ]
+    : []
+
+/** A whole cause as text, each message in it without the values of its query. */
+const prettyWithoutParameters = <E>(cause: Cause.Cause<E>) =>
+  cause.reasons
+    .flatMap((reason) =>
+      Cause.isDieReason(reason)
+        ? messagesOf(reason.defect)
+        : Cause.isFailReason(reason)
+          ? messagesOf(reason.error)
+          : [],
+    )
+    .reduce((text, message) => leftOut(text, message), Cause.pretty(cause))
+
+/**
+ * A text without the values a message gives after `params:`, wherever the text holds them: as it
+ * is, or indented line by line, as `Cause.pretty` writes a nested `[cause]`.
+ */
+const leftOut = (text: string, message: string) => {
+  const at = message.indexOf('\nparams: ')
+  if (at === -1) return text
+  const values = message.slice(at + 1).split('\n')
+  const lines = text.split('\n')
+  const kept: Array<string> = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    const indent = line.slice(0, line.length - line.trimStart().length)
+    const matches = values.every((value, offset) => lines[index + offset] === `${indent}${value}`)
+    if (!matches) {
+      kept.push(line)
+      continue
+    }
+    kept.push(`${indent}params: [left out]`)
+    index += values.length - 1
+  }
+  return kept.join('\n')
+}
 
 /** The tag of a tagged error, such as `SqlError`. */
 const Tagged = Schema.Struct({ _tag: Schema.String })
@@ -383,7 +428,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
         tool: call?.tool ?? null,
         key: key ?? null,
         instance: instance.name,
-        stack: withoutParameters(Cause.pretty(cause)),
+        stack: prettyWithoutParameters(cause),
       })}\n`,
     ),
   )
@@ -397,7 +442,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
       trying: call === undefined ? `A request to ${place}.` : `A call of the tool ${call.tool}.`,
       happened: production
         ? 'The server failed unexpectedly; in production, its message and stack are kept only in the server output.'
-        : withoutParameters(Cause.pretty(cause)).slice(0, 4000),
+        : prettyWithoutParameters(cause).slice(0, 4000),
       expected: 'An answer or a refusal, not an unexpected error.',
     },
     call === undefined || !production ? call : { tool: call.tool, arguments: null },

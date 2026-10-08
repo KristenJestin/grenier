@@ -147,8 +147,34 @@ describe('diagnostics over HTTP', () => {
     expect(await server(off).database.runPromise(findingsWithOccurrences({}))).toEqual([])
   })
 
+  test('an unknown route answers 404 and is no finding, diagnostics on', async () => {
+    const { base, database, errors } = server(on)
+    const ROUTES = [
+      ['GET', '/.well-known/oauth-protected-resource/mcp'],
+      ['GET', '/.well-known/oauth-authorization-server'],
+      ['GET', '/.well-known/openid-configuration'],
+      ['GET', '/mcp/.well-known/openid-configuration'],
+      ['POST', '/register'],
+    ] as const
+    const statuses = await Promise.all(
+      ROUTES.map(([method, path]) => fetch(`${base}${path}`, { method }).then((r) => r.status)),
+    )
+    expect(statuses).toEqual([404, 404, 404, 404, 404])
+    // A finding would be written just after the answer: give it the time to appear.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const places = (await database.runPromise(findingsWithOccurrences({}))).map(
+      ({ finding }) => finding.place,
+    )
+    for (const [method, path] of ROUTES) {
+      expect(places).not.toContain(`${method} ${path}`)
+      expect(errors()).not.toContain(path)
+    }
+  })
+
   test('a forced defect writes one line to standard error with the stack, diagnostics on or off', async () => {
     const { database, base, secret, errors } = server(off)
+    // Only what the server writes from here: a line of an earlier request may still be arriving.
+    const from = errors().length
     await database.runPromise(renameTable('types', 'types_gone'))
     try {
       await fetch(`${base}/api/types`, { headers: { authorization: `Bearer ${secret}` } })
@@ -157,6 +183,7 @@ describe('diagnostics over HTTP', () => {
     }
     const logged = async (tries: number): Promise<ReadonlyArray<string>> => {
       const lines = errors()
+        .slice(from)
         .split('\n')
         .filter((line) => line.includes('types_gone') || line.includes('"place":"GET /api/types"'))
       if (lines.length > 0 || tries === 0) return lines

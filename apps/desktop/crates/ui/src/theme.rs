@@ -16,17 +16,18 @@ pub mod font {
     /// The text: Open Sauce Sans.
     pub const TEXT: &str = "Open Sauce Sans";
     /// The headings: the titles of entries, the sections of a page, the headings of a body. Peace
-    /// Sans is chosen for them; until its file is in `assets/fonts`, Open Sauce Sans.
-    pub const HEADING: &str = TEXT;
+    /// Sans has one weight, and every letter of French.
+    pub const HEADING: &str = "Peace Sans";
 }
 
 /// The font files, read into the program when it is built.
-const FONTS: [&[u8]; 5] = [
+pub const FONTS: [&[u8]; 6] = [
     include_bytes!("../../../assets/fonts/OpenSauceSans-Regular.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-Italic.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-Medium.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/OpenSauceSans-Bold.ttf"),
+    include_bytes!("../../../assets/fonts/PeaceSans-Regular.ttf"),
 ];
 
 /// Gives the text system the viewer's fonts: once, at start-up, before the first window.
@@ -54,6 +55,46 @@ pub fn set_dark(dark: bool, cx: &mut App) {
     };
     Theme::change(mode, None, cx);
     Theme::global_mut(cx).font_family = font::TEXT.into();
+}
+
+/// Which theme the owner chose: the system's, or one of the two.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemeChoice {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeChoice {
+    /// Every choice, in the order the menu shows them.
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark];
+
+    /// The name the configuration keeps it under.
+    pub fn name(self) -> &'static str {
+        match self {
+            ThemeChoice::System => "system",
+            ThemeChoice::Light => "light",
+            ThemeChoice::Dark => "dark",
+        }
+    }
+
+    /// The choice a name keeps; the system's for any other.
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|choice| choice.name() == name)
+            .unwrap_or_default()
+    }
+
+    /// Whether it shows the dark theme, the system being dark or not.
+    pub fn is_dark(self, system_dark: bool) -> bool {
+        match self {
+            ThemeChoice::System => system_dark,
+            ThemeChoice::Light => false,
+            ThemeChoice::Dark => true,
+        }
+    }
 }
 
 /// Whether the application shows the dark theme.
@@ -110,6 +151,9 @@ pub mod width {
     pub const READING: Pixels = px(720.);
     /// The sidebar of the tree.
     pub const SIDEBAR: Pixels = px(260.);
+    /// How narrow, and how wide, the sidebar may be dragged.
+    pub const SIDEBAR_MIN: Pixels = px(200.);
+    pub const SIDEBAR_MAX: Pixels = px(560.);
     /// The column of contents beside a page.
     pub const CONTENTS: Pixels = px(220.);
     /// The labels of a list of fields.

@@ -1,4 +1,3 @@
-import { HIDDEN } from '@grenier/api/model'
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
@@ -170,6 +169,28 @@ describe('links carry a note and dates', () => {
     expect((await run(linksOf('lou-pike'))).map(({ relation }) => relation)).toEqual(['mentions'])
   })
 
+  test('the history of an unlink keeps what the link said, its note and its dates', async () => {
+    await run(
+      link('lou-pike', 'copper-shop', 'visited', '', '', {
+        note: 'twice',
+        valid_from: '2025-02-01',
+      }),
+    )
+    await run(unlink('lou-pike', 'copper-shop', 'visited'))
+    expect((await run(fieldHistory('lou-pike', 'links.visited'))).at(-1)).toMatchObject({
+      before: { entry: await idOf('copper-shop'), note: 'twice', valid_from: '2025-02-01' },
+      after: null,
+    })
+  })
+
+  test('an empty note is no note', async () => {
+    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { note: 'a book' }))
+    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { note: '' }))
+    expect(
+      (await run(linksOf('lou-pike'))).find(({ relation }) => relation === 'owes'),
+    ).toMatchObject({ note: null })
+  })
+
   test('nothing of a link to a hidden entry reaches a key without `sensitive`', async () => {
     await run(writeEntry({ type: 'person', title: 'Mo Ash' }))
     await run(link('mo-ash', 'quiet-evening', 'wrote', '', '', { note: 'velvet-secret' }))
@@ -178,10 +199,8 @@ describe('links carry a note and dates', () => {
     expect(read.links).toEqual([])
     const history = JSON.stringify(await run(plain(entryHistory('mo-ash'))))
     expect(history).not.toContain('velvet')
-    expect(await run(plain(fieldHistory('mo-ash', 'links.wrote')))).toMatchObject([
-      { before: HIDDEN, after: HIDDEN },
-      { before: HIDDEN, after: HIDDEN },
-    ])
+    // Left out, as a link that never was.
+    expect(await run(plain(fieldHistory('mo-ash', 'links.wrote')))).toEqual([])
     const exported = JSON.stringify(await run(plain(markdownFiles)))
     expect(exported).not.toContain('velvet')
   })

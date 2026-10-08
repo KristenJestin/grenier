@@ -7,6 +7,8 @@ publish.workspace = true
 
 [dependencies]
 api = { path = "../api" }
+# The errors GPUI logs, on standard error (more with RUST_LOG).
+env_logger = { version = "=0.11.9", default-features = false, features = ["auto-color"] }
 gpui-kit.workspace = true
 serde_json.workspace = true
 ui = { path = "../ui" }

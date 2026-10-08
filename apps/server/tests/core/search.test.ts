@@ -44,6 +44,27 @@ describe('search with the default language', () => {
     expect(results[0]?.rank).toBeGreaterThan(results[1]?.rank ?? Infinity)
   })
 
+  test('a query made of the words of a slug ranks that entry first', async () => {
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Ali, third run',
+        slug: 'ali-run3-cold-test',
+        body: 'Run3 of the cold test.',
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Run3 cold test results',
+        summary: 'The cold test, run3.',
+        body: 'Cold test run3. '.repeat(30),
+      }),
+    )
+    const results = await run(search('run3 cold test'))
+    expect(results[0]?.slug).toBe('ali-run3-cold-test')
+  })
+
   test('a search can be answered from the search index', async () => {
     await run(writeEntry({ type: 'note', title: 'Quiet lighthouse', body: 'Fog at dawn.' }))
     const before = await run(searchIndexScans)

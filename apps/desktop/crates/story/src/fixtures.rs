@@ -3,6 +3,7 @@
 use api::{EntryRead, SearchResult, TypeDefinition};
 use serde_json::{Value, json};
 use ui::entry::EntryData;
+use ui::load::Load;
 use ui::viewer::TreeNode;
 
 fn read(value: Value) -> EntryRead {
@@ -15,7 +16,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
         "aliases": [], "tags": [], "parent_id": null, "fields": {}, "provenance": {},
         "sources": [], "body": "", "summary": "", "verified": true,
         "created": "2026-09-01T08:00:00.000Z", "updated": "2026-10-01T08:00:00.000Z",
-        "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null
+        "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null, "archived_reason": null
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
         base.extend(extra);
@@ -110,6 +111,8 @@ pub fn contract() -> EntryData {
             }),
         )),
         type_definition: Some(contract_type()),
+        history: Load::Empty,
+        more_history: false,
     }
 }
 
@@ -163,6 +166,8 @@ pub fn machine() -> EntryData {
             }),
         )),
         type_definition: Some(item_type()),
+        history: Load::Empty,
+        more_history: false,
     }
 }
 
@@ -223,6 +228,8 @@ pub fn person() -> EntryData {
             }),
         )),
         type_definition: Some(person_type()),
+        history: Load::Empty,
+        more_history: false,
     }
 }
 
@@ -234,6 +241,8 @@ pub fn bare() -> EntryData {
             json!({}),
         )),
         type_definition: None,
+        history: Load::Empty,
+        more_history: false,
     }
 }
 
@@ -270,6 +279,8 @@ pub fn long() -> EntryData {
             }),
         )),
         type_definition: None,
+        history: Load::Empty,
+        more_history: false,
     }
 }
 
@@ -424,4 +435,262 @@ pub fn deep_tree() -> Vec<TreeNode> {
         )
     }));
     roots
+}
+
+fn project_type() -> TypeDefinition {
+    serde_json::from_value(json!({
+        "name": "project", "label": "Projet", "description": "Un projet, avec ce qui en dépend.",
+        "fields": [
+            { "name": "owner", "kind": "entry", "types": ["person"] },
+            { "name": "hosts", "kind": "entry", "many": true }
+        ]
+    }))
+    .expect("a fixture type")
+}
+
+/// A link of a fixture, as the API returns it.
+fn a_link(relation: &str, id: &str, title: &str, note: Value, from: Value) -> Value {
+    json!({ "relation": relation, "period": null, "field": null, "note": note,
+            "valid_from": from, "valid_until": null, "id": id, "slug": id, "title": title })
+}
+
+/// A project at the heart of an instance: 160 links, of every kind, and fields naming entries.
+pub fn many_links() -> EntryData {
+    let mut links: Vec<Value> = vec![
+        a_link(
+            "uses",
+            "serveur-atlas",
+            "Serveur Atlas",
+            json!("hébergement principal"),
+            json!("2025-02-01"),
+        ),
+        a_link(
+            "uses",
+            "serveur-borée",
+            "Serveur Borée",
+            json!("sauvegardes"),
+            Value::Null,
+        ),
+        a_link(
+            "depends_on",
+            "registre-de-noms",
+            "Registre de noms",
+            Value::Null,
+            Value::Null,
+        ),
+        a_link(
+            "depends_on",
+            "certificats",
+            "Certificats du domaine",
+            json!("renouvelés chaque année"),
+            Value::Null,
+        ),
+    ];
+    links.extend((1..=6).map(|n| {
+        a_link(
+            "mentions",
+            &format!("note-{n}"),
+            &format!("Note de chantier {n}"),
+            Value::Null,
+            Value::Null,
+        )
+    }));
+    let mut backlinks: Vec<Value> = (1..=30)
+        .map(|n| {
+            a_link(
+                "part_of",
+                &format!("tache-{n:02}"),
+                &format!("Tâche {n:02} du projet Phare"),
+                Value::Null,
+                Value::Null,
+            )
+        })
+        .collect();
+    backlinks.extend((1..=120).map(|n| {
+        a_link(
+            "mentions",
+            &format!("journal-{n:03}"),
+            &format!("Journal du {n:03}e jour"),
+            Value::Null,
+            Value::Null,
+        )
+    }));
+    EntryData {
+        read: read(around(
+            entry(
+                "phare",
+                "Phare",
+                "project",
+                json!({
+                    "summary": "Le projet qui relie tout le reste.",
+                    "tags": ["projet", "infrastructure"],
+                    "verified": false,
+                    "fields": { "owner": "camille-exemple", "hosts": ["serveur-atlas", "serveur-borée"] }
+                }),
+            ),
+            json!({
+                "links": links,
+                "backlinks": backlinks,
+                "titles": {
+                    "camille-exemple": "Camille Exemple",
+                    "serveur-atlas": "Serveur Atlas",
+                    "serveur-borée": "Serveur Borée"
+                }
+            }),
+        )),
+        type_definition: Some(project_type()),
+        history: Load::Empty,
+        more_history: false,
+    }
+}
+
+/// Folders of about 200 entries, seven of them sharing a long beginning with their parent's title.
+pub fn long_titles_tree() -> Vec<TreeNode> {
+    let contracts = node(
+        "contrats-entretien",
+        "Contrats d'entretien du Phare",
+        "area",
+        [
+            "fibre du bureau",
+            "hébergement des serveurs",
+            "noms de domaine",
+            "certificats",
+            "sauvegardes hors site",
+            "téléphonie",
+            "maintenance des onduleurs",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(n, rest)| {
+            node(
+                &format!("contrat-technique-{n}"),
+                &format!("Contrats d'entretien du Phare — {rest}"),
+                "contract",
+                vec![],
+            )
+        })
+        .collect(),
+    );
+    let tasks = node(
+        "taches",
+        "Tâches",
+        "area",
+        (1..=30)
+            .map(|n| {
+                node(
+                    &format!("tache-{n:02}"),
+                    &format!("Tâche {n:02} du projet Phare"),
+                    "note",
+                    vec![],
+                )
+            })
+            .collect(),
+    );
+    let journal = node(
+        "journal",
+        "Journal",
+        "area",
+        (1..=150)
+            .map(|n| {
+                node(
+                    &format!("journal-{n:03}"),
+                    &format!("Journal du {n:03}e jour"),
+                    "note",
+                    vec![],
+                )
+            })
+            .collect(),
+    );
+    vec![
+        node("phare", "Phare", "project", vec![contracts, tasks]),
+        node("archives-phare", "Archives", "area", vec![journal]),
+    ]
+}
+
+/// The entries of a type with a tag, as a chip of an entry lists them.
+pub fn listed() -> ui::list::ListData {
+    let entries = [
+        ("fibre-maison", "Abonnement fibre de la maison"),
+        ("assurance-habitation", "Assurance habitation"),
+        ("electricite", "Contrat d'électricité"),
+        ("eau", "Contrat d'eau"),
+        ("entretien-chaudiere", "Entretien de la chaudière"),
+        ("gaz", "Contrat de gaz"),
+    ]
+    .into_iter()
+    .map(|(id, title)| {
+        serde_json::from_value(json!({
+            "id": id, "slug": id, "type": "contract", "title": title,
+            "parent_id": null, "in_parent": false
+        }))
+        .expect("a fixture listing")
+    })
+    .collect();
+    ui::list::ListData {
+        filter: ui::intent::ListFilter {
+            type_name: Some(("contract".into(), "Contrat".into())),
+            tag: Some("maison".into()),
+            unverified: false,
+        },
+        type_labels: [("contract".to_string(), "Contrat".to_string())].into(),
+        entries: Load::Ready(entries),
+        more: false,
+    }
+}
+
+/// The contract with its history shown: newest first, a long body as an excerpt, older ones to come.
+pub fn with_history() -> EntryData {
+    let event = |id: &str, at: &str, actor: &str, action: &str, changes: Value| {
+        serde_json::from_value(
+            json!({ "id": id, "at": at, "actor": actor, "action": action, "changes": changes }),
+        )
+        .expect("a fixture event")
+    };
+    EntryData {
+        history: Load::Ready(vec![
+            event(
+                "41",
+                "2026-10-07T09:12:00.000Z",
+                "agent-portable",
+                "update",
+                json!([
+                    { "field": "fields.provider", "before": "Opérateur Lumière", "after": "Opérateur Lumière Pro" },
+                    { "field": "summary", "before": "La fibre de la maison.", "after": "La fibre, la box et la ligne fixe de la maison." }
+                ]),
+            ),
+            event(
+                "37",
+                "2026-10-03T18:40:00.000Z",
+                "agent-portable",
+                "link",
+                json!([
+                    { "field": "links.signed_by", "before": null, "after": "camille-exemple" }
+                ]),
+            ),
+            event(
+                "22",
+                "2026-09-14T07:05:00.000Z",
+                "agent-bureau",
+                "update",
+                json!([
+                    { "field": "body", "before": { "size": 812, "excerpt": "## Ce que couvre le contrat\n\nLa fibre de la maison, avec la box…" },
+                      "after": { "size": 1024, "excerpt": "## Ce que couvre le contrat\n\nLa fibre de la maison, avec la box et la ligne fixe…" } },
+                    { "field": "tags", "before": ["maison"], "after": ["maison", "abonnement"] },
+                    { "field": "fields.renewal", "before": "manuel", "after": "tacite" },
+                    { "field": "fields.start", "before": null, "after": "2024-03-15" }
+                ]),
+            ),
+            event(
+                "3",
+                "2026-09-01T08:00:00.000Z",
+                "agent-bureau",
+                "create",
+                json!([
+                    { "field": "title", "before": null, "after": "Abonnement fibre de la maison" }
+                ]),
+            ),
+        ]),
+        more_history: true,
+        ..bare()
+    }
 }
