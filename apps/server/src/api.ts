@@ -8,7 +8,7 @@ import {
 } from '@grenier/api/http'
 import { Auth, Rights } from './core/auth/index.ts'
 import { filterEntries, listEntries, readEntry } from './core/entries/index.ts'
-import { historyPage } from './core/events/index.ts'
+import { cursorRefusal, historyPage } from './core/events/index.ts'
 import { Instance } from './core/instance.ts'
 import { pendingReferences } from './core/links/index.ts'
 import { Refused } from './core/refused.ts'
@@ -76,15 +76,18 @@ const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
           ),
         ),
       )
-      .handle('history', ({ params, query }) =>
-        historyPage(params.entry, query).pipe(
+      .handle('history', ({ params, query }) => {
+        // A cursor that is not one is the request's mistake: 400, not 404.
+        const refusal = cursorRefusal(query.cursor)
+        if (refusal !== undefined) return Effect.fail(new Invalid({ message: refusal }))
+        return historyPage(params.entry, query).pipe(
           Effect.catch((error) =>
             error instanceof Refused
               ? Effect.fail(new NotFound({ message: error.message }))
               : Effect.die(error),
           ),
-        ),
-      )
+        )
+      })
       .handle('pending', () =>
         pendingReferences.pipe(
           Effect.map((pending) => ({ pending })),

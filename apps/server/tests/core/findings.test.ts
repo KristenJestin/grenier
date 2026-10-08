@@ -425,6 +425,28 @@ describe('the server output never carries the values of a failed write', () => {
   })
 })
 
+describe('query values never reach the output through a wrapped error', () => {
+  test('a failed query wrapped in another error keeps its values out of stderr', async () => {
+    const query = new Error(
+      'Failed query: update "entries" set "body" = $1\nparams: the combination is 5-5-2,then left',
+    )
+    const cause = Cause.die(new Error('The write could not finish.', { cause: query }))
+    const written: Array<string> = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      await run(recordDefect('write', cause))
+    } finally {
+      spy.mockRestore()
+    }
+    const [line = ''] = written
+    expect(line).toContain('update \\"entries\\"')
+    expect(line).not.toContain('5-5-2')
+  })
+})
+
 describe('reports and merges keep findings apart where they differ', () => {
   const at = (place: string, title: string) => ({
     ...report(title),

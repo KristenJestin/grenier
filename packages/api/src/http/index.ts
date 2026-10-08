@@ -117,7 +117,7 @@ const entries = HttpApiGroup.make('entries')
         ),
       },
       success: HistoryPage,
-      error: NotFound,
+      error: [NotFound, Invalid],
     }),
   )
   .add(

@@ -5,7 +5,7 @@ import { defineTool, Reference } from '../tool.ts'
 export const archiveTool = defineTool({
   name: 'archive',
   description:
-    'Archives an entry; nothing is ever deleted. Say why in `reason`, in a few words (`Replaced by the 2026 contract.`): it is read with `archived_at`, so that no one takes the archive for a mistake.',
+    'Archives an entry; nothing is ever deleted. Say why in `reason`, in a few words (`Replaced by the 2026 contract.`): it is read with `archived_at`, so that no one takes the archive for a mistake. Archived already, a new `reason` replaces the old one, its date kept.',
   input: Schema.Struct({
     entry: Reference,
     reason: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),

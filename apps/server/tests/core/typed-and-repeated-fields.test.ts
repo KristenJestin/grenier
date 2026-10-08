@@ -247,6 +247,28 @@ describe('an entry named by a field keeps a type the field accepts', () => {
   })
 })
 
+describe('a type change looks only at the fields of other entries', () => {
+  test('an entry whose own field names itself may change type', async () => {
+    await run(
+      defineType({
+        name: 'club',
+        label: 'Club',
+        description: 'A club, which may belong to another.',
+        fields: [{ name: 'within', kind: 'entry', types: ['club'] }],
+      }),
+    )
+    await run(writeEntry({ type: 'club', title: 'Chess circle' }))
+    await run(writeEntry({ entry: 'chess-circle', fields: { within: 'chess-circle' } }))
+    expect(
+      (
+        await run(
+          writeEntry({ entry: 'chess-circle', type: 'organization', fields: { within: null } }),
+        )
+      ).type,
+    ).toBe('organization')
+  })
+})
+
 describe('a repeated field', () => {
   test('keeps a list in the order given, refuses a duplicate, and `required` refuses an empty list', async () => {
     await run(

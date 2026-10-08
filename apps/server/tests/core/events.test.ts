@@ -163,3 +163,12 @@ describe('the history of a long entry comes in pages', () => {
     ).toMatchObject([{ before: '', after: 'One.' }])
   })
 })
+
+describe('a cursor of a history is one the history gave', () => {
+  test('a cursor that is not one is refused, never read as an empty history', async () => {
+    const refused = await run(Effect.flip(historyPage('logbook', { cursor: 'yesterday' })))
+    expect(refused.message).toBe(
+      'The cursor `yesterday` is not one a history gave: start again without it.',
+    )
+  })
+})

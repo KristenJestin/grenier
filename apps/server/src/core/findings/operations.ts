@@ -348,10 +348,31 @@ const prettyWithoutParameters = <E>(cause: Cause.Cause<E>) =>
           ? messagesOf(reason.error)
           : [],
     )
-    .reduce(
-      (text, message) => text.replaceAll(message, withoutParameters(message)),
-      Cause.pretty(cause),
-    )
+    .reduce((text, message) => leftOut(text, message), Cause.pretty(cause))
+
+/**
+ * A text without the values a message gives after `params:`, wherever the text holds them: as it
+ * is, or indented line by line, as `Cause.pretty` writes a nested `[cause]`.
+ */
+const leftOut = (text: string, message: string) => {
+  const at = message.indexOf('\nparams: ')
+  if (at === -1) return text
+  const values = message.slice(at + 1).split('\n')
+  const lines = text.split('\n')
+  const kept: Array<string> = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    const indent = line.slice(0, line.length - line.trimStart().length)
+    const matches = values.every((value, offset) => lines[index + offset] === `${indent}${value}`)
+    if (!matches) {
+      kept.push(line)
+      continue
+    }
+    kept.push(`${indent}params: [left out]`)
+    index += values.length - 1
+  }
+  return kept.join('\n')
+}
 
 /** The tag of a tagged error, such as `SqlError`. */
 const Tagged = Schema.Struct({ _tag: Schema.String })

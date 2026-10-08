@@ -10,7 +10,7 @@ import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Refused } from '../refused.ts'
-import { hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
+import { hiddenAmong, hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
 import { incoming, MENTIONS, outgoing } from '../links/store.ts'
@@ -673,11 +673,6 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   ...prefixed('provenance', provenance),
 })
 
-/**
- * Why an entry may not take another type, if it may not. A key without the right `sensitive` may
- * not move an entry that holds sensitive values, since the values would go with it; and only the
- * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
- */
 const namingRows = rowsOf(
   Schema.Struct({
     slug: Schema.String,
@@ -699,7 +694,9 @@ const namedAgainst = Effect.fn('namedAgainst')(function* (entry: Kept, to: strin
     SELECT e.slug, e.type, f ->> 'name' AS field,
       ARRAY(SELECT jsonb_array_elements_text(f -> 'types')) AS types
     FROM entries e JOIN types t ON t.name = e.type, jsonb_array_elements(t.fields) AS f
-    WHERE f ->> 'kind' = 'entry' AND jsonb_typeof(f -> 'types') = 'array'
+    -- Its own fields are its new type's, not the ones they were.
+    WHERE e.id <> ${entry.id}::uuid
+      AND f ->> 'kind' = 'entry' AND jsonb_typeof(f -> 'types') = 'array'
       AND NOT (f -> 'types') ? ${to}
       AND (e.fields -> (f ->> 'name') = to_jsonb(${entry.id}::text)
         OR e.fields -> (f ->> 'name') @> jsonb_build_array(${entry.id}::text))
@@ -714,6 +711,11 @@ const namedAgainst = Effect.fn('namedAgainst')(function* (entry: Kept, to: strin
     .join('; ')}.`
 })
 
+/**
+ * Why an entry may not take another type, if it may not. A key without the right `sensitive` may
+ * not move an entry that holds sensitive values, since the values would go with it; and only the
+ * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
+ */
 const retypeRefusal = Effect.fn('retypeRefusal')(function* (
   existing: Kept,
   type: TypeDefinition,
@@ -758,6 +760,35 @@ type Batch = {
 
 const ALONE: Batch = { coming: new Set(), renamed: new Map(), displaced: new Map() }
 
+/** The slug and the body an entry has before a write, if the write names an entry. */
+const storedOf = Effect.fn('storedOf')(function* (entry: string | undefined) {
+  if (entry === undefined) return undefined
+  const db = yield* drizzle
+  const [stored] = yield* rowsBodies(
+    db.select({ slug: table.slug, body: table.body }).from(table).where(named(entry)),
+  )
+  return stored
+})
+
+/**
+ * The slugs a write locks before any row: those its body names, before and after, when it changes
+ * the body (a body sent as it is changes nothing it names); the entry's own when it is created or
+ * renamed; and its aliases.
+ */
+const slugsLockedBy = Effect.fn('slugsLockedBy')(function* (input: WriteEntryInput) {
+  const stored = yield* storedOf(input.entry)
+  const bodyChanges =
+    input.edits !== undefined || (input.body !== undefined && input.body !== stored?.body)
+  return [
+    ...(bodyChanges ? referencesIn(stored?.body ?? '') : []),
+    ...(bodyChanges ? referencesIn(input.body ?? '') : []),
+    ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
+    ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
+    ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
+    ...(input.aliases ?? []),
+  ]
+})
+
 /**
  * Creates an entry, or updates the one `entry` names. The result is validated against the
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
@@ -780,35 +811,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (input.entry !== undefined && Predicate.isString(input.parent)) {
           yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
-        // Before any row lock too, every slug the write will lock, in one sorted order: those the
-        // body names, before and after; the entry's own when it is created or renamed; and its
-        // aliases. Writes that cite, create, rename or alias the same slug then never wait for
-        // each other in a circle.
-        if (
-          input.entry === undefined ||
-          input.body !== undefined ||
-          input.edits !== undefined ||
-          input.slug !== undefined ||
-          input.aliases !== undefined
-        ) {
-          const [stored] =
-            input.entry === undefined
-              ? []
-              : yield* rowsBodies(
-                  db
-                    .select({ slug: table.slug, body: table.body })
-                    .from(table)
-                    .where(named(input.entry)),
-                )
-          yield* lockReferences([
-            ...referencesIn(stored?.body ?? ''),
-            ...referencesIn(input.body ?? ''),
-            ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
-            ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
-            ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
-            ...(input.aliases ?? []),
-          ])
-        }
+        // Before any row lock too, every slug the write will lock, in one sorted order (see
+        // `slugsLockedBy`). Writes that cite, create, rename or alias the same slug then never
+        // wait for each other in a circle.
+        yield* lockReferences(yield* slugsLockedBy(input))
         // The types first, then the entry, in the order a change of a type takes them: two writes
         // never wait for each other in a circle.
         const current =
@@ -1067,10 +1073,29 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           }
         }
 
+        // The stored sources of entries the caller may not see, read as the marker: written back
+        // as read, or without them, they stay, as a parent or the items of a list do. Each marker
+        // takes the place of the next one; the others are kept at the end.
+        const storedSourceIds = (existing?.sources ?? []).flatMap((held) =>
+          'entry' in held ? [held.entry] : [],
+        )
+        const hiddenSources = yield* hiddenAmong(storedSourceIds)
+        const unseenSources = (existing?.sources ?? []).filter(
+          (held) =>
+            'entry' in held &&
+            hiddenSources.has(held.entry) &&
+            !state.sources.some((sent) => 'entry' in sent && sent.entry === held.entry),
+        )
         // The entries a source names, by id; a URL that is a web address; an item the inbox holds.
         const sources: Array<SourceKept> = []
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
+          const unseen =
+            'entry' in source && source.entry === HIDDEN ? unseenSources.shift() : undefined
+          if (unseen !== undefined) {
+            sources.push(unseen)
+            continue
+          }
           if ('entry' in source) {
             // An entry it already cites stays cited, whether the caller may see it or not.
             const kept = existing?.sources.some(
@@ -1103,6 +1128,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           } else sources.push(source)
         }
+        sources.push(...unseenSources)
 
         for (const reference of referencesIn(state.body)) {
           const away = renamedAway.get(reference)
@@ -1324,10 +1350,16 @@ export const archiveEntry = Effect.fn('archiveEntry')(function* (
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const entry = yield* findEntry(reference)
-      if (entry.archived_at !== null) return entry
+      // Archived already: a new reason is recorded, its date kept; without one, nothing changes.
+      const archivedAgain = entry.archived_at !== null
+      if (archivedAgain && (reason === undefined || reason === entry.archived_reason)) return entry
       yield* db
         .update(table)
-        .set({ archived_at: sql`now()`, archived_reason: reason ?? null, updated: sql`now()` })
+        .set(
+          archivedAgain
+            ? { archived_reason: reason ?? null, updated: sql`now()` }
+            : { archived_at: sql`now()`, archived_reason: reason ?? null, updated: sql`now()` },
+        )
         .where(eq(table.id, entry.id))
       const archived = yield* findEntry(entry.id)
       yield* recordEvent(
@@ -1532,6 +1564,13 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
     client.withTransaction(
       Effect.gen(function* () {
         const { planned, order, deferred, known } = yield* planBatch(batch)
+        // The bodies as they are, so that one sent unchanged is not linked again.
+        const before = yield* Effect.forEach(planned, (input) => storedOf(input.entry))
+        // Every slug the whole batch locks, sorted, before the row of any of its entries: each
+        // write of it takes them again, which a transaction holding them does at once.
+        yield* lockReferences(
+          (yield* Effect.forEach(planned, (input) => slugsLockedBy(input))).flat(),
+        )
         // A refusal is kept as a value, so that every entry of the batch is checked; each entry
         // after those of the batch it names, then answered in the order given. A reference that
         // closes a loop waits for a second write, once every entry exists.
@@ -1564,14 +1603,9 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
           )
         })
         // The references to entries written later in the batch are linked now that all exist: of
-        // the bodies the batch wrote only, whose slugs their write locked before any row.
+        // the bodies the batch wrote or changed only, whose slugs their write locked before any row.
         yield* Effect.forEach(
-          written.filter((_, index) => {
-            const given = batch[index]
-            return (
-              given?.entry === undefined || given.body !== undefined || given.edits !== undefined
-            )
-          }),
+          written.filter((entry, index) => entry.body !== before[index]?.body),
           (entry) => keepReferences(entry.id, entry.body),
         )
         return written
