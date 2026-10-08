@@ -125,6 +125,37 @@ export const visibleOf = Effect.fn('visibleOf')(function* (reference: string) {
   return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row
 })
 
+const typedNames = rowsOf(
+  Schema.Struct({ id: Schema.String, slug: Schema.String, type: Schema.String }),
+)
+
+/**
+ * The type of each entry these references name, by slug or id, in one read: those the caller may
+ * not see, and names of no entry, are absent.
+ */
+export const visibleTypesOf = Effect.fn('visibleTypesOf')(function* (
+  references: ReadonlyArray<string>,
+) {
+  const wanted = [...new Set(references)]
+  if (wanted.length === 0) return new Map<string, string>()
+  const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
+  const rows = yield* typedNames(
+    db
+      .select({ id: table.id, slug: table.slug, type: table.type })
+      .from(table)
+      .where(or(inArray(table.slug, wanted), inArray(sql`${table.id}::text`, wanted))),
+  )
+  return new Map(
+    rows
+      .filter(({ type }) => !hidesType(type))
+      .flatMap(({ id, slug, type }) => [
+        [id, type],
+        [slug, type],
+      ]),
+  )
+})
+
 /** Names in a sentence: `a`, `a` or `b`, `a`, `b` or `c`. */
 export const eitherOf = (names: ReadonlyArray<string>) =>
   names
@@ -647,6 +678,42 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
  * not move an entry that holds sensitive values, since the values would go with it; and only the
  * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
  */
+const namingRows = rowsOf(
+  Schema.Struct({
+    slug: Schema.String,
+    type: Schema.String,
+    field: Schema.String,
+    types: Schema.Array(Schema.String),
+  }),
+)
+
+/**
+ * Why an entry may not take another type when fields of other entries name it and accept only
+ * other types: each such entry and field, said, so that a type change never leaves a value its
+ * field refuses. Entries the caller may not see are left out of it, as everywhere.
+ */
+const namedAgainst = Effect.fn('namedAgainst')(function* (entry: Kept, to: string) {
+  const client = yield* SqlClient.SqlClient
+  const { hidesType } = yield* sensitivity
+  const found = yield* namingRows(client`
+    SELECT e.slug, e.type, f ->> 'name' AS field,
+      ARRAY(SELECT jsonb_array_elements_text(f -> 'types')) AS types
+    FROM entries e JOIN types t ON t.name = e.type, jsonb_array_elements(t.fields) AS f
+    WHERE f ->> 'kind' = 'entry' AND jsonb_typeof(f -> 'types') = 'array'
+      AND NOT (f -> 'types') ? ${to}
+      AND (e.fields -> (f ->> 'name') = to_jsonb(${entry.id}::text)
+        OR e.fields -> (f ->> 'name') @> jsonb_build_array(${entry.id}::text))
+    ORDER BY e.slug, f ->> 'name'`)
+  const visible = found.filter(({ type }) => !hidesType(type))
+  if (visible.length === 0) return undefined
+  return `The entry \`${entry.slug}\` cannot become a \`${to}\`: ${visible
+    .map(
+      ({ slug, field, types }) =>
+        `\`${slug}\` names it in \`fields.${field}\`, which accepts ${eitherOf(types)}`,
+    )
+    .join('; ')}.`
+})
+
 const retypeRefusal = Effect.fn('retypeRefusal')(function* (
   existing: Kept,
   type: TypeDefinition,
@@ -791,6 +858,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (existing !== undefined && type !== undefined && type.name !== existing.type) {
           const refusal = yield* retypeRefusal(existing, type, state.fields, byOwner)
           if (refusal !== undefined) return yield* new Refused({ message: refusal })
+          const naming = yield* namedAgainst(existing, type.name)
+          if (naming !== undefined) return yield* new Refused({ message: naming })
         }
         const forbidden =
           type === undefined ? [] : hidden.fieldsOf(type.name).filter((name) => name in fields)
