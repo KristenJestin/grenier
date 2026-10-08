@@ -673,11 +673,6 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   ...prefixed('provenance', provenance),
 })
 
-/**
- * Why an entry may not take another type, if it may not. A key without the right `sensitive` may
- * not move an entry that holds sensitive values, since the values would go with it; and only the
- * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
- */
 const namingRows = rowsOf(
   Schema.Struct({
     slug: Schema.String,
@@ -699,7 +694,9 @@ const namedAgainst = Effect.fn('namedAgainst')(function* (entry: Kept, to: strin
     SELECT e.slug, e.type, f ->> 'name' AS field,
       ARRAY(SELECT jsonb_array_elements_text(f -> 'types')) AS types
     FROM entries e JOIN types t ON t.name = e.type, jsonb_array_elements(t.fields) AS f
-    WHERE f ->> 'kind' = 'entry' AND jsonb_typeof(f -> 'types') = 'array'
+    -- Its own fields are its new type's, not the ones they were.
+    WHERE e.id <> ${entry.id}::uuid
+      AND f ->> 'kind' = 'entry' AND jsonb_typeof(f -> 'types') = 'array'
       AND NOT (f -> 'types') ? ${to}
       AND (e.fields -> (f ->> 'name') = to_jsonb(${entry.id}::text)
         OR e.fields -> (f ->> 'name') @> jsonb_build_array(${entry.id}::text))
@@ -714,6 +711,11 @@ const namedAgainst = Effect.fn('namedAgainst')(function* (entry: Kept, to: strin
     .join('; ')}.`
 })
 
+/**
+ * Why an entry may not take another type, if it may not. A key without the right `sensitive` may
+ * not move an entry that holds sensitive values, since the values would go with it; and only the
+ * owner may move a sensitive value where it would no longer be sensitive, since that shows it.
+ */
 const retypeRefusal = Effect.fn('retypeRefusal')(function* (
   existing: Kept,
   type: TypeDefinition,
