@@ -2,6 +2,7 @@
 export {
   archiveEntry,
   identityOf,
+  filterEntries,
   listEntries,
   readEntry,
   slugOf,

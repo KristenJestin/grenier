@@ -105,6 +105,8 @@ const neutral = (answer: Schema.Json | undefined, slug: string) =>
     .replaceAll(slug, '<slug>')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
     .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, '<time>')
+    // The place of an event in the log, which grows with every write.
+    .replace(/"(id|next_cursor)":"\d+"/g, '"$1":"<event>"')
     .replace(/Probe \d+/g, 'Probe')
     .replace(/probe-\d+/g, 'probe')
 

@@ -570,8 +570,120 @@ describe('the read API', () => {
   })
 })
 
+describe('the read API lists, filters and tells the history', () => {
+  const get = (path: string, key: string) =>
+    fetch(`${base}${path}`, { headers: bearer(key) }).then(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    }))
+  let trusted = ''
+  let reader = ''
+
+  beforeAll(async () => {
+    trusted = await createKey('api-lister', ['read', 'write', 'sensitive'])
+    reader = await createKey('api-plain-reader', ['read'])
+    const agent = await connect(`${base}/mcp`, bearer(trusted))
+    await agent.call('define_type', {
+      name: 'chore',
+      label: 'Chore',
+      description: 'Something to do around the house.',
+      fields: [{ name: 'code', kind: 'text', sensitive: true }],
+    })
+    await agent.call('define_type', {
+      name: 'secret-chore',
+      label: 'Secret chore',
+      description: 'A chore no one should know about.',
+      fields: [],
+      sensitive: true,
+    })
+    await agent.call('write', { type: 'chore', title: 'Sweep the yard', tags: ['outside'] })
+    await agent.call('write', {
+      type: 'chore',
+      title: 'Oil the gate',
+      tags: ['outside', 'metal'],
+      fields: { code: 'gate-42' },
+    })
+    await agent.call('write', { type: 'chore', title: 'Polish the kettle', tags: ['metal'] })
+    await agent.call('write', { type: 'secret-chore', title: 'Hide the key' })
+    await agent.call('write', { entry: 'oil-the-gate', body: 'Oil it. '.repeat(200) })
+    await agent.call('write', { entry: 'oil-the-gate', fields: { code: 'gate-43' } })
+  })
+
+  test('the history of an entry comes newest first, in pages, a long body as an excerpt', async () => {
+    const first = await get('/api/entries/oil-the-gate/history?limit=2', trusted)
+    expect(first.status).toBe(200)
+    expect(first.body.events.map(({ action }: { action: string }) => action)).toEqual([
+      'update',
+      'update',
+    ])
+    const body = first.body.events[1].changes.find(
+      ({ field }: { field: string }) => field === 'body',
+    )
+    expect(body.after).toMatchObject({ size: 1600, excerpt: expect.stringMatching(/…$/) })
+    const rest = await get(
+      `/api/entries/oil-the-gate/history?limit=2&cursor=${first.body.next_cursor}`,
+      trusted,
+    )
+    expect(rest.body).toMatchObject({ events: [{ action: 'create' }], next_cursor: null })
+    // The whole value, on asking for that one event.
+    const whole = await get(
+      `/api/entries/oil-the-gate/history?event=${first.body.events[1].id}`,
+      trusted,
+    )
+    expect(
+      whole.body.events[0].changes.find(({ field }: { field: string }) => field === 'body').after,
+    ).toBe('Oil it. '.repeat(200))
+  })
+
+  test('a sensitive value is hidden in the history, and a hidden entry is not found, without the right', async () => {
+    const plain = await get('/api/entries/oil-the-gate/history', reader)
+    expect(JSON.stringify(plain.body)).not.toContain('gate-4')
+    expect(JSON.stringify(plain.body)).toContain('[hidden]')
+    expect((await get('/api/entries/hide-the-key/history', reader)).status).toBe(404)
+    expect((await get('/api/entries/hide-the-key/history', trusted)).status).toBe(200)
+  })
+
+  test('entries listed by type, by two tags, by verified=false, sorted by title', async () => {
+    const titles = async (query: string) =>
+      (await get(`/api/entries?${query}`, trusted)).body.entries.map(
+        ({ title }: { title: string }) => title,
+      )
+    expect(await titles('type=chore')).toEqual([
+      'Oil the gate',
+      'Polish the kettle',
+      'Sweep the yard',
+    ])
+    expect(await titles('tag=outside&tag=metal')).toEqual(['Oil the gate'])
+    expect(await titles('tag=metal')).toEqual(['Oil the gate', 'Polish the kettle'])
+    expect(await titles('type=chore&verified=false')).toEqual([
+      'Oil the gate',
+      'Polish the kettle',
+      'Sweep the yard',
+    ])
+    const paged = await get('/api/entries?type=chore&limit=2', trusted)
+    expect(paged.body.entries).toHaveLength(2)
+    const next = await get(
+      `/api/entries?type=chore&limit=2&cursor=${paged.body.next_cursor}`,
+      trusted,
+    )
+    expect(next.body).toMatchObject({ entries: [{ title: 'Sweep the yard' }], next_cursor: null })
+  })
+
+  test('search filtered by tag and by verified', async () => {
+    const slugs = async (query: string) =>
+      (await get(`/api/search?${query}`, trusted)).body.results.map(
+        ({ slug }: { slug: string }) => slug,
+      )
+    expect(await slugs('q=the&tag=metal')).toEqual(
+      expect.arrayContaining(['oil-the-gate', 'polish-the-kettle']),
+    )
+    expect(await slugs('q=the&tag=metal&tag=outside')).toEqual(['oil-the-gate'])
+    expect(await slugs('q=gate&verified=true')).toEqual([])
+  })
+})
+
 describe('the API documentation', () => {
-  test('/api/openapi.json is a valid OpenAPI document of the six read routes, behind a bearer key', async () => {
+  test('/api/openapi.json is a valid OpenAPI document of the seven read routes, behind a bearer key', async () => {
     const document = await fetch(`${base}/api/openapi.json`).then((response) => response.json())
     expect(await new Validator().validate(document)).toMatchObject({ valid: true })
     const Document = Schema.Struct({
@@ -595,6 +707,7 @@ describe('the API documentation', () => {
       '/api/about',
       '/api/entries',
       '/api/entries/{entry}',
+      '/api/entries/{entry}/history',
       '/api/pending-references',
       '/api/search',
       '/api/types',

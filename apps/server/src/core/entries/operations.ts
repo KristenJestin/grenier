@@ -394,6 +394,78 @@ export const listEntries = Effect.fn('listEntries')(function* () {
   )
 })
 
+/** What a listing keeps: entries of a type, with every tag given, verified or not, under one. */
+export type EntryFilter = {
+  readonly type?: string | undefined
+  readonly tags?: ReadonlyArray<string> | undefined
+  readonly verified?: boolean | undefined
+  readonly under?: string | undefined
+  readonly limit?: number | undefined
+  readonly cursor?: string | undefined
+}
+
+/** Where a page of a listing ended: the title and the id of its last entry. */
+const ListCursor = Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String]))
+
+const cursorOf = (entry: { readonly title: string; readonly id: string }) =>
+  Buffer.from(Schema.encodeSync(ListCursor)([entry.title, entry.id])).toString('base64url')
+
+/**
+ * The entries a filter keeps, not archived, the caller may see, by title, a page at a time
+ * (`limit`, 50 by default and 200 at most; then `cursor` with the `next_cursor` given).
+ */
+export const filterEntries = Effect.fn('filterEntries')(function* (filter: EntryFilter) {
+  const client = yield* SqlClient.SqlClient
+  const { hiddenTypes } = yield* sensitivity
+  const under = filter.under === undefined ? null : (yield* findEntry(filter.under)).id
+  const after =
+    filter.cursor === undefined
+      ? null
+      : Result.getOrUndefined(
+          Schema.decodeUnknownResult(ListCursor)(
+            Buffer.from(filter.cursor, 'base64url').toString('utf8'),
+          ),
+        )
+  if (after === undefined)
+    return yield* new Refused({
+      message: `The cursor \`${filter.cursor ?? ''}\` is not one a listing gave: start again without it.`,
+    })
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200)
+  const rows = yield* listed(client`
+    WITH RECURSIVE subtree AS (
+      SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
+      UNION ALL
+      SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
+      WHERE s.depth < ${TREE_DEPTH}
+    ) CYCLE id SET looped USING trail
+    SELECT e.id::text AS id, e.slug, e.type, e.title, e.parent_id::text AS parent_id,
+      EXISTS (SELECT 1 FROM entries p JOIN types t ON t.name = p.type
+        WHERE p.id = e.parent_id AND p.type = e.type AND t.read_in_parent) AS in_parent
+    FROM entries e
+    WHERE e.archived_at IS NULL
+      AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
+      AND (${filter.type ?? null}::text IS NULL OR e.type = ${filter.type ?? null})
+      AND e.tags @> ${JSON.stringify(filter.tags ?? [])}::jsonb
+      AND (${filter.verified ?? null}::boolean IS NULL OR e.verified = ${filter.verified ?? null})
+      AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
+      AND (${after?.[0] ?? null}::text IS NULL
+        OR (e.title, e.id::text) > (${after?.[0] ?? null}, ${after?.[1] ?? null}))
+    ORDER BY e.title, e.id::text
+    LIMIT ${limit + 1}`)
+  const page = rows.slice(0, limit)
+  // A parent the caller may not see is no parent: its child stands at the root.
+  const hidden = yield* hiddenIn(page.map(({ parent_id }) => parent_id))
+  const last = page.at(-1)
+  return {
+    entries: page.map((entry) =>
+      entry.parent_id !== null && hidden.has(entry.parent_id)
+        ? Object.assign(entry, { parent_id: null })
+        : entry,
+    ),
+    next_cursor: rows.length > limit && last !== undefined ? cursorOf(last) : null,
+  }
+})
+
 /** The slug of a title: `Château de Bois` gives `chateau-de-bois`. */
 export const slugOf = (title: string) =>
   title

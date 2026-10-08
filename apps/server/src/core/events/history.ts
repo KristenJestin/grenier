@@ -215,7 +215,12 @@ export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: stri
 })
 
 /** A page of a history: how many, and where the page before ended. */
-export type Page = { readonly limit?: number | undefined; readonly cursor?: string | undefined }
+export type Page = {
+  readonly limit?: number | undefined
+  readonly cursor?: string | undefined
+  /** One event, by its id, with its values whole. */
+  readonly event?: string | undefined
+}
 
 /** A text longer than this is given by its size and an excerpt in a page of a whole history. */
 const LONG_TEXT = 500
@@ -245,9 +250,20 @@ const pageOf = <T extends { readonly seq: number }>(all: ReadonlyArray<T>, page:
  * an excerpt, which `fieldHistoryPage` gives whole.
  */
 export const historyPage = Effect.fn('historyPage')(function* (reference: string, page: Page) {
-  const { items, next_cursor } = pageOf(yield* eventsOf(reference), page)
+  const all = yield* eventsOf(reference)
+  if (page.event !== undefined) {
+    const one = all.find(({ seq }) => String(seq) === page.event)
+    if (one === undefined)
+      return yield* new Refused({
+        message: `The entry \`${reference}\` has no event \`${page.event}\`: read its history first.`,
+      })
+    const { seq, at, actor, action, changes } = one
+    return { events: [{ id: String(seq), at, actor, action, changes }], next_cursor: null }
+  }
+  const { items, next_cursor } = pageOf(all, page)
   return {
-    events: items.map(({ at, actor, action, changes }) => ({
+    events: items.map(({ seq, at, actor, action, changes }) => ({
+      id: String(seq),
       at,
       actor,
       action,

@@ -75,6 +75,8 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
         OR e.sources @> jsonb_build_array(jsonb_build_object('url', ${query}::text))
         OR e.sources @> jsonb_build_array(jsonb_build_object('identifier', ${query}::text)))
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})
+      AND e.tags @> ${JSON.stringify(options.tag ?? [])}::jsonb
+      AND (${options.verified ?? null}::boolean IS NULL OR e.verified = ${options.verified ?? null})
       AND (${options.archived ?? false} OR e.archived_at IS NULL)
       AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
     ORDER BY fit DESC, rank DESC, e.title

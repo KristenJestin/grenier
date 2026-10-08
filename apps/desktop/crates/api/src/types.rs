@@ -121,6 +121,8 @@ pub struct Entry {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct EntryList {
     pub entries: ::std::vec::Vec<TreeEntry>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub next_cursor: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`EntryProvenanceValue`"]
 #[derive(
@@ -492,6 +494,29 @@ impl ::std::convert::TryFrom<::std::string::String> for ForbiddenEncodedTag {
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+#[doc = "`HistoryChange`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct HistoryChange {
+    pub after: ::serde_json::Value,
+    pub before: ::serde_json::Value,
+    pub field: ::std::string::String,
+}
+#[doc = "`HistoryEvent`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct HistoryEvent {
+    pub action: ::std::string::String,
+    pub actor: ::std::string::String,
+    pub at: ::std::string::String,
+    pub changes: ::std::vec::Vec<HistoryChange>,
+    pub id: ::std::string::String,
+}
+#[doc = "`HistoryPage`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct HistoryPage {
+    pub events: ::std::vec::Vec<HistoryEvent>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub next_cursor: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`InvalidEncoded`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
