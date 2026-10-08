@@ -1,4 +1,4 @@
-import { Entry, SourceKept } from '@grenier/api/model'
+import { Entry, HIDDEN, SourceKept } from '@grenier/api/model'
 import { asc } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
@@ -6,6 +6,7 @@ import { stringify } from 'yaml'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
+import { withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { instanceRulesText } from '../rules.ts'
 import { listTypes } from '../types/operations.ts'
@@ -139,6 +140,8 @@ const snapshot = Effect.gen(function* () {
     return above === undefined ? [] : [...folderOf(above.id), above.slug]
   }
   const slugOf = (id: string | null) => (id === null ? null : (shown.get(id)?.slug ?? null))
+  // The ids of the entries left out: written nowhere, as in `read`.
+  const leftOut = new Set(all.filter(({ id }) => !shown.has(id)).map(({ id }) => id))
 
   const typeFiles = types.map((type): ExportedFile => ({
     path: `_types/${type.name}.md`,
@@ -172,8 +175,19 @@ const snapshot = Effect.gen(function* () {
         superseded_by: slugOf(entry.superseded_by),
         verified: entry.verified,
         archived_at: entry.archived_at?.toISOString() ?? null,
-        sources: entry.sources.map((source) => sorted(source)),
-        fields: sorted(maskFields(entry.type, entry.fields)),
+        sources: entry.sources.map((source) =>
+          sorted(
+            'entry' in source && leftOut.has(source.entry) ? { ...source, entry: HIDDEN } : source,
+          ),
+        ),
+        fields: sorted(
+          Object.fromEntries(
+            Object.entries(maskFields(entry.type, entry.fields)).map(([name, value]) => [
+              name,
+              withoutHidden(value, leftOut),
+            ]),
+          ),
+        ),
         provenance: sorted(entry.provenance),
         links: allLinks
           .filter(({ source_id, target_id }) => source_id === entry.id && shown.has(target_id))

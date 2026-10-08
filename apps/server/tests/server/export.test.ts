@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -376,6 +377,69 @@ describe('the export never pushes a sensitive value, and holds everything', () =
       /: 0 created, 1 updated, 0 archived\.\n$/,
     )
     expect(git(counted, 'show', '--format=', '--name-only', 'HEAD')).toBe('kitchen.md\n')
+  })
+
+  test('no id of an entry left out reaches the export, in a source or an entry field; with --include-sensitive, they do', async () => {
+    const monday = await run(
+      Effect.gen(function* () {
+        yield* defineType({
+          name: 'pointer',
+          label: 'Pointer',
+          description: 'Points to other entries.',
+          fields: [
+            { name: 'one', kind: 'entry' },
+            { name: 'several', kind: 'entry', many: true },
+          ],
+        })
+        yield* writeEntry({
+          type: 'pointer',
+          title: 'Rainy days',
+          sources: [{ entry: 'monday' }],
+          fields: { one: 'monday', several: ['monday', 'garden'] },
+        })
+        return (yield* readEntry('monday')).entry.id
+      }),
+    )
+    const plain = join(scratch, 'pointers')
+    expect(cli('export:markdown', plain).status).toBe(0)
+    const shown = read(plain, 'rainy-days.md').front
+    expect(JSON.stringify(shown)).not.toContain(monday)
+    expect(shown).toMatchObject({
+      sources: [{ entry: '[hidden]' }],
+      fields: { one: '[hidden]', several: ['[hidden]', expect.any(String)] },
+    })
+    const all = join(scratch, 'pointers-all')
+    expect(cli('export:markdown', all, '--include-sensitive').status).toBe(0)
+    expect(read(all, 'rainy-days.md').front).toMatchObject({
+      sources: [{ entry: monday }],
+      fields: { one: monday },
+    })
+  })
+
+  test('an earlier export that does not say what it holds is refused, until the owner marks it', () => {
+    const unmarked = join(scratch, 'unmarked')
+    expect(cli('export:markdown', unmarked).status).toBe(0)
+    // As an export made before folders said what they hold.
+    rmSync(join(unmarked, '.git', 'grenier-export'))
+    const refused = cli('export:markdown', unmarked)
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toBe(
+      `The folder ${unmarked} holds an earlier export that does not say whether it has sensitive data: if it has none, mark it with \`echo plain > ${join(unmarked, '.git', 'grenier-export')}\`, then start again.\n`,
+    )
+    writeFileSync(join(unmarked, '.git', 'grenier-export'), 'plain\n')
+    expect(cli('export:markdown', unmarked).status).toBe(0)
+  })
+
+  test('the folder of the nightly export is known through a link to it too', () => {
+    const nightly = join(scratch, 'nightly-real')
+    mkdirSync(nightly)
+    const linked = join(scratch, 'nightly-link')
+    symlinkSync(nightly, linked)
+    expect(
+      cliWith({ EXPORT_DIR: nightly }, 'export:markdown', linked, '--include-sensitive').stderr,
+    ).toBe(
+      'The folder of the nightly export (EXPORT_DIR) never holds sensitive data: give another folder.\n',
+    )
   })
 
   test('a remote that looks like an option is taken as a remote', () => {
