@@ -127,6 +127,10 @@ them); only the owner sets them.
 everything as Markdown into a git repository and commits what changed; the server runs it every
 night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
 entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`).
+The command line is built with `effect/cli` (`bun run grenier --help`); `grenier serve` runs the
+server, and `grenier service install|uninstall|start|stop|status|logs` and `grenier backup` run
+Grenier as a systemd user service with its own PostgreSQL (see `docs/install.md`, and
+`scripts/pack.ts` for the npm packages).
 
 Grenier with Docker, server and database in one command (the image is built from
 `apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database

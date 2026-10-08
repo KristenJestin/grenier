@@ -1,34 +1,12 @@
 #!/usr/bin/env bun
 /**
- * The owner's command line: the owner account, the keys of the agents, and the review of entries.
- *
- *   bun src/cli.ts owner:create --email <email> [--name <name>]
- *   bun src/cli.ts key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>]
- *                              [--owner <email>]   (creates the owner first if there is none)
- *   bun src/cli.ts key:list
- *   bun src/cli.ts key:revoke --name <name>
- *   bun src/cli.ts entry:verify <slug or id>…        (as the owner, recorded in the history)
- *   bun src/cli.ts entry:unverify <slug or id>…
- *   bun src/cli.ts entry:unverified [--type <type>] [--under <slug>]
- *   bun src/cli.ts inbox:add <folder> [--origin <name>] [--dry-run] [--again]
- *                                         (one pending item per file, sub-folders included)
- *   bun src/cli.ts type:sensitive <type> [--off]          (only the owner lifts it)
- *   bun src/cli.ts field:sensitive <type> <field> [--off]
- *   bun src/cli.ts findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
- *   bun src/cli.ts findings:show <number>                 (with its occurrences, as Markdown)
- *   bun src/cli.ts findings:export [--kind …] [--place …] [--severity …]   (Markdown on stdout)
- *   bun src/cli.ts findings:merge <into> <from>          (one problem reported twice)
- *   bun src/cli.ts links:periods                         (links fulfills whose period closes nothing)
- *   bun src/cli.ts rules:set <file>                       (the rules every agent is given)
- *   bun src/cli.ts rules:show
- *   bun src/cli.ts export:markdown <folder> [--include-sensitive] [--remote <url>]
- *                                  [--deploy-key <file>]  (commits to the folder's git repository)
- *
- * A key's secret is printed once, at its creation, and kept nowhere in clear.
+ * The owner's command line, built with `effect/cli`: `grenier --help` lists every command, and
+ * `grenier <command> --help` says what it takes. The owner account, the keys of the agents, the
+ * review of entries, the inbox, the findings, the rules and the export. A key's secret is printed
+ * once, at its creation, and kept nowhere in clear.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { parseArgs } from 'node:util'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
 import { setVerified, unverified } from './core/entries/index.ts'
@@ -46,50 +24,12 @@ import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@grenier/api/schema'
-import { Effect, Layer, Schema } from 'effect'
-
-const USAGE = `Usage:
-  owner:create --email <email> [--name <name>]
-  key:create --name <name> --rights read,write[,sensitive] [--expires-in-days <n>] [--owner <email>]
-  key:list
-  key:revoke --name <name>
-  entry:verify <slug or id>...
-  entry:unverify <slug or id>...
-  entry:unverified [--type <type>] [--under <slug>]
-  inbox:add <folder> [--origin <name>] [--dry-run] [--again]
-  type:sensitive <type> [--off]
-  field:sensitive <type> <field> [--off]
-  findings:list [--kind <kind>] [--place <place>] [--severity <severity>]
-  findings:show <number>
-  findings:export [--kind <kind>] [--place <place>] [--severity <severity>]
-  findings:merge <into> <from>
-  links:periods
-  rules:set <file>
-  rules:show
-  export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]`
-
-const { positionals, values } = parseArgs({
-  allowPositionals: true,
-  options: {
-    email: { type: 'string' },
-    name: { type: 'string' },
-    rights: { type: 'string' },
-    'expires-in-days': { type: 'string' },
-    owner: { type: 'string' },
-    type: { type: 'string' },
-    under: { type: 'string' },
-    origin: { type: 'string' },
-    off: { type: 'boolean' },
-    kind: { type: 'string' },
-    place: { type: 'string' },
-    severity: { type: 'string' },
-    'include-sensitive': { type: 'boolean' },
-    remote: { type: 'string' },
-    'deploy-key': { type: 'string' },
-    'dry-run': { type: 'boolean' },
-    again: { type: 'boolean' },
-  },
-})
+import { homeOf, loadInstalledEnvironment } from './local/home.ts'
+import * as service from './local/service.ts'
+import { serveProgram } from './serve.ts'
+import { Console, Effect, Layer, Option, Schema } from 'effect'
+import { Argument, Command, Flag } from 'effect/cli'
+import * as BunServices from '@effect/platform-bun/BunServices'
 
 /**
  * The files under a folder, by their path from it with `/`, in order, and what is skipped: hidden
@@ -154,45 +94,101 @@ const markdownOf = ({ finding, occurrences }: Found) =>
   ].join('\n')
 
 /** The filter of the options `--kind`, `--place` and `--severity`, refused when one is unknown. */
-const findingFilter = Schema.decodeUnknownEffect(FindingFilter)(
-  Object.fromEntries(
-    Object.entries({ kind: values.kind, place: values.place, severity: values.severity }).filter(
-      (pair): pair is [string, string] => pair[1] !== undefined,
+const findingFilter = (given: {
+  readonly kind: Option.Option<string>
+  readonly place: Option.Option<string>
+  readonly severity: Option.Option<string>
+}) =>
+  Schema.decodeUnknownEffect(FindingFilter)(
+    Object.fromEntries(
+      Object.entries(given).flatMap(([name, value]) =>
+        Option.isSome(value) ? [[name, value.value]] : [],
+      ),
     ),
-  ),
-).pipe(Effect.mapError((error) => ({ message: formatSchemaError(error) })))
+  ).pipe(Effect.mapError((error) => ({ message: formatSchemaError(error) })))
 
-const command = Effect.gen(function* () {
-  const auth = yield* Auth
-  const name = values.name ?? ''
-  switch (positionals[0]) {
-    case 'owner:create': {
-      if (values.email === undefined) return yield* Effect.fail({ message: USAGE })
-      yield* auth.createOwner(values.email, values.name ?? 'Owner')
-      return `The owner ${values.email} is created.`
-    }
-    case 'key:create': {
-      if (values.owner !== undefined) {
-        // The owner may exist already: then the key is simply theirs.
-        yield* auth
-          .createOwner(values.owner, 'Owner')
-          .pipe(Effect.catchTag('Refused', () => Effect.void))
-      }
-      const days = values['expires-in-days']
-      const { key, secret } = yield* auth.createKey(
-        name,
-        (values.rights ?? '').split(',').filter((right) => right !== ''),
-        days === undefined ? undefined : Number(days),
-      )
-      return [
-        `The key ${key.name} is created, with the rights ${key.rights.join(', ')}${key.expires_at === null ? '' : `, until ${key.expires_at}`}.`,
-        'Its secret, shown this once and kept nowhere in clear:',
-        '',
-        secret,
-      ].join('\n')
-    }
-    case 'key:list': {
-      const keys = yield* auth.listKeys
+/**
+ * Runs what a command does on the database of `DATABASE_URL`, migrated first, and prints what it
+ * answers; a refusal is printed on standard error, and the command line ends with 1.
+ */
+const onDatabase = <E extends { readonly message: string }>(
+  effect: Effect.Effect<string, E, Layer.Success<typeof services>>,
+) =>
+  Effect.gen(function* () {
+    yield* migrate
+    return yield* effect
+  }).pipe(
+    Effect.provide(services),
+    Effect.matchEffect({
+      onSuccess: (text) => Console.log(text),
+      onFailure: (error) =>
+        Effect.sync(() => {
+          console.error(error.message)
+          process.exitCode = 1
+        }),
+    }),
+  )
+
+const services = Layer.provideMerge(Auth.layer, database)
+
+const optionalText = (name: string) => Flag.String(name).pipe(Flag.optional)
+
+/** An optional text as the core takes it: absent when not given. */
+const given = (value: Option.Option<string>) => Option.getOrUndefined(value)
+
+const ownerCreate = Command.make(
+  'owner:create',
+  { email: Flag.String('email'), name: Flag.String('name').pipe(Flag.withDefault('Owner')) },
+  ({ email, name }) =>
+    onDatabase(
+      Effect.gen(function* () {
+        yield* (yield* Auth).createOwner(email, name)
+        return `The owner ${email} is created.`
+      }),
+    ),
+).pipe(Command.withDescription('Creates the owner of this Grenier.'))
+
+const keyCreate = Command.make(
+  'key:create',
+  {
+    name: Flag.String('name'),
+    rights: Flag.String('rights').pipe(
+      Flag.withDescription('Comma-separated: read, write, sensitive.'),
+    ),
+    expiresInDays: Flag.Int('expires-in-days').pipe(Flag.optional),
+    owner: optionalText('owner').pipe(
+      Flag.withDescription('Creates the owner first, if there is none.'),
+    ),
+  },
+  ({ name, rights, expiresInDays, owner }) =>
+    onDatabase(
+      Effect.gen(function* () {
+        const auth = yield* Auth
+        if (Option.isSome(owner)) {
+          // The owner may exist already: then the key is simply theirs.
+          yield* auth
+            .createOwner(owner.value, 'Owner')
+            .pipe(Effect.catchTag('Refused', () => Effect.void))
+        }
+        const { key, secret } = yield* auth.createKey(
+          name,
+          rights.split(',').filter((right) => right !== ''),
+          Option.getOrUndefined(expiresInDays),
+        )
+        return [
+          `The key ${key.name} is created, with the rights ${key.rights.join(', ')}${key.expires_at === null ? '' : `, until ${key.expires_at}`}.`,
+          'Its secret, shown this once and kept nowhere in clear:',
+          '',
+          secret,
+        ].join('\n')
+      }),
+    ),
+).pipe(Command.withDescription('Creates a key for an agent, and prints its secret once.'))
+
+const keyList = Command.make('key:list', {}, () =>
+  onDatabase(
+    Effect.gen(function* () {
+      const keys = yield* (yield* Auth).listKeys
       return keys.length === 0
         ? 'There is no key.'
         : keys
@@ -201,92 +197,163 @@ const command = Effect.gen(function* () {
                 `${key.name}\t${key.rights.join(',')}\t${key.expires_at ?? 'no expiry'}${key.revoked ? '\trevoked' : ''}`,
             )
             .join('\n')
-    }
-    case 'key:revoke': {
-      yield* auth.revokeKey(name)
+    }),
+  ),
+).pipe(Command.withDescription('Lists the keys, never their secret.'))
+
+const keyRevoke = Command.make('key:revoke', { name: Flag.String('name') }, ({ name }) =>
+  onDatabase(
+    Effect.gen(function* () {
+      yield* (yield* Auth).revokeKey(name)
       return `The key ${name} is revoked.`
-    }
-    case 'entry:verify':
-    case 'entry:unverify': {
-      const references = positionals.slice(1)
-      if (references.length === 0) return yield* Effect.fail({ message: USAGE })
-      const verified = positionals[0] === 'entry:verify'
-      const written = yield* asOwner(setVerified(references, verified))
-      const slugs = written.map(({ slug }) => slug).join(', ')
-      return verified ? `Verified: ${slugs}.` : `No longer verified: ${slugs}.`
-    }
-    case 'entry:unverified': {
-      const filter = Object.fromEntries(
-        Object.entries({ type: values.type, under: values.under }).filter(
-          (pair): pair is [string, string] => pair[1] !== undefined,
+    }),
+  ),
+).pipe(Command.withDescription('Revokes a key.'))
+
+const references = Argument.String('entry').pipe(
+  Argument.withDescription('The slug or id of an entry.'),
+  Argument.variadic({ min: 1 }),
+)
+
+const entryVerify = Command.make('entry:verify', { references }, ({ references: named }) =>
+  onDatabase(
+    Effect.map(
+      asOwner(setVerified(named, true)),
+      (written) => `Verified: ${written.map(({ slug }) => slug).join(', ')}.`,
+    ),
+  ),
+).pipe(Command.withDescription('Marks entries verified by the owner.'))
+
+const entryUnverify = Command.make('entry:unverify', { references }, ({ references: named }) =>
+  onDatabase(
+    Effect.map(
+      asOwner(setVerified(named, false)),
+      (written) => `No longer verified: ${written.map(({ slug }) => slug).join(', ')}.`,
+    ),
+  ),
+).pipe(Command.withDescription('Takes the verification of entries back.'))
+
+const entryUnverified = Command.make(
+  'entry:unverified',
+  { type: optionalText('type'), under: optionalText('under') },
+  ({ type, under }) =>
+    onDatabase(
+      Effect.map(
+        asOwner(
+          unverified(
+            Object.fromEntries(
+              Object.entries({ type: given(type), under: given(under) }).filter(
+                (pair): pair is [string, string] => pair[1] !== undefined,
+              ),
+            ),
+          ),
         ),
-      )
-      const waiting = yield* asOwner(unverified(filter))
-      return waiting.length === 0
-        ? 'Nothing waits for review.'
-        : waiting
-            .map(({ slug, type, title, by }) => `${slug}\t${type}\t${title}\t${by ?? ''}`)
-            .join('\n')
-    }
-    case 'inbox:add': {
-      const folder = positionals[1]
-      if (folder === undefined) return yield* Effect.fail({ message: USAGE })
-      const origin = values.origin ?? basename(resolve(folder))
-      const { files, skipped } = filesUnder(folder)
-      const added: Array<string> = []
-      const refused: Array<string> = []
-      let already = 0
-      for (const file of files) {
-        const bytes = readFileSync(join(folder, file))
-        const input = { kind: 'file' as const, name: file, data: bytes.toString('base64'), origin }
-        if (values['dry-run'] === true) {
-          if (values.again !== true && (yield* fileInInbox({ name: file, origin, bytes })))
-            already += 1
-          else {
-            const refusal = inboxRefusalOf(input)
-            if (refusal === undefined) added.push(file)
-            else refused.push(`${file} (${refusal.message})`)
+        (waiting) =>
+          waiting.length === 0
+            ? 'Nothing waits for review.'
+            : waiting
+                .map(({ slug, type: name, title, by }) => `${slug}\t${name}\t${title}\t${by ?? ''}`)
+                .join('\n'),
+      ),
+    ),
+).pipe(Command.withDescription('Lists what waits for the owner to review.'))
+
+const inboxAdd = Command.make(
+  'inbox:add',
+  {
+    folder: Argument.String('folder'),
+    origin: optionalText('origin'),
+    dryRun: Flag.Boolean('dry-run').pipe(Flag.withDefault(false)),
+    again: Flag.Boolean('again').pipe(Flag.withDefault(false)),
+  },
+  ({ folder, origin: named, dryRun, again }) =>
+    onDatabase(
+      Effect.gen(function* () {
+        const origin = given(named) ?? basename(resolve(folder))
+        const { files, skipped } = filesUnder(folder)
+        const added: Array<string> = []
+        const refused: Array<string> = []
+        let already = 0
+        for (const file of files) {
+          const bytes = readFileSync(join(folder, file))
+          const input = {
+            kind: 'file' as const,
+            name: file,
+            data: bytes.toString('base64'),
+            origin,
           }
-          continue
+          if (dryRun) {
+            if (!again && (yield* fileInInbox({ name: file, origin, bytes }))) already += 1
+            else {
+              const refusal = inboxRefusalOf(input)
+              if (refusal === undefined) added.push(file)
+              else refused.push(`${file} (${refusal.message})`)
+            }
+            continue
+          }
+          // The check and the write together: two drops at once add each file once.
+          const adding = again ? addToInbox(input) : addFileOnce(input, bytes)
+          const outcome = yield* asOwner(adding).pipe(
+            Effect.map((item) => (item === null ? 'already' : 'added')),
+            Effect.catchTag('Refused', ({ message }) => Effect.succeed(message)),
+          )
+          if (outcome === 'already') already += 1
+          else if (outcome === 'added') added.push(file)
+          else refused.push(`${file} (${outcome})`)
         }
-        // The check and the write together: two drops at once add each file once.
-        const adding = values.again === true ? addToInbox(input) : addFileOnce(input, bytes)
-        const outcome = yield* asOwner(adding).pipe(
-          Effect.map((item) => (item === null ? 'already' : 'added')),
-          Effect.catchTag('Refused', ({ message }) => Effect.succeed(message)),
-        )
-        if (outcome === 'already') already += 1
-        else if (outcome === 'added') added.push(file)
-        else refused.push(`${file} (${outcome})`)
-      }
-      return [
-        values['dry-run'] === true
-          ? `Would add to the inbox, from ${origin}: ${added.length} items.`
-          : `Added to the inbox, from ${origin}: ${added.length} items.`,
-        ...(values['dry-run'] === true ? added.map((file) => `  ${file}`) : []),
-        ...(already === 0
-          ? []
-          : [`Already in the inbox: ${already} files; give --again to add them again.`]),
-        ...(skipped.length === 0 ? [] : [`Skipped: ${skipped.join(', ')}.`]),
-        ...(refused.length === 0 ? [] : [`Refused: ${refused.join('; ')}`]),
-      ].join('\n')
-    }
-    case 'type:sensitive': {
-      const type = positionals[1]
-      if (type === undefined) return yield* Effect.fail({ message: USAGE })
-      const sensitive = values.off !== true
-      yield* asOwner(changeType({ type, sensitive }))
-      return `The type ${type} is ${sensitive ? '' : 'no longer '}sensitive.`
-    }
-    case 'field:sensitive': {
-      const [, type, field] = positionals
-      if (type === undefined || field === undefined) return yield* Effect.fail({ message: USAGE })
-      const sensitive = values.off !== true
-      yield* asOwner(changeField({ type, field, sensitive }))
-      return `The field ${field} of ${type} is ${sensitive ? '' : 'no longer '}sensitive.`
-    }
-    case 'findings:list': {
-      const found = yield* findingsWithOccurrences(yield* findingFilter)
+        return [
+          dryRun
+            ? `Would add to the inbox, from ${origin}: ${added.length} items.`
+            : `Added to the inbox, from ${origin}: ${added.length} items.`,
+          ...(dryRun ? added.map((file) => `  ${file}`) : []),
+          ...(already === 0
+            ? []
+            : [`Already in the inbox: ${already} files; give --again to add them again.`]),
+          ...(skipped.length === 0 ? [] : [`Skipped: ${skipped.join(', ')}.`]),
+          ...(refused.length === 0 ? [] : [`Refused: ${refused.join('; ')}`]),
+        ].join('\n')
+      }),
+    ),
+).pipe(Command.withDescription('Drops a folder into the inbox, one item per file.'))
+
+const typeSensitive = Command.make(
+  'type:sensitive',
+  { type: Argument.String('type'), off: Flag.Boolean('off').pipe(Flag.withDefault(false)) },
+  ({ type, off }) =>
+    onDatabase(
+      Effect.as(
+        asOwner(changeType({ type, sensitive: !off })),
+        `The type ${type} is ${off ? 'no longer ' : ''}sensitive.`,
+      ),
+    ),
+).pipe(Command.withDescription('Makes a type sensitive, or no longer with --off.'))
+
+const fieldSensitive = Command.make(
+  'field:sensitive',
+  {
+    type: Argument.String('type'),
+    field: Argument.String('field'),
+    off: Flag.Boolean('off').pipe(Flag.withDefault(false)),
+  },
+  ({ type, field, off }) =>
+    onDatabase(
+      Effect.as(
+        asOwner(changeField({ type, field, sensitive: !off })),
+        `The field ${field} of ${type} is ${off ? 'no longer ' : ''}sensitive.`,
+      ),
+    ),
+).pipe(Command.withDescription('Makes a field sensitive, or no longer with --off.'))
+
+const findingOptions = {
+  kind: optionalText('kind'),
+  place: optionalText('place'),
+  severity: optionalText('severity'),
+}
+
+const findingsList = Command.make('findings:list', findingOptions, (filter) =>
+  onDatabase(
+    Effect.gen(function* () {
+      const found = yield* findingsWithOccurrences(yield* findingFilter(filter))
       return found.length === 0
         ? 'No finding.'
         : found
@@ -303,95 +370,238 @@ const command = Effect.gen(function* () {
               ].join('\t'),
             )
             .join('\n')
-    }
-    case 'findings:show': {
-      const number = Number(positionals[1])
-      if (!Number.isInteger(number)) return yield* Effect.fail({ message: USAGE })
-      const [found] = yield* findingsWithOccurrences({ number })
-      const into = yield* mergedInto(number)
-      if (into !== null)
-        return `The finding ${number} is merged into ${into}: \`findings:show ${into}\`.`
-      if (found === undefined)
-        return yield* Effect.fail({ message: `There is no finding ${number}.` })
-      return markdownOf(found)
-    }
-    case 'findings:merge': {
-      const [into, from] = positionals.slice(1).map(Number)
-      if (!Number.isInteger(into) || !Number.isInteger(from))
-        return yield* Effect.fail({ message: USAGE })
-      yield* mergeFindings(into ?? 0, from ?? 0)
-      return `The finding ${from} is merged into ${into}.`
-    }
-    case 'findings:export': {
-      const found = yield* findingsWithOccurrences(yield* findingFilter)
+    }),
+  ),
+).pipe(Command.withDescription('Lists the findings of diagnostics.'))
+
+const findingsShow = Command.make(
+  'findings:show',
+  { number: Argument.Int('number') },
+  ({ number }) =>
+    onDatabase(
+      Effect.gen(function* () {
+        const [found] = yield* findingsWithOccurrences({ number })
+        const into = yield* mergedInto(number)
+        if (into !== null)
+          return `The finding ${number} is merged into ${into}: \`findings:show ${into}\`.`
+        if (found === undefined)
+          return yield* Effect.fail({ message: `There is no finding ${number}.` })
+        return markdownOf(found)
+      }),
+    ),
+).pipe(Command.withDescription('Shows a finding with its occurrences, as Markdown.'))
+
+const findingsExport = Command.make('findings:export', findingOptions, (filter) =>
+  onDatabase(
+    Effect.gen(function* () {
+      const found = yield* findingsWithOccurrences(yield* findingFilter(filter))
       return ['# Findings of Grenier', ...found.map(markdownOf)].join('\n\n')
-    }
-    case 'links:periods': {
-      const misfiled = yield* asOwner(misfiledPeriods)
-      return misfiled.length === 0
+    }),
+  ),
+).pipe(Command.withDescription('Writes the findings as Markdown on standard output.'))
+
+const findingsMerge = Command.make(
+  'findings:merge',
+  { into: Argument.Int('into'), from: Argument.Int('from') },
+  ({ into, from }) =>
+    onDatabase(Effect.as(mergeFindings(into, from), `The finding ${from} is merged into ${into}.`)),
+).pipe(Command.withDescription('Merges a finding into another: one problem reported twice.'))
+
+const linksPeriods = Command.make('links:periods', {}, () =>
+  onDatabase(
+    Effect.map(asOwner(misfiledPeriods), (misfiled) =>
+      misfiled.length === 0
         ? 'Every link fulfills names a period of the form its date comes back by.'
         : misfiled
             .map(
               ({ source, target, field, period, expected }) =>
                 `${source}\t${target}\t${field}\t${period}\texpected like ${expected}`,
             )
-            .join('\n')
-    }
-    case 'rules:set': {
-      const file = positionals[1]
-      if (file === undefined) return yield* Effect.fail({ message: USAGE })
-      yield* asOwner(setInstanceRules(readFileSync(file, 'utf8')))
-      return 'The rules of this instance are set.'
-    }
-    case 'rules:show': {
-      const rules = yield* instanceRulesText
-      return rules === null ? 'This instance has no rules.' : rules.replace(/\n$/, '')
-    }
-    case 'export:markdown': {
-      const folder = positionals[1]
-      if (folder === undefined) return yield* Effect.fail({ message: USAGE })
-      // Sensitive data only when asked: the export of every night leaves it out.
-      const { commit, push } = yield* exportMarkdown({
-        folder: resolve(folder),
-        sensitive: values['include-sensitive'] === true,
-        remote: values.remote,
-        deployKey: values['deploy-key'],
-      }).pipe(
-        Effect.provideService(
-          Rights,
-          values['include-sensitive'] === true ? ['read', 'sensitive'] : ['read'],
-        ),
-      )
-      if (push?.pushed === false)
-        yield* Effect.sync(() => {
-          console.error(
-            `The push failed: ${push.problem}\nThe commit stays; the next export pushes it.`,
-          )
-          process.exitCode = 1
-        })
-      return [
-        commit === null
-          ? 'Nothing changed since the last export.'
-          : `Exported to ${resolve(folder)}: ${commit.split(': ').slice(1).join(': ')}.`,
-        ...(push?.pushed === true ? ['Pushed.'] : []),
-      ].join('\n')
-    }
-    default:
-      return yield* Effect.fail({ message: USAGE })
-  }
-})
+            .join('\n'),
+    ),
+  ),
+).pipe(Command.withDescription('Lists the links fulfills whose period closes nothing.'))
 
-const program = Effect.gen(function* () {
-  yield* migrate
-  console.log(yield* command)
-}).pipe(
-  Effect.provide(Layer.provideMerge(Auth.layer, database)),
-  Effect.catch((error) =>
-    Effect.sync(() => {
-      console.error(error.message)
-      process.exitCode = 1
+const rulesSet = Command.make('rules:set', { file: Argument.String('file') }, ({ file }) =>
+  onDatabase(
+    Effect.as(
+      asOwner(setInstanceRules(readFileSync(file, 'utf8'))),
+      'The rules of this instance are set.',
+    ),
+  ),
+).pipe(Command.withDescription('Sets the rules every agent is given.'))
+
+const rulesShow = Command.make('rules:show', {}, () =>
+  onDatabase(
+    Effect.map(instanceRulesText, (rules) =>
+      rules === null ? 'This instance has no rules.' : rules.replace(/\n$/, ''),
+    ),
+  ),
+).pipe(Command.withDescription('Prints the rules of this instance.'))
+
+const exportMarkdownCommand = Command.make(
+  'export:markdown',
+  {
+    folder: Argument.String('folder'),
+    includeSensitive: Flag.Boolean('include-sensitive').pipe(Flag.withDefault(false)),
+    remote: optionalText('remote'),
+    deployKey: optionalText('deploy-key'),
+  },
+  ({ folder, includeSensitive, remote, deployKey }) =>
+    onDatabase(
+      Effect.gen(function* () {
+        // Sensitive data only when asked: the export of every night leaves it out.
+        const { commit, push } = yield* exportMarkdown({
+          folder: resolve(folder),
+          sensitive: includeSensitive,
+          remote: given(remote),
+          deployKey: given(deployKey),
+        }).pipe(Effect.provideService(Rights, includeSensitive ? ['read', 'sensitive'] : ['read']))
+        if (push?.pushed === false)
+          yield* Effect.sync(() => {
+            console.error(
+              `The push failed: ${push.problem}\nThe commit stays; the next export pushes it.`,
+            )
+            process.exitCode = 1
+          })
+        return [
+          commit === null
+            ? 'Nothing changed since the last export.'
+            : `Exported to ${resolve(folder)}: ${commit.split(': ').slice(1).join(': ')}.`,
+          ...(push?.pushed === true ? ['Pushed.'] : []),
+        ].join('\n')
+      }),
+    ),
+).pipe(Command.withDescription('Writes everything as Markdown into a git repository.'))
+
+/** Runs what the service does on this system, and prints what it answers or why it failed. */
+const onSystem = <E extends { readonly message: string }>(
+  effect: Effect.Effect<string, E, service.System>,
+) =>
+  effect.pipe(
+    Effect.provide(service.realSystem),
+    Effect.matchEffect({
+      onSuccess: (text) => Console.log(text),
+      onFailure: (error) =>
+        Effect.sync(() => {
+          console.error(error.message)
+          process.exitCode = 1
+        }),
     }),
+  )
+
+const home = () => homeOf(process.env)
+
+const serviceInstall = Command.make(
+  'install',
+  {
+    email: Flag.String('email').pipe(
+      Flag.withDefault('owner@localhost'),
+      Flag.withDescription('The owner of this Grenier.'),
+    ),
+    instance: Flag.String('instance').pipe(
+      Flag.withDefault('production'),
+      Flag.withDescription('production (real data, the default), development or local.'),
+    ),
+    // Free of any known service (4317 is OpenTelemetry's, 5432 PostgreSQL's).
+    port: Flag.Int('port').pipe(Flag.withDefault(7468)),
+    databasePort: Flag.Int('database-port').pipe(Flag.withDefault(7469)),
+  },
+  (options) => onSystem(service.install(home(), options)),
+).pipe(
+  Command.withDescription(
+    'Installs Grenier as a service of this user: started with the session, on 127.0.0.1 only.',
   ),
 )
 
-BunRuntime.runMain(program)
+const serviceUninstall = Command.make(
+  'uninstall',
+  {
+    purge: Flag.Boolean('purge').pipe(
+      Flag.withDefault(false),
+      Flag.withDescription('Deletes the data and the configuration too.'),
+    ),
+  },
+  ({ purge }) => onSystem(service.uninstall(home(), purge)),
+).pipe(Command.withDescription('Stops and removes the service; the data stays unless --purge.'))
+
+const serviceCommand = Command.make('service').pipe(
+  Command.withDescription('Grenier as a service of this user, with systemd.'),
+  Command.withSubcommands([
+    serviceInstall,
+    serviceUninstall,
+    Command.make('start', {}, () => onSystem(service.start)).pipe(
+      Command.withDescription('Starts the service.'),
+    ),
+    Command.make('stop', {}, () => onSystem(service.stop)).pipe(
+      Command.withDescription('Stops the service and its database.'),
+    ),
+    Command.make('status', {}, () => onSystem(service.status)).pipe(
+      Command.withDescription('What systemd says of the service.'),
+    ),
+    Command.make('logs', {}, () => onSystem(service.logs)).pipe(
+      Command.withDescription('The last lines the server wrote.'),
+    ),
+  ]),
+)
+
+const serveCommand = Command.make('serve', {}, () => serveProgram).pipe(
+  Command.withDescription('Runs the server, as the service does.'),
+)
+
+const backupCommand = Command.make(
+  'backup',
+  {
+    to: optionalText('to').pipe(
+      Flag.withDescription('The file to write; by default, in the backups folder.'),
+    ),
+  },
+  ({ to }) => onSystem(service.backup(home(), given(to))),
+).pipe(Command.withDescription('Copies the database and the media of the installed service.'))
+
+/** Every command of Grenier. */
+export const grenier = Command.make('grenier').pipe(
+  Command.withDescription('Grenier, a personal knowledge system kept by AI agents.'),
+  Command.withSubcommands([
+    ownerCreate,
+    keyCreate,
+    keyList,
+    keyRevoke,
+    entryVerify,
+    entryUnverify,
+    entryUnverified,
+    inboxAdd,
+    typeSensitive,
+    fieldSensitive,
+    findingsList,
+    findingsShow,
+    findingsExport,
+    findingsMerge,
+    linksPeriods,
+    rulesSet,
+    rulesShow,
+    exportMarkdownCommand,
+    serveCommand,
+    serviceCommand,
+    backupCommand,
+  ]),
+)
+
+if (import.meta.main) {
+  // A command run on a machine where Grenier is installed reaches that Grenier.
+  loadInstalledEnvironment()
+  // The version a release builds in (`bun build --define`), unless the environment gives one;
+  // in a clone, none: the server says `unknown`.
+  const built = process.env.GRENIER_BUILT_VERSION
+  if (built !== undefined) process.env['GRENIER_VERSION'] ??= built
+  Command.run(grenier, { version: process.env['GRENIER_VERSION'] ?? 'unknown' }).pipe(
+    Effect.provide(BunServices.layer),
+    // The command line has said what was wrong already.
+    Effect.catch(() =>
+      Effect.sync(() => {
+        process.exitCode = 1
+      }),
+    ),
+    BunRuntime.runMain,
+  )
+}

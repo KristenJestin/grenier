@@ -105,3 +105,62 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ARCHIVE: ${{ steps.pack.outputs.archive }}
         run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+
+  # The npm package of the tag: the executable of Linux x64, then the launcher that needs it
+  # (`npm i -g @netsirk/grenier`). Only a release from a push to `main` publishes, never the dry run
+  # of the viewer. Nothing is published before both tarballs are installed and answer /health with
+  # the tag's version. Publication goes through npm's trusted publishing (OIDC, with provenance):
+  # no token is kept; see docs/install.md for what the owner sets up once on npmjs.com. A version
+  # already on npm is skipped, so a re-run finishes what a failed run left; the launcher is never
+  # published without its executable.
+  npm:
+    needs: release
+    if: github.event_name == 'push' && needs.release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: apps/server
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - name: Pack both packages
+        run: bun scripts/pack.ts "${TAG#v}" "$RUNNER_TEMP/npm"
+      - name: Prove them before anything is published
+        run: scripts/prove-package.sh "${TAG#v}" "$RUNNER_TEMP/npm"
+      - name: Publish the executable, then the launcher that needs it
+        run: |
+          version="${TAG#v}"
+          publish() {
+            if npm view "$1@$version" version >/dev/null 2>&1; then
+              echo "$1@$version is on npm already: skipped."
+            else
+              npm publish "$2" --provenance --access public
+            fi
+          }
+          publish @netsirk/grenier-linux-x64 "$RUNNER_TEMP/npm/netsirk-grenier-linux-x64-$version.tgz"
+          # The registry may take a moment to show what was just published.
+          tries=0
+          until npm view "@netsirk/grenier-linux-x64@$version" version >/dev/null 2>&1; do
+            tries=$((tries + 1))
+            if [ "$tries" -gt 30 ]; then
+              echo "::error::The executable of $version is not on npm: the launcher is not published."
+              exit 1
+            fi
+            sleep 5
+          done
+          publish @netsirk/grenier "$RUNNER_TEMP/npm/netsirk-grenier-$version.tgz"

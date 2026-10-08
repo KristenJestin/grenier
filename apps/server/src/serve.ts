@@ -16,30 +16,33 @@ import { HttpRouter } from 'effect/http'
 import { GrenierRoutes, MCP_BODY_LIMIT, recordingDefects } from './grenier.ts'
 import { nightlyExport } from './export/nightly.ts'
 
-const server = HttpRouter.serve(GrenierRoutes, {
-  disableLogger: true,
-  middleware: recordingDefects,
-}).pipe(
-  Layer.provide(
-    BunHttpServer.layer({
-      port: Number(process.env['PORT'] ?? 3000),
-      // This machine only, unless `GRENIER_HOST` opens it: keys cross the network in clear HTTP.
-      // Empty is unset; a generic `HOST` is not read, since some shells set it to the machine name.
-      hostname: process.env['GRENIER_HOST']?.trim() || '127.0.0.1',
-      // A backstop for a body that does not say its length; the routes refuse the others.
-      maxRequestBodySize: MCP_BODY_LIMIT + 1024 * 1024,
-    }),
-  ),
-)
+/** The HTTP server, on the address of the environment as it is when it starts. */
+const server = () =>
+  HttpRouter.serve(GrenierRoutes, {
+    disableLogger: true,
+    middleware: recordingDefects,
+  }).pipe(
+    Layer.provide(
+      BunHttpServer.layer({
+        port: Number(process.env['PORT'] ?? 3000),
+        // This machine only, unless `GRENIER_HOST` opens it: keys cross the network in clear HTTP.
+        // Empty is unset; a generic `HOST` is not read, since some shells set it to the machine name.
+        hostname: process.env['GRENIER_HOST']?.trim() || '127.0.0.1',
+        // A backstop for a body that does not say its length; the routes refuse the others.
+        maxRequestBodySize: MCP_BODY_LIMIT + 1024 * 1024,
+      }),
+    ),
+  )
 
-const program = Effect.gen(function* () {
+/** The server, until it is stopped; what stops it is said on standard error. */
+export const serveProgram = Effect.gen(function* () {
   const instance = yield* instanceFromEnvironment
   return yield* Effect.gen(function* () {
     yield* migrate.pipe(
       Effect.mapError((error) => new Error(`The database could not be migrated: ${error.message}`)),
     )
     return yield* Layer.launch(
-      Layer.merge(server, nightlyExport).pipe(Layer.provide(Layer.succeed(Instance, instance))),
+      Layer.merge(server(), nightlyExport).pipe(Layer.provide(Layer.succeed(Instance, instance))),
     )
   }).pipe(Effect.provide(Layer.provideMerge(Auth.layer, database)))
 }).pipe(
@@ -51,4 +54,4 @@ const program = Effect.gen(function* () {
   ),
 )
 
-BunRuntime.runMain(program)
+if (import.meta.main) BunRuntime.runMain(serveProgram)
