@@ -24,6 +24,9 @@ import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@grenier/api/schema'
+import { homeOf, loadInstalledEnvironment } from './local/home.ts'
+import * as service from './local/service.ts'
+import { serveProgram } from './serve.ts'
 import { Console, Effect, Layer, Option, Schema } from 'effect'
 import { Argument, Command, Flag } from 'effect/cli'
 import * as BunServices from '@effect/platform-bun/BunServices'
@@ -471,6 +474,90 @@ const exportMarkdownCommand = Command.make(
     ),
 ).pipe(Command.withDescription('Writes everything as Markdown into a git repository.'))
 
+/** Runs what the service does on this system, and prints what it answers or why it failed. */
+const onSystem = <E extends { readonly message: string }>(
+  effect: Effect.Effect<string, E, service.System>,
+) =>
+  effect.pipe(
+    Effect.provide(service.realSystem),
+    Effect.matchEffect({
+      onSuccess: (text) => Console.log(text),
+      onFailure: (error) =>
+        Effect.sync(() => {
+          console.error(error.message)
+          process.exitCode = 1
+        }),
+    }),
+  )
+
+const home = () => homeOf(process.env)
+
+const serviceInstall = Command.make(
+  'install',
+  {
+    email: Flag.String('email').pipe(
+      Flag.withDefault('owner@localhost'),
+      Flag.withDescription('The owner of this Grenier.'),
+    ),
+    instance: Flag.String('instance').pipe(
+      Flag.withDefault('production'),
+      Flag.withDescription('production (real data, the default), development or local.'),
+    ),
+    port: Flag.Int('port').pipe(Flag.withDefault(4317)),
+    databasePort: Flag.Int('database-port').pipe(Flag.withDefault(54317)),
+  },
+  (options) => onSystem(service.install(home(), options)),
+).pipe(
+  Command.withDescription(
+    'Installs Grenier as a service of this user: started with the session, on 127.0.0.1 only.',
+  ),
+)
+
+const serviceUninstall = Command.make(
+  'uninstall',
+  {
+    purge: Flag.Boolean('purge').pipe(
+      Flag.withDefault(false),
+      Flag.withDescription('Deletes the data and the configuration too.'),
+    ),
+  },
+  ({ purge }) => onSystem(service.uninstall(home(), purge)),
+).pipe(Command.withDescription('Stops and removes the service; the data stays unless --purge.'))
+
+const serviceCommand = Command.make('service').pipe(
+  Command.withDescription('Grenier as a service of this user, with systemd.'),
+  Command.withSubcommands([
+    serviceInstall,
+    serviceUninstall,
+    Command.make('start', {}, () => onSystem(service.start)).pipe(
+      Command.withDescription('Starts the service.'),
+    ),
+    Command.make('stop', {}, () => onSystem(service.stop)).pipe(
+      Command.withDescription('Stops the service and its database.'),
+    ),
+    Command.make('status', {}, () => onSystem(service.status)).pipe(
+      Command.withDescription('What systemd says of the service.'),
+    ),
+    Command.make('logs', {}, () => onSystem(service.logs)).pipe(
+      Command.withDescription('The last lines the server wrote.'),
+    ),
+  ]),
+)
+
+const serveCommand = Command.make('serve', {}, () => serveProgram).pipe(
+  Command.withDescription('Runs the server, as the service does.'),
+)
+
+const backupCommand = Command.make(
+  'backup',
+  {
+    to: optionalText('to').pipe(
+      Flag.withDescription('The file to write; by default, in the backups folder.'),
+    ),
+  },
+  ({ to }) => onSystem(service.backup(home(), given(to))),
+).pipe(Command.withDescription('Copies the database and the media of the installed service.'))
+
 /** Every command of Grenier. */
 export const grenier = Command.make('grenier').pipe(
   Command.withDescription('Grenier, a personal knowledge system kept by AI agents.'),
@@ -493,10 +580,15 @@ export const grenier = Command.make('grenier').pipe(
     rulesSet,
     rulesShow,
     exportMarkdownCommand,
+    serveCommand,
+    serviceCommand,
+    backupCommand,
   ]),
 )
 
-if (import.meta.main)
+if (import.meta.main) {
+  // A command run on a machine where Grenier is installed reaches that Grenier.
+  loadInstalledEnvironment()
   Command.run(grenier, { version: process.env['GRENIER_VERSION'] ?? 'unknown' }).pipe(
     Effect.provide(BunServices.layer),
     // The command line has said what was wrong already.
@@ -507,3 +599,4 @@ if (import.meta.main)
     ),
     BunRuntime.runMain,
   )
+}
