@@ -4,7 +4,7 @@ Grenier installs for one user of a Linux machine, without Docker or a server to 
 
 ```
 npm i -g @netsirk/grenier
-grenier service install [--email <owner>] [--port 4317] [--database-port 54317]
+grenier service install [--email <owner>] [--port 7468] [--database-port 7469]
 ```
 
 `service install` creates the folders, initialises a database of its own (PostgreSQL 18, carried by
@@ -18,7 +18,8 @@ that declares it in Claude Code. Grenier listens on `127.0.0.1` only. The instan
 
 | What | Where |
 |---|---|
-| The database, the media, the nightly export, the backups, the PostgreSQL binaries | `~/.local/share/grenier/` (`postgres/`, `media/`, `export/`, `backups/`, `postgresql/`) |
+| The database, the media, the PostgreSQL binaries | `~/.local/share/grenier/` (`postgres/`, `media/`, `postgresql/`) |
+| The backups and the nightly Markdown export, kept whatever happens to the installation | `~/Grenier/backups/`, `~/Grenier/export/` |
 | The environment of the service (its secret, its database URL), the first key | `~/.config/grenier/grenier.env`, `~/.config/grenier/key` (both readable by the user only) |
 | The units | `~/.config/systemd/user/grenier.service`, `grenier-postgres.service` |
 
@@ -36,9 +37,12 @@ grenier backup [--to <file>]
 ```
 
 `backup` stops the service for the few seconds of the copy, writes the database's folder and the
-media into a `.tar.gz` (in `backups/` by default), and starts it again. To restore: `grenier service
+media into a `.tar.gz` (in `~/Grenier/backups/` by default, readable by you only), and starts it
+again. To restore: `grenier service
 stop`, put `postgres/` and `media/` back from the archive into `~/.local/share/grenier/`, `grenier
-service start`. The nightly Markdown export goes to `~/.local/share/grenier/export/`.
+service start`. The nightly Markdown export goes to `~/Grenier/export/`. Both live in `~/Grenier`,
+in sight and apart from the installation: `service uninstall --purge` never deletes them, and says
+what it deletes and what it keeps before it does.
 
 ## Update
 
@@ -47,7 +51,8 @@ npm i -g @netsirk/grenier
 grenier service install
 ```
 
-Installed again, it keeps the data, the secret and the key, takes the new binaries and units, and
+Installed again, it keeps the data, the secret, the key and the values of `grenier.env` (ports,
+instance: it says so when the flags ask for others; change them in that file), takes the new binaries and units, and
 restarts the service, which migrates its database as it starts. (npm no longer runs the scripts of
 a global install by default, so the restart is not automatic after `npm i -g`.)
 
@@ -55,7 +60,7 @@ a global install by default, so the restart is not automatic after `npm i -g`.)
 
 ```
 grenier service uninstall           # the data and the configuration stay
-grenier service uninstall --purge   # nothing stays
+grenier service uninstall --purge   # the data and the configuration go; ~/Grenier stays
 npm rm -g @netsirk/grenier
 ```
 

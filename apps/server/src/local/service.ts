@@ -19,7 +19,7 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, relative } from 'node:path'
-import { Context, Effect, Layer, Schedule, Schema } from 'effect'
+import { Console, Context, Effect, Layer, Schedule, Schema } from 'effect'
 import { type Home, readEnvironment } from './home.ts'
 
 /** What a command run on the system answered. */
@@ -105,13 +105,16 @@ const copyBinaries = (home: Home) => {
 }
 
 /** The two user units: the database, then the server that needs it. */
+/** A path as a unit takes it: quoted, for a home folder with a space in it. */
+const quoted = (path: string) => `"${path}"`
+
 export const unitsOf = (home: Home, grenier: ReadonlyArray<string>, databasePort: number) => ({
   [DATABASE_UNIT]: [
     '[Unit]',
     'Description=The database of Grenier',
     '',
     '[Service]',
-    `ExecStart=${join(home.binaries, 'bin', 'postgres')} -D ${home.database} -p ${databasePort} -k ${home.data} -c listen_addresses=127.0.0.1`,
+    `ExecStart=${quoted(join(home.binaries, 'bin', 'postgres'))} -D ${quoted(home.database)} -p ${databasePort} -k ${quoted(home.data)} -c listen_addresses=127.0.0.1`,
     'Restart=on-failure',
     '',
     '[Install]',
@@ -126,7 +129,7 @@ export const unitsOf = (home: Home, grenier: ReadonlyArray<string>, databasePort
     '',
     '[Service]',
     `EnvironmentFile=${home.environment}`,
-    `ExecStart=${[...grenier, 'serve'].join(' ')}`,
+    `ExecStart=${[...grenier.map(quoted), 'serve'].join(' ')}`,
     'Restart=on-failure',
     'RestartSec=2',
     '',
@@ -171,8 +174,12 @@ const waitFor = (what: string, ready: Effect.Effect<boolean>) =>
  */
 export const install = Effect.fn('install')(function* (home: Home, options: InstallOptions) {
   const system = yield* System
-  for (const folder of [home.data, home.config, home.units, home.media, home.export, home.backups])
+  mkdirSync(home.units, { recursive: true })
+  // Readable by this user only: the database, the key, the backups.
+  for (const folder of [home.data, home.config, home.kept, home.media, home.export, home.backups]) {
     mkdirSync(folder, { recursive: true })
+    chmodSync(folder, 0o700)
+  }
   const fresh = !existsSync(home.environment)
   if (fresh) {
     const password = randomBytes(18).toString('base64url')
@@ -194,6 +201,17 @@ export const install = Effect.fn('install')(function* (home: Home, options: Inst
   const environment = readEnvironment(home.environment)
   const databasePort = Number(new URL(environment['DATABASE_URL'] ?? '').port)
   const port = Number(environment['PORT'] ?? options.port)
+  const instance = environment['GRENIER_INSTANCE'] ?? options.instance
+  // Installed already, the file decides: an install never moves a database under its server.
+  const kept =
+    !fresh &&
+    (port !== options.port ||
+      databasePort !== options.databasePort ||
+      instance !== options.instance)
+      ? [
+          `Installed already: the values of ${home.environment} are kept (port ${port}, database port ${databasePort}, instance ${instance}); edit that file to change them.`,
+        ]
+      : []
   copyBinaries(home)
   if (!existsSync(home.database) || readdirSync(home.database).length === 0) {
     const passwordFile = join(home.config, '.database-password')
@@ -221,7 +239,7 @@ export const install = Effect.fn('install')(function* (home: Home, options: Inst
   yield* systemctl('restart', DATABASE_UNIT, SERVER_UNIT)
   const address = `http://127.0.0.1:${port}`
   yield* waitFor('The server of Grenier', system.answers(`${address}/health`))
-  const said = [`Grenier runs at ${address}, for this machine only.`]
+  const said = [...kept, `Grenier runs at ${address}, for this machine only.`]
   if (!existsSync(home.key)) {
     const [command = '', ...script] = grenier
     const created = yield* must(
@@ -258,9 +276,11 @@ export const uninstall = Effect.fn('uninstall')(function* (home: Home, purge: bo
   for (const name of [SERVER_UNIT, DATABASE_UNIT]) rmSync(join(home.units, name), { force: true })
   yield* system.run('systemctl', ['--user', 'daemon-reload'])
   if (purge) {
+    const kept = `${home.kept} (the backups and the export)`
+    yield* Console.log(`Deleting ${home.data} and ${home.config}; keeping ${kept}.`)
     rmSync(home.data, { recursive: true, force: true })
     rmSync(home.config, { recursive: true, force: true })
-    return 'Grenier is uninstalled, and its data and configuration are deleted.'
+    return `Grenier is uninstalled. Deleted: ${home.data} and ${home.config}. Kept: ${kept}.`
   }
   return `Grenier is uninstalled. Its data stays in ${home.data}, its configuration in ${home.config}: give --purge to delete them.`
 })
@@ -303,5 +323,7 @@ export const backup = Effect.fn('backup')(function* (home: Home, to: string | un
   yield* must('tar', ['-czf', file, '-C', home.data, 'postgres', 'media']).pipe(
     Effect.ensuring(Effect.ignore(systemctl('start', SERVER_UNIT))),
   )
+  // It holds the database: readable by this user only.
+  chmodSync(file, 0o600)
   return `The database and the media are saved in ${file}.`
 })

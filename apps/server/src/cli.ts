@@ -503,8 +503,9 @@ const serviceInstall = Command.make(
       Flag.withDefault('production'),
       Flag.withDescription('production (real data, the default), development or local.'),
     ),
-    port: Flag.Int('port').pipe(Flag.withDefault(4317)),
-    databasePort: Flag.Int('database-port').pipe(Flag.withDefault(54317)),
+    // Free of any known service (4317 is OpenTelemetry's, 5432 PostgreSQL's).
+    port: Flag.Int('port').pipe(Flag.withDefault(7468)),
+    databasePort: Flag.Int('database-port').pipe(Flag.withDefault(7469)),
   },
   (options) => onSystem(service.install(home(), options)),
 ).pipe(

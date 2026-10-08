@@ -26,6 +26,7 @@ const fakeSystem = Layer.succeed(service.System, {
   run: (command, args) =>
     Effect.sync(() => {
       ran.push([command, ...args].join(' '))
+      if (command === 'tar') writeFileSync(args[1] ?? '', 'an archive')
       if (command.endsWith('initdb')) mkdirSync(args[1] ?? '', { recursive: true })
       if (command.endsWith('initdb')) writeFileSync(join(args[1] ?? '', 'PG_VERSION'), '18\n')
       const created = args.includes('key:create')
@@ -43,8 +44,8 @@ const run = <A, E>(effect: Effect.Effect<A, E, service.System>) =>
 const options = {
   email: 'owner@example.org',
   instance: 'production',
-  port: 4317,
-  databasePort: 54317,
+  port: 7468,
+  databasePort: 7469,
 }
 
 beforeAll(() => {
@@ -72,19 +73,26 @@ describe('grenier service install', () => {
     expect(environment).toMatch(/^GRENIER_INSTANCE=production$/m)
     expect(environment).toMatch(/^GRENIER_HOST=127\.0\.0\.1$/m)
     expect(environment).toMatch(
-      /^DATABASE_URL=postgres:\/\/grenier:[\w-]+@127\.0\.0\.1:54317\/postgres$/m,
+      /^DATABASE_URL=postgres:\/\/grenier:[\w-]+@127\.0\.0\.1:7469\/postgres$/m,
     )
     expect(environment).toMatch(/^BETTER_AUTH_SECRET=[\w-]{40,}$/m)
+    // The export and the backups are kept apart from what `--purge` deletes.
+    expect(home.export).toBe(join(scratch, 'home', 'Grenier', 'export'))
+    expect(home.backups).toBe(join(scratch, 'home', 'Grenier', 'backups'))
     expect(environment).toContain(`EXPORT_DIR=${home.export}`)
     expect(statSync(home.environment).mode & 0o777).toBe(0o600)
+    for (const folder of [home.data, home.config, home.kept, home.export, home.backups, home.media])
+      expect({ folder, mode: statSync(folder).mode & 0o777 }).toEqual({ folder, mode: 0o700 })
     expect(existsSync(join(home.binaries, 'lib', 'libicuuc.so.60'))).toBe(true)
     const server = readFileSync(join(home.units, 'grenier.service'), 'utf8')
-    expect(server).toContain('ExecStart=/opt/grenier/bin/grenier serve')
+    expect(server).toContain('ExecStart="/opt/grenier/bin/grenier" serve')
     expect(server).toContain(`EnvironmentFile=${home.environment}`)
     expect(server).toContain('Restart=on-failure')
     expect(server).toContain('WantedBy=default.target')
-    expect(readFileSync(join(home.units, 'grenier-postgres.service'), 'utf8')).toContain(
-      'listen_addresses=127.0.0.1',
+    const database = readFileSync(join(home.units, 'grenier-postgres.service'), 'utf8')
+    expect(database).toContain('listen_addresses=127.0.0.1')
+    expect(database).toContain(
+      `ExecStart="${join(home.binaries, 'bin', 'postgres')}" -D "${home.database}"`,
     )
     expect(ran).toEqual([
       expect.stringMatching(/initdb -D .* -U grenier --pwfile=.* -A scram-sha-256/),
@@ -96,15 +104,18 @@ describe('grenier service install', () => {
     expect(readFileSync(home.key, 'utf8')).toBe('secret-of-the-tests\n')
     expect(statSync(home.key).mode & 0o777).toBe(0o600)
     expect(existsSync(join(home.config, '.database-password'))).toBe(false)
-    expect(said).toContain('MCP is at http://127.0.0.1:4317/mcp')
+    expect(said).toContain('MCP is at http://127.0.0.1:7468/mcp')
     expect(said).not.toContain('secret-of-the-tests')
   })
 
-  test('installed again, it keeps the database, the secret and the key', async () => {
+  test('installed again, it keeps the database, the secret, the key, and says it keeps its ports', async () => {
     const before = readFileSync(home.environment, 'utf8')
     ran.length = 0
-    await run(service.install(home, { ...options, port: 5000 }))
+    const said = await run(service.install(home, { ...options, port: 5000, instance: 'local' }))
     expect(readFileSync(home.environment, 'utf8')).toBe(before)
+    expect(said).toContain(
+      `Installed already: the values of ${home.environment} are kept (port 7468, database port 7469, instance production); edit that file to change them.`,
+    )
     expect(ran.some((line) => line.includes('initdb') || line.includes('key:create'))).toBe(false)
   })
 })
@@ -134,6 +145,7 @@ describe('the service is driven by systemd', () => {
       'systemctl --user start grenier.service',
     ])
     expect(said).toBe(`The database and the media are saved in ${file}.`)
+    expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 
   test('uninstall keeps the data; with purge, nothing is left', async () => {
@@ -142,8 +154,11 @@ describe('the service is driven by systemd', () => {
     expect(existsSync(join(home.units, 'grenier.service'))).toBe(false)
     expect(existsSync(home.environment)).toBe(true)
     expect(ran[0]).toBe('systemctl --user disable --now grenier.service grenier-postgres.service')
-    await run(service.uninstall(home, true))
+    const purged = await run(service.uninstall(home, true))
+    expect(purged).toContain(`Deleted: ${home.data} and ${home.config}.`)
+    expect(purged).toContain(`Kept: ${home.kept} (the backups and the export).`)
     expect(existsSync(home.data)).toBe(false)
     expect(existsSync(home.config)).toBe(false)
+    expect(existsSync(home.backups)).toBe(true)
   })
 })
