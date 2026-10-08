@@ -188,3 +188,154 @@ describe('to a key without the right sensitive, a hidden entry and a missing slu
     expect(await done('secret-page')).toBe(await done('no-such-page'))
   })
 })
+
+/** Runs `each` on the items one after the other, as an agent makes its calls. */
+const inTurn = <T>(items: ReadonlyArray<T>, each: (item: T) => Promise<void>) =>
+  items.reduce((done, item) => done.then(() => each(item)), Promise.resolve())
+
+/** The answer of a tool, decoded loosely, for a key. */
+const answerOf = async (key: string, name: string, args: Schema.Json) => {
+  const { result, error } = await (await connect(`${base}/mcp`, bearer(key))).call(name, args)
+  return error === undefined ? (result ?? null) : { error }
+}
+
+describe('to a key without the right sensitive, what happens to a hidden entry tells nothing', () => {
+  /** Two entries of that key, citing a hidden entry and a missing slug: their slugs. */
+  const citing = async (hidden: string, missing: string) => {
+    const write = (slug: string) =>
+      answerOf(keys.plain, 'write', {
+        type: 'folder',
+        title: `Probe ${(probes += 1)}`,
+        body: `See [[${slug}]].`,
+      }).then((answer) => JSON.stringify(answer).match(/"slug":"(probe-\d+)"/)?.[1] ?? '')
+    return [await write(hidden), await write(missing)] as const
+  }
+
+  /** What a call answers the plain key on each of two entries, made neutral for comparison. */
+  const both = async (
+    [one, other]: readonly [string, string],
+    [hidden, missing]: readonly [string, string],
+    name: string,
+    args: (slug: string) => Schema.Json,
+  ) => [
+    neutral(await answerOf(keys.plain, name, args(one)), hidden),
+    neutral(await answerOf(keys.plain, name, args(other)), missing),
+  ]
+
+  test('the history of an entry citing a hidden entry that came later, as one citing a missing slug', async () => {
+    const pair = await citing('late-secret', 'late-missing')
+    await answerOf(keys.trusted, 'write', { type: 'diary', title: 'Late secret' })
+    const [hidden, missing] = await both(
+      pair,
+      ['late-secret', 'late-missing'],
+      'history',
+      (slug) => ({
+        entry: slug,
+      }),
+    )
+    expect(hidden).toBe(missing)
+    // The owner's view: the link that came by itself is in the history.
+    expect(JSON.stringify(await answerOf(keys.trusted, 'history', { entry: pair[0] }))).toContain(
+      'links.mentions',
+    )
+  })
+
+  test('a hidden entry renamed rewrites no visible body: it reads, lists and waits as a missing slug', async () => {
+    await answerOf(keys.trusted, 'write', { type: 'diary', title: 'Old secret' })
+    const pair = await citing('old-secret', 'old-missing')
+    await answerOf(keys.trusted, 'write', { entry: 'old-secret', slug: 'new-secret' })
+    const slugs = ['old-secret', 'old-missing'] as const
+    const calls: ReadonlyArray<readonly [string, (slug: string) => Schema.Json]> = [
+      ['read', (slug) => ({ entry: slug })],
+      ['history', (slug) => ({ entry: slug })],
+      ['unverified', () => ({})],
+    ]
+    await inTurn(calls, async ([name, args]) => {
+      const [hidden, missing] = await both(pair, slugs, name, args)
+      expect({ name, answer: hidden }).toEqual({ name, answer: missing })
+    })
+    const pending = JSON.stringify(await answerOf(keys.plain, 'pending_references', {}))
+    expect(pending).toContain('"old-secret"')
+    expect(pending).not.toContain('new-secret')
+    // The owner's view: the body still says what its author wrote, and it waits for that slug.
+    expect(await answerOf(keys.trusted, 'read', { entry: pair[0] })).toMatchObject({
+      entry: { body: 'See [[old-secret]].' },
+    })
+    expect(JSON.stringify(await answerOf(keys.trusted, 'pending_references', {}))).toContain(
+      '"old-secret"',
+    )
+  })
+
+  test('a part read in its parent shows no hidden id, over MCP and the read API; the owner sees it', async () => {
+    await answerOf(keys.trusted, 'define_type', {
+      name: 'kit',
+      label: 'Kit',
+      description: 'A kit and its parts.',
+      read_in_parent: true,
+      fields: [{ name: 'about', kind: 'entry', many: true }],
+    })
+    await answerOf(keys.trusted, 'write', { type: 'kit', title: 'Tool kit' })
+    await answerOf(keys.trusted, 'write', {
+      type: 'kit',
+      title: 'Spanner',
+      parent: 'tool-kit',
+      fields: { about: ['secret-page', 'folder-one'] },
+    })
+    const secret =
+      JSON.stringify(await answerOf(keys.trusted, 'read', { entry: 'secret-page' })).match(
+        /"id":"([0-9a-f-]{36})"/,
+      )?.[1] ?? ''
+    const plainRead = JSON.stringify(await answerOf(keys.plain, 'read', { entry: 'tool-kit' }))
+    const route = await fetch(`${base}/api/entries/tool-kit`, { headers: bearer(keys.plain) })
+    expect(plainRead).toContain('Spanner')
+    expect(plainRead).not.toContain(secret)
+    expect(await route.text()).not.toContain(secret)
+    expect(JSON.stringify(await answerOf(keys.trusted, 'read', { entry: 'tool-kit' }))).toContain(
+      secret,
+    )
+  })
+
+  test('what was read, written back as read, keeps the hidden parent, successor and list items', async () => {
+    await answerOf(keys.trusted, 'write', {
+      type: 'kit',
+      title: 'Loose kit',
+      parent: 'secret-page',
+      superseded_by: 'secret-page',
+      fields: { about: ['secret-page', 'folder-one'] },
+    })
+    const read = await answerOf(keys.plain, 'read', { entry: 'loose-kit' })
+    expect(read).toMatchObject({
+      entry: {
+        parent_id: null,
+        superseded_by: null,
+        fields: { about: ['[hidden]', expect.any(String)] },
+      },
+    })
+    const about = Schema.decodeUnknownSync(
+      Schema.Struct({
+        entry: Schema.Struct({ fields: Schema.Struct({ about: Schema.Array(Schema.String) }) }),
+      }),
+    )(read).entry.fields.about
+    // As read, then without the marker: the hidden entry stays where it was, both times.
+    await inTurn([about, about.filter((value) => value !== '[hidden]')], async (sent) => {
+      const written = await answerOf(keys.plain, 'write', {
+        entry: 'loose-kit',
+        parent: null,
+        superseded_by: null,
+        fields: { about: sent },
+        summary: `Sent ${sent.length}.`,
+      })
+      expect(JSON.stringify(written)).not.toContain('"error"')
+      expect(await answerOf(keys.trusted, 'read', { entry: 'loose-kit' })).toMatchObject({
+        entry: {
+          parent_id: expect.any(String),
+          superseded_by: expect.any(String),
+          fields: { about: [expect.any(String), expect.any(String)] },
+        },
+      })
+    })
+    expect(
+      JSON.stringify(await answerOf(keys.trusted, 'read', { entry: 'loose-kit' })),
+    ).not.toContain('[hidden]')
+  })
+})

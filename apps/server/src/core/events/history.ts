@@ -119,8 +119,8 @@ const maskingOf = Effect.fn('maskingOf')(function* (id: string, type: string) {
 })
 
 /**
- * Whether a change is of a link to or from an entry the caller may not see: it then says nothing
- * of that link, neither the entry's id nor what the link says of itself (its note, its dates).
+ * Whether a change is of a link to or from an entry the caller may not see: it is left out, as if
+ * the link did not exist, the way a reference to a missing slug makes none.
  */
 const ofHiddenLink = (
   change: { readonly field: string; readonly before: Schema.Json; readonly after: Schema.Json },
@@ -137,20 +137,27 @@ export const entryHistory = Effect.fn('entryHistory')(function* (reference: stri
   const written = yield* events(sql`SELECT ${sql.literal(AT)}, actor, action, changes FROM events
     WHERE entry_id = ${id}::uuid ORDER BY id`)
   const hidden = yield* hiddenIn(written.flatMap(({ changes }) => changes.flatMap(valuesOf)))
-  return written.map(({ at, actor, action, changes }) => ({
-    at,
-    actor,
-    action,
-    changes: changes.map((change) =>
-      hides?.(change.field) === true || ofHiddenLink(change, hidden)
-        ? { field: change.field, before: HIDDEN, after: HIDDEN }
-        : {
-            field: change.field,
-            before: withoutHidden(change.before, hidden),
-            after: withoutHidden(change.after, hidden),
-          },
-    ),
-  }))
+  // A write that only linked an entry the caller may not see is not told at all.
+  return written.flatMap(({ at, actor, action, changes }) => {
+    const told = changes.filter((change) => !ofHiddenLink(change, hidden))
+    if (told.length === 0 && changes.length > 0) return []
+    return [
+      {
+        at,
+        actor,
+        action,
+        changes: told.map((change) =>
+          hides?.(change.field) === true
+            ? { field: change.field, before: HIDDEN, after: HIDDEN }
+            : {
+                field: change.field,
+                before: withoutHidden(change.before, hidden),
+                after: withoutHidden(change.after, hidden),
+              },
+        ),
+      },
+    ]
+  })
 })
 
 /**
@@ -169,16 +176,14 @@ export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: stri
   if (hides?.(field) === true)
     return changes.map((change) => ({ ...change, before: HIDDEN, after: HIDDEN }))
   const hidden = yield* hiddenIn(changes.flatMap(valuesOf))
-  return changes.map(({ at, actor, before, after }) =>
-    ofHiddenLink({ field, before, after }, hidden)
-      ? { at, actor, before: HIDDEN, after: HIDDEN }
-      : {
-          at,
-          actor,
-          before: withoutHidden(before, hidden),
-          after: withoutHidden(after, hidden),
-        },
-  )
+  return changes
+    .filter(({ before, after }) => !ofHiddenLink({ field, before, after }, hidden))
+    .map(({ at, actor, before, after }) => ({
+      at,
+      actor,
+      before: withoutHidden(before, hidden),
+      after: withoutHidden(after, hidden),
+    }))
 })
 
 /** Every change of a type, oldest first; a deleted or merged type keeps its history. */
