@@ -27,4 +27,7 @@ It puts `grenier-desktop` in `~/.local/bin`, its launcher in `~/.local/share/app
 icon beside it; `sh update.sh --check` only says whether a newer viewer exists. It never touches
 `~/.config/grenier/`, where the viewer reads its server and its key (see
 [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md)). `grenier-desktop --version` prints the version.
+Between a release and the end of its builds, or when a build failed, the latest release has no
+archive yet: the script says so and changes nothing; run it again later. A viewer that says a
+version newer than the latest release, such as a local build (`9.9.9-local`), is never replaced.
 On Windows, unpack the archive anywhere and run `grenier-desktop.exe`.

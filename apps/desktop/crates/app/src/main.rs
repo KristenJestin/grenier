@@ -1,5 +1,9 @@
 //! The Grenier desktop viewer: `cargo run -p app`, pointed at a server by its configuration
-//! (see `app::config`); `--version` prints its version.
+//! (see `app::config`); `--version` prints its version. Errors are logged on standard error,
+//! and more with `RUST_LOG` (`RUST_LOG=debug`).
+
+// A release build on Windows opens no console beside its window.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use app::shell::Shell;
 use gpui_kit::{AppContext as _, WindowAppearance, WindowOptions};
@@ -13,6 +17,9 @@ fn main() {
         println!("grenier-desktop {}", app::VERSION);
         return;
     }
+    // Errors only unless `RUST_LOG` asks for more: GPUI ends its event loop on a fatal error by
+    // logging it and returning, so without a logger a failure at start says nothing.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error")).init();
     gpui_kit::application()
         .with_assets(ui::assets::Assets)
         .run(|cx| {
