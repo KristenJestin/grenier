@@ -635,6 +635,14 @@ describe('the read API lists, filters and tells the history', () => {
     ).toBe('Oil it. '.repeat(200))
   })
 
+  test('a history cursor that is not one answers 400 with its sentence', async () => {
+    const refused = await get('/api/entries/oil-the-gate/history?cursor=soon', trusted)
+    expect(refused).toMatchObject({
+      status: 400,
+      body: { message: 'The cursor `soon` is not one a history gave: start again without it.' },
+    })
+  })
+
   test('a sensitive value is hidden in the history, and a hidden entry is not found, without the right', async () => {
     const plain = await get('/api/entries/oil-the-gate/history', reader)
     expect(JSON.stringify(plain.body)).not.toContain('gate-4')

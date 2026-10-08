@@ -232,6 +232,12 @@ const shortened = (value: Schema.Json): Schema.Json =>
     ? { size: value.length, excerpt: `${value.slice(0, EXCERPT)}…` }
     : value
 
+/** Why a cursor is not one a history gave, if it is not: a history's cursors are event ids. */
+export const cursorRefusal = (cursor: string | undefined) =>
+  cursor === undefined || /^\d+$/.test(cursor)
+    ? undefined
+    : `The cursor \`${cursor}\` is not one a history gave: start again without it.`
+
 /** The items of a page, newest first, and the cursor of the next page (`null` at the end). */
 const pageOf = <T extends { readonly seq: number }>(all: ReadonlyArray<T>, page: Page) => {
   const limit = Math.min(Math.max(page.limit ?? 20, 1), 100)
@@ -250,6 +256,8 @@ const pageOf = <T extends { readonly seq: number }>(all: ReadonlyArray<T>, page:
  * an excerpt, which `fieldHistoryPage` gives whole.
  */
 export const historyPage = Effect.fn('historyPage')(function* (reference: string, page: Page) {
+  const refusal = cursorRefusal(page.cursor)
+  if (refusal !== undefined) return yield* new Refused({ message: refusal })
   const all = yield* eventsOf(reference)
   if (page.event !== undefined) {
     const one = all.find(({ seq }) => String(seq) === page.event)
@@ -283,6 +291,8 @@ export const fieldHistoryPage = Effect.fn('fieldHistoryPage')(function* (
   field: string,
   page: Page,
 ) {
+  const refusal = cursorRefusal(page.cursor)
+  if (refusal !== undefined) return yield* new Refused({ message: refusal })
   const { items, next_cursor } = pageOf(yield* fieldChangesOf(reference, field), page)
   return { changes: items.map(withoutSeq), next_cursor }
 })
