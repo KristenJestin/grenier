@@ -4,7 +4,9 @@ A self-hosted personal knowledge system, written by AI agents through MCP and re
 in a small web interface. Nothing is typed in code: types and their fields are data.
 
 Free software under the [AGPL-3.0](LICENSE). Early development. See [`AGENTS.md`](AGENTS.md) for how the repository works and
-[`docs/model.md`](docs/model.md) for the data model.
+[`docs/model.md`](docs/model.md) for the data model. The desktop viewer embeds two fonts under
+the SIL Open Font License 1.1, Open Sauce Sans and Peace Sans: see
+[`apps/desktop/assets/fonts`](apps/desktop/assets/fonts/README.md).
 
 ## Grenier on one machine
 
