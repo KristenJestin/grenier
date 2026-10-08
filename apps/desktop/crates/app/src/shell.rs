@@ -70,7 +70,8 @@ impl Shell {
                     .unwrap_or_default()
                     .to_string();
                 shell.viewer.update(cx, |viewer, cx| {
-                    viewer.set_connection(Some(host.into()), cx)
+                    viewer.set_connection(Some(host.into()), cx);
+                    viewer.set_version(crate::VERSION.into(), cx);
                 });
                 shell.client = Some(client);
                 shell.load_tree(window, cx);

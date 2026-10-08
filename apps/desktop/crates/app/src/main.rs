@@ -1,10 +1,17 @@
 //! The Grenier desktop viewer: `cargo run -p app`, pointed at a server by its configuration
-//! (see `app::config`).
+//! (see `app::config`); `--version` prints its version.
 
 use app::shell::Shell;
 use gpui_kit::{AppContext as _, WindowAppearance, WindowOptions};
 
 fn main() {
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--version")
+    {
+        println!("grenier-desktop {}", app::VERSION);
+        return;
+    }
     gpui_kit::application()
         .with_assets(ui::assets::Assets)
         .run(|cx| {
