@@ -185,6 +185,17 @@ describe('the MCP tools over HTTP', () => {
   })
 })
 
+/** A key made, then revoked: its secret. */
+const revokedKey = async (name: string) => {
+  const secret = await createKey(name, ['read'])
+  await database.runPromise(
+    Effect.gen(function* () {
+      yield* (yield* Auth).revokeKey(name)
+    }),
+  )
+  return secret
+}
+
 describe('only known agents use the server', () => {
   const statusOf = (headers: Readonly<Record<string, string>>) =>
     fetch(`${base}/mcp`, {
@@ -216,6 +227,22 @@ describe('only known agents use the server', () => {
       status: 401,
       body: { error: 'This key was revoked: ask the owner of Grenier for a new one.' },
     })
+  })
+
+  test('the 401 of /mcp says why in WWW-Authenticate, invalid_token only when a key was sent', async () => {
+    const challengeOf = (headers: Readonly<Record<string, string>>) =>
+      fetch(`${base}/mcp`, { method: 'POST', headers }).then((response) =>
+        response.headers.get('www-authenticate'),
+      )
+    expect(await challengeOf({})).toBe(
+      'Bearer realm="grenier", error_description="A key is required: send it as `Authorization: Bearer <key>`."',
+    )
+    expect(await challengeOf(bearer('grenier_wrong'))).toBe(
+      'Bearer realm="grenier", error="invalid_token", error_description="This key is not known to Grenier: check it, or ask the owner for one."',
+    )
+    expect(await challengeOf(bearer(await revokedKey('agent-revoked-challenge')))).toBe(
+      'Bearer realm="grenier", error="invalid_token", error_description="This key was revoked: ask the owner of Grenier for a new one."',
+    )
   })
 
   test('a read-only key reads and searches but cannot write', async () => {

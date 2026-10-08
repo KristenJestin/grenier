@@ -96,7 +96,8 @@ the older revisions), `/health`, `/media/<hash>`, and the read API (`GET /api/ab
 `/api/openapi.json` and its documentation page at `/api/docs`. It needs `BETTER_AUTH_SECRET` and
 `GRENIER_INSTANCE` in `.env`; every request to
 `/mcp` and to the API carries a key, whose name is the actor of its writes (the API needs the
-right `read`). From `apps/server`:
+right `read`). A refused key is answered 401 with its reason, in the body and in
+`WWW-Authenticate`; Grenier offers no OAuth. From `apps/server`:
 
 ```
 bun run grenier owner:create --email owner@example.org

@@ -416,7 +416,8 @@ tell two problems of one tool apart. `grenier_reports` filters by place and kind
 reporting. The owner merges two findings of one problem with `findings:merge <into> <from>`: the
 occurrences move, and the merged finding is closed.
 
-An unexpected failure of the server (a defect, never a refusal), in a tool or a route, is first
+An unexpected failure of the server (a defect, never a refusal, nor the 404 of a route Grenier
+does not have), in a tool or a route, is first
 written to the server's standard error, in every instance and whether diagnostics are on or not:
 one line of JSON with the time, the class, the message and the stack, the tool or route, and the
 key's name, never the arguments of the call. That output stays on the machine (the container's
