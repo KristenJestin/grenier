@@ -22,10 +22,23 @@ export const MCP_BODY_LIMIT = 32 * 1024 * 1024
 const bearerOf = (request: HttpServerRequest.HttpServerRequest) =>
   /^Bearer\s+(\S+)$/i.exec(request.headers['authorization'] ?? '')?.[1]
 
-const unauthorized = (message: string) =>
+/**
+ * The 401 of a refused key: its sentence in the body, and in `WWW-Authenticate` too, where an MCP
+ * client looks (RFC 6750, section 3), with `invalid_token` when a key was sent.
+ */
+const unauthorized = (request: HttpServerRequest.HttpServerRequest, message: string) =>
   HttpServerResponse.jsonUnsafe(
     { error: message },
-    { status: 401, headers: { 'www-authenticate': 'Bearer' } },
+    {
+      status: 401,
+      headers: {
+        'www-authenticate': [
+          'Bearer realm="grenier"',
+          ...(bearerOf(request) === undefined ? [] : ['error="invalid_token"']),
+          `error_description="${message}"`,
+        ].join(', '),
+      },
+    },
   )
 
 /** The key of a request, verified: its name and rights, or the refusal. */
@@ -79,7 +92,7 @@ const mcp = HttpRouter.use((router) =>
     yield* router.add('*', '/mcp', (request) =>
       Effect.gen(function* () {
         const verified = yield* verify(request)
-        if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
+        if (Result.isFailure(verified)) return unauthorized(request, verified.failure.message)
         if (Number(request.headers['content-length'] ?? 0) > MCP_BODY_LIMIT) {
           return HttpServerResponse.jsonUnsafe(
             {
@@ -125,7 +138,12 @@ export const recordingDefects = <E, R>(
   app.pipe(
     Effect.tapCause((cause) =>
       Effect.gen(function* () {
-        if (!Cause.hasDies(cause)) return
+        // A route the router does not know dies with its 404 response: an answer, not a defect.
+        const defects = cause.reasons.filter(
+          (reason) =>
+            Cause.isDieReason(reason) && !HttpServerResponse.isHttpServerResponse(reason.defect),
+        )
+        if (defects.length === 0) return
         const request = yield* HttpServerRequest.HttpServerRequest
         const verified = yield* verify(request)
         const path = new URL(request.url, 'http://localhost').pathname
@@ -146,7 +164,7 @@ export const recordingDefects = <E, R>(
 const media = HttpRouter.add('GET', '/media/:hash', (request) =>
   Effect.gen(function* () {
     const verified = yield* verify(request)
-    if (Result.isFailure(verified)) return unauthorized(verified.failure.message)
+    if (Result.isFailure(verified)) return unauthorized(request, verified.failure.message)
     if (!verified.success.rights.includes('read'))
       return HttpServerResponse.jsonUnsafe({ error: MAY_NOT_READ }, { status: 403 })
     const { hash = '' } = yield* HttpRouter.params
