@@ -28,6 +28,7 @@ use crate::parts::{
     Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, title, warning_chip,
 };
 use crate::status;
+use crate::text as words;
 use crate::theme::{self, font, space, text, width};
 
 /// What the server shows in place of a value the key may not see.
@@ -77,8 +78,8 @@ impl RenderOnce for EntryScreen {
             Load::Empty => page()
                 .child(status::empty(
                     IconName::FileText,
-                    "Aucune fiche ouverte",
-                    "Choisissez une fiche à gauche, ou cherchez-la avec Ctrl K.",
+                    words::NO_ENTRY_OPEN,
+                    words::NO_ENTRY_OPEN_DETAIL,
                     cx,
                 ))
                 .into_any_element(),
@@ -196,7 +197,7 @@ fn ready(
             .child(chip(Some(Icon::new(IconName::FileText)), type_label, cx))
             .children(
                 (!entry.verified)
-                    .then(|| warning_chip(Icon::new(IconName::CircleAlert), "Non vérifiée", cx)),
+                    .then(|| warning_chip(Icon::new(IconName::CircleAlert), words::UNVERIFIED, cx)),
             )
             .children(entry.tags.iter().map(|tag| {
                 chip(Some(Icon::new(IconName::Tag)), tag.clone(), cx)
@@ -204,7 +205,7 @@ fn ready(
             })),
     );
     if let Some(fields) = fields(&read, type_definition.as_ref(), on_intent, window, cx) {
-        article.anchored("Champs", 2, fields);
+        article.anchored(words::FIELDS, 2, fields);
     }
     body(&mut article, entry.id.clone(), &entry.body, &read, cx);
     children(
@@ -226,11 +227,11 @@ fn ready(
             .border_t_1()
             .border_color(border)
             .text_color(cx.theme().muted_foreground)
-            .child(format!("Modifiée le {}", date_in_words(&entry.updated)))
+            .child(words::edited_on(&entry.updated))
             .child(if entry.verified {
-                "Vérifiée"
+                words::VERIFIED
             } else {
-                "Non vérifiée"
+                words::UNVERIFIED
             }),
     );
 
@@ -443,6 +444,7 @@ fn fields(
                                 kind,
                                 &Shown {
                                     scope: format!("field-{name}"),
+                                    table: false,
                                     titles: &read.titles,
                                     read,
                                 },
@@ -495,7 +497,7 @@ fn fields(
                     })
                 })
                 .child(chevron)
-                .child("Champs")
+                .child(words::FIELDS)
                 .child(
                     div()
                         .text_size(text::SMALL)
@@ -556,6 +558,8 @@ fn reference(
 /// may name, by id.
 struct Shown<'a> {
     scope: String,
+    /// In a table, where a date reads as `2026-10-07`.
+    table: bool,
     titles: &'a HashMap<String, String>,
     read: &'a EntryRead,
 }
@@ -588,7 +592,7 @@ fn value_of(
             .text_color(theme::faint(cx))
             .child(Icon::new(IconName::EyeOff).xsmall())
             .child("••••••")
-            .child("masqué")
+            .child(words::HIDDEN_VALUE)
             .into_any_element();
     }
     if let Value::Array(items) = value {
@@ -605,6 +609,7 @@ fn value_of(
                     kind,
                     &Shown {
                         scope: format!("{}-{index}", shown.scope),
+                        table: shown.table,
                         titles: shown.titles,
                         read: shown.read,
                     },
@@ -621,13 +626,16 @@ fn value_of(
     }
     let text_value = match value {
         Value::String(text) => text.clone(),
-        Value::Bool(true) => "Oui".into(),
-        Value::Bool(false) => "Non".into(),
+        Value::Bool(true) => words::YES.into(),
+        Value::Bool(false) => words::NO.into(),
         other => other.to_string(),
     };
     match kind {
-        Some(FieldDefinitionKind::Date) => date_in_words(&text_value).into_any_element(),
-        Some(FieldDefinitionKind::Money) => text_value.replace('.', ",").into_any_element(),
+        Some(FieldDefinitionKind::Date) if shown.table => {
+            words::date_in_table(&text_value).into_any_element()
+        }
+        Some(FieldDefinitionKind::Date) => words::date_in_words(&text_value).into_any_element(),
+        Some(FieldDefinitionKind::Money) => text_value.into_any_element(),
         Some(FieldDefinitionKind::Enum) => h_flex()
             .child(
                 div()
@@ -672,25 +680,6 @@ fn without_scheme(url: &str) -> String {
     url.trim_start_matches("https://")
         .trim_start_matches("http://")
         .to_string()
-}
-
-/// `2026-10-05` (or a timestamp of that day) as `5 oct. 2026`; any other text as it is.
-pub fn date_in_words(date: &str) -> String {
-    const MONTHS: [&str; 12] = [
-        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
-        "déc.",
-    ];
-    let day_part = date.get(..10).unwrap_or(date);
-    let parts: Vec<&str> = day_part.split('-').collect();
-    match parts.as_slice() {
-        [year, month, day] if year.len() == 4 => {
-            match (month.parse::<usize>(), day.parse::<u32>()) {
-                (Ok(month @ 1..=12), Ok(day)) => format!("{day} {} {year}", MONTHS[month - 1]),
-                _ => date.to_string(),
-            }
-        }
-        _ => date.to_string(),
-    }
 }
 
 /// A body cut at its headings (`#`, `##` and `###`, outside code): each part, after its heading
@@ -798,11 +787,8 @@ fn children(
             plain_card(
                 Card {
                     icon: Icon::new(IconName::EyeOff),
-                    title: match hidden {
-                        1 => "Une fiche masquée".into(),
-                        count => format!("{count} fiches masquées").into(),
-                    },
-                    detail: Some("Cette clé ne voit pas les fiches sensibles.".into()),
+                    title: words::hidden_entries(hidden).into(),
+                    detail: Some(words::HIDDEN_DETAIL.into()),
                     relation: None,
                 },
                 true,
@@ -814,10 +800,14 @@ fn children(
     let table = (!parts.is_empty())
         .then(|| parts_table(&parts, read, type_definition, on_intent, window, cx));
     article.anchored(
-        "Contient",
+        words::CONTAINS,
         2,
         v_flex()
-            .child(heading("Contient", Some(read.children.len() + hidden), cx))
+            .child(heading(
+                words::CONTAINS,
+                Some(read.children.len() + hidden),
+                cx,
+            ))
             .children(table)
             .when(!list.is_empty(), |section| section.child(cards(list))),
     );
@@ -874,7 +864,7 @@ fn parts_table(
         .border_color(soft)
         .text_size(text::SMALL)
         .text_color(muted)
-        .child(cell().child("Nom"))
+        .child(cell().child(words::NAME))
         .children(
             columns
                 .iter()
@@ -900,6 +890,7 @@ fn parts_table(
                                 *kind,
                                 &Shown {
                                     scope: format!("part-{}-{name}", part.id),
+                                    table: true,
                                     titles: &part.titles,
                                     read,
                                 },
@@ -956,18 +947,9 @@ fn parts_table(
 }
 
 /// What a link says of itself, in a line: its note, then the dates it held between, such as
-/// `comptable · depuis le 1 janv. 2024`; nothing when it says nothing.
+/// `accountant · since 1 January 2024`; nothing when it says nothing.
 pub fn link_detail(link: &Link) -> Option<String> {
-    let dates = match (&link.valid_from, &link.valid_until) {
-        (Some(from), Some(until)) => Some(format!(
-            "du {} au {}",
-            date_in_words(from),
-            date_in_words(until)
-        )),
-        (Some(from), None) => Some(format!("depuis le {}", date_in_words(from))),
-        (None, Some(until)) => Some(format!("jusqu'au {}", date_in_words(until))),
-        (None, None) => None,
-    };
+    let dates = words::held(link.valid_from.as_deref(), link.valid_until.as_deref());
     let said: Vec<String> = link.note.iter().cloned().chain(dates).collect();
     (!said.is_empty()).then(|| said.join(" · "))
 }
@@ -1012,11 +994,11 @@ fn links(
         })
         .collect();
     article.anchored(
-        "Liens",
+        words::LINKS,
         2,
         v_flex()
             .child(heading(
-                "Liens",
+                words::LINKS,
                 Some(read.links.len() + read.backlinks.len()),
                 cx,
             ))
@@ -1048,7 +1030,7 @@ fn sources(
                         icon: Icon::new(IconName::FileText),
                         title: entry.title.clone().into(),
                         detail: note(&entry.note),
-                        relation: Some("Fiche".into()),
+                        relation: Some(words::ENTRY.into()),
                     },
                     opener(on_intent, entry.slug.clone()),
                     window,
@@ -1060,7 +1042,7 @@ fn sources(
                         icon: Icon::new(IconName::Globe),
                         title: without_scheme(&url.url).into(),
                         detail: note(&url.note),
-                        relation: Some("Adresse web".into()),
+                        relation: Some(words::WEB_ADDRESS.into()),
                     },
                     browser(on_intent, url.url.clone()),
                     window,
@@ -1075,16 +1057,16 @@ fn sources(
                             .unwrap_or_else(|| identifier.identifier.clone())
                             .into(),
                         detail: Some(identifier.identifier.clone().into()),
-                        relation: Some("Identifiant".into()),
+                        relation: Some(words::IDENTIFIER.into()),
                     },
                     cx,
                 ),
                 Source::Item(item) => quiet_source(
                     Card {
                         icon: Icon::new(IconName::Inbox),
-                        title: format!("Élément de « {} »", item.source).into(),
+                        title: words::item_of(&item.source).into(),
                         detail: note(&item.note),
-                        relation: Some("Élément".into()),
+                        relation: Some(words::INBOX_ITEM.into()),
                     },
                     cx,
                 ),
@@ -1092,10 +1074,10 @@ fn sources(
         })
         .collect();
     article.anchored(
-        "Sources",
+        words::SOURCES,
         2,
         v_flex()
-            .child(heading("Sources", Some(sources.len()), cx))
+            .child(heading(words::SOURCES, Some(sources.len()), cx))
             .child(cards(list)),
     );
 }
@@ -1114,14 +1096,14 @@ fn media(article: &mut Article, media: &[Medium], cx: &App) {
     let faint = theme::faint(cx);
     let tiles = media.iter().map(|medium| {
         let (icon, kind) = if medium.kind == "image" {
-            (IconName::Image, "Image".to_string())
+            (IconName::Image, words::IMAGE.to_string())
         } else {
             let subtype = medium.mime.rsplit('/').next().unwrap_or(&medium.mime);
             (IconName::FileText, subtype.to_uppercase())
         };
         let size = match (medium.width, medium.height) {
             (Some(width), Some(height)) => format!("{kind} · {width} × {height}"),
-            _ => format!("{kind} · {} Ko", (medium.size + 500) / 1000),
+            _ => format!("{kind} · {}", words::kilobytes(medium.size)),
         };
         v_flex()
             .rounded(theme.radius_lg)
@@ -1145,7 +1127,7 @@ fn media(article: &mut Article, media: &[Medium], cx: &App) {
                     .gap(px(2.))
                     .text_size(text::SMALL)
                     .child(div().truncate().child(if medium.alt.is_empty() {
-                        "Sans description".to_string()
+                        words::NO_DESCRIPTION.to_string()
                     } else {
                         medium.alt.clone()
                     }))
@@ -1154,10 +1136,10 @@ fn media(article: &mut Article, media: &[Medium], cx: &App) {
             .into_any_element()
     });
     article.anchored(
-        "Médias",
+        words::MEDIA,
         2,
         v_flex()
-            .child(heading("Médias", Some(media.len()), cx))
+            .child(heading(words::MEDIA, Some(media.len()), cx))
             .child(div().grid().grid_cols(3).gap(space::M).children(tiles)),
     );
 }
@@ -1249,7 +1231,7 @@ fn contents(
                         .mb(space::M)
                         .text_color(muted)
                         .child(Icon::new(IconName::List).xsmall())
-                        .child("Sur cette page"),
+                        .child(words::ON_THIS_PAGE),
                 )
                 .children(items)
         }))
@@ -1266,14 +1248,14 @@ fn contents(
                     div()
                         .text_color(foreground)
                         .font_weight(FontWeight::MEDIUM)
-                        .child("Fiche"),
+                        .child(words::ENTRY),
                 )
-                .child(format!("Créée le {}", date_in_words(&entry.created)))
-                .child(format!("Modifiée le {}", date_in_words(&entry.updated)))
+                .child(words::created_on(&entry.created))
+                .child(words::edited_on(&entry.updated))
                 .child(if entry.verified {
-                    "Vérifiée par le propriétaire"
+                    words::VERIFIED_BY_OWNER
                 } else {
-                    "En attente de vérification"
+                    words::AWAITING_VERIFICATION
                 }),
         )
         .into_any_element()
@@ -1325,16 +1307,16 @@ mod tests {
     fn a_link_says_its_note_and_its_dates_in_one_line() {
         let said = |note, from, until| link_detail(&link(note, from, until));
         assert_eq!(
-            said(Some("comptable"), Some("2024-01-01"), None).as_deref(),
-            Some("comptable · depuis le 1 janv. 2024")
+            said(Some("accountant"), Some("2024-01-01"), None).as_deref(),
+            Some("accountant · since 1 January 2024")
         );
         assert_eq!(
             said(None, Some("2024-01-01"), Some("2025-06-30")).as_deref(),
-            Some("du 1 janv. 2024 au 30 juin 2025")
+            Some("from 1 January 2024 to 30 June 2025")
         );
         assert_eq!(
-            said(Some("processeur"), None, Some("2025-06-30")).as_deref(),
-            Some("processeur · jusqu'au 30 juin 2025")
+            said(Some("processor"), None, Some("2025-06-30")).as_deref(),
+            Some("processor · until 30 June 2025")
         );
         assert_eq!(said(None, None, None), None);
     }

@@ -19,7 +19,10 @@ the crate's source for the real signature.
   GPUI Kit's default set is added to `ui::assets`, or it draws nothing. The fonts ship inside the
   viewer (`assets/fonts`, with their licences and origin in its `README.md`), loaded by
   `ui::theme::load_fonts` before the first window; a screen names a family only through
-  `ui::theme::font` (`TEXT`, `HEADING`).
+  `ui::theme::font` (`TEXT`, `HEADING`). A screen names its words only through `ui::text`, in
+  English (headings, buttons, states, messages, dates in words); a test fails on a sentence
+  written anywhere else. What comes from the server (titles, bodies, the labels of types and
+  fields, the sentences of a refusal) is shown as it was written.
 - `crates/story`: the gallery, the place to design a screen. One story per screen and state,
   named `screen/state`, with invented data only (never a real person, address or amount).
 - `crates/app`: the application binary.

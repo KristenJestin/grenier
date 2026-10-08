@@ -28,6 +28,7 @@ use crate::motion::{SPRING, hoverable, reveal};
 use crate::parts::mix;
 use crate::search::{SearchData, SearchScreen};
 use crate::status;
+use crate::text as words;
 use crate::theme::{self, space, text, width};
 
 const CONTEXT: &str = "Viewer";
@@ -111,7 +112,8 @@ impl Focusable for Viewer {
 
 impl Viewer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Chercher"));
+        let search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(words::SEARCH_PLACEHOLDER));
         let searched = cx.subscribe_in(&search, window, |viewer, state, event, _, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 let query: SharedString = state.read(cx).value().trim().to_string().into();
@@ -394,18 +396,18 @@ impl Viewer {
                 .into_any_element(),
             Load::Empty => status::side_note(
                 IconName::Inbox,
-                "Aucune fiche",
-                "Les fiches écrites par les agents apparaîtront ici.",
+                words::NO_ENTRIES,
+                words::NO_ENTRIES_DETAIL,
                 false,
                 cx,
             )
             .into_any_element(),
             Load::Failed(problem) => {
                 let (title, detail) = match problem {
-                    Problem::Unreachable => ("Hors ligne", "Le serveur ne répond pas."),
-                    Problem::KeyRefused(_) => ("Clé refusée", "Demandez une nouvelle clé."),
-                    Problem::Refused(_) => ("Refusé", "Le serveur a refusé l'arbre."),
-                    Problem::Unconfigured(_) => ("Pas de serveur", "Voir la configuration."),
+                    Problem::Unreachable => (words::OFFLINE, words::OFFLINE_DETAIL),
+                    Problem::KeyRefused(_) => (words::KEY_REFUSED_SHORT, words::KEY_REFUSED_DETAIL),
+                    Problem::Refused(_) => (words::REFUSED_SHORT, words::TREE_REFUSED_DETAIL),
+                    Problem::Unconfigured(_) => (words::NO_SERVER, words::NO_SERVER_DETAIL),
                 };
                 status::side_note(IconName::TriangleAlert, title, detail, true, cx)
                     .into_any_element()
@@ -416,7 +418,7 @@ impl Viewer {
             "sidebar-close",
             IconName::PanelLeft,
             None,
-            "Replier",
+            words::COLLAPSE,
             cx.listener(|viewer, _, _, cx| {
                 viewer.sidebar_open = Some(false);
                 cx.notify();
@@ -445,7 +447,7 @@ impl Viewer {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Grenier"),
+                            .child(words::GRENIER),
                     )
                     .child(toggle),
             )
@@ -482,12 +484,12 @@ impl Viewer {
                     .text_size(text::XS)
                     .text_color(muted)
                     .child(div().size(px(6.)).rounded_full().bg(success))
-                    .child(format!("Connecté à {name}"))
+                    .child(words::connected_to(&name))
                     .children(self.version.clone().map(|version| {
                         div()
                             .debug_selector(|| "viewer-version".into())
                             .ml_auto()
-                            .child(format!("v{version}"))
+                            .child(words::version(&version))
                     }))
             }));
         div()
@@ -528,7 +530,7 @@ impl Viewer {
             let items = self.items(&loose, window, cx);
             groups.push(
                 v_flex()
-                    .child(group_label("Sans dossier", groups.is_empty(), cx))
+                    .child(group_label(words::UNFILED, groups.is_empty(), cx))
                     .children(items)
                     .into_any_element(),
             );
@@ -690,7 +692,7 @@ impl Viewer {
                 "sidebar-open",
                 IconName::PanelLeft,
                 None,
-                "Déplier",
+                words::EXPAND,
                 cx.listener(|viewer, _, _, cx| {
                     viewer.sidebar_open = Some(true);
                     cx.notify();
@@ -704,7 +706,7 @@ impl Viewer {
                 "back",
                 IconName::ArrowLeft,
                 None,
-                "Retour (Alt+←)",
+                words::BACK,
                 cx.listener(|_, _, _, cx| cx.emit(Intent::Back)),
                 window,
                 cx,
@@ -713,7 +715,7 @@ impl Viewer {
                 "forward",
                 IconName::ArrowRight,
                 None,
-                "Avancer (Alt+→)",
+                words::FORWARD,
                 cx.listener(|_, _, _, cx| cx.emit(Intent::Forward)),
                 window,
                 cx,
@@ -724,8 +726,8 @@ impl Viewer {
             bar = bar.child(ghost(
                 "copy-link",
                 IconName::Link,
-                Some("Copier le lien"),
-                "Copier le lien de la fiche",
+                Some(words::COPY_LINK),
+                words::COPY_LINK_DETAIL,
                 move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.clone())),
                 window,
                 cx,

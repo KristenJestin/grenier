@@ -11,5 +11,6 @@ pub mod motion;
 pub mod parts;
 pub mod search;
 pub mod status;
+pub mod text;
 pub mod theme;
 pub mod viewer;

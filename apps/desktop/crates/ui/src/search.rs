@@ -14,6 +14,7 @@ use crate::load::Load;
 use crate::motion::hoverable;
 use crate::parts::{icon_box, layout, lead, mix, page, title};
 use crate::status;
+use crate::text as words;
 use crate::theme::{self, space, text};
 
 /// A search as the screen shows it.
@@ -78,11 +79,8 @@ impl RenderOnce for SearchScreen {
             results,
         } = self.data;
         let found = match &results {
-            Load::Ready(found) => match found.len() {
-                1 => "1 fiche trouvée".to_string(),
-                count => format!("{count} fiches trouvées"),
-            },
-            _ => "Recherche".to_string(),
+            Load::Ready(found) => words::found(found.len()),
+            _ => words::SEARCH.to_string(),
         };
         let filters: Vec<AnyElement> = std::iter::once(None)
             .chain(types.into_iter().map(Some))
@@ -92,8 +90,8 @@ impl RenderOnce for SearchScreen {
             Load::Loading => status::loading(6).into_any_element(),
             Load::Empty => status::empty(
                 IconName::Search,
-                format!("Rien pour « {query} »"),
-                "Essayez d'autres mots, ou tous les types.",
+                words::nothing_for(&query),
+                words::NOTHING_FOUND_DETAIL,
                 cx,
             )
             .into_any_element(),
@@ -110,7 +108,7 @@ impl RenderOnce for SearchScreen {
                 .into_any_element(),
         };
         let page = page()
-            .child(title(format!("« {query} »")))
+            .child(title(words::searched(&query)))
             .child(lead(found, cx))
             .child(
                 h_flex()
@@ -148,7 +146,7 @@ fn filter_chip(
     let tint = theme::accent_tint(cx);
     let on_intent = on_intent.clone();
     let query = query.clone();
-    let label = filter.clone().unwrap_or_else(|| "Tous".into());
+    let label = filter.clone().unwrap_or_else(|| words::ALL_TYPES.into());
     hoverable(
         ElementId::Name(format!("filter-{}", filter.as_deref().unwrap_or("*")).into()),
         window,
