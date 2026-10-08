@@ -15,4 +15,4 @@ export {
   TreeEntry,
   WriteEntryInput,
 } from './entries.ts'
-export { SearchOptions, SearchResult } from './search.ts'
+export { HistoryEvent, HistoryPage, ListOptions, SearchOptions, SearchResult } from './search.ts'
