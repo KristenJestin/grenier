@@ -21,15 +21,21 @@ pub const NO_SERVER_DETAIL: &str = "See the configuration.";
 pub const COLLAPSE: &str = "Collapse";
 pub const EXPAND: &str = "Expand";
 pub const UNFILED: &str = "Unfiled";
+pub const THEME_SYSTEM: &str = "Theme of the system";
+pub const THEME_LIGHT: &str = "Light theme";
+pub const THEME_DARK: &str = "Dark theme";
 
 /// The foot of the sidebar: the server the viewer reads.
 pub fn connected_to(server: &str) -> String {
     format!("Connected to {server}")
 }
 
-/// The version of the viewer, beside the server.
+/// The version of the viewer, beside the server; a build of no release says so.
 pub fn version(version: &str) -> String {
-    format!("v{version}")
+    match version {
+        "unknown" => "local build".to_string(),
+        version => format!("v{version}"),
+    }
 }
 
 // The toolbar of an entry.
@@ -52,6 +58,21 @@ pub const NO: &str = "No";
 pub const CONTAINS: &str = "Contains";
 pub const NAME: &str = "Name";
 pub const LINKS: &str = "Links";
+pub const NAMED_BY_FIELDS: &str = "In its fields";
+pub const MENTIONS: &str = "Mentions";
+pub const MENTIONED_BY: &str = "Mentioned by";
+pub const FILTER_BY_TITLE: &str = "Filter by title";
+pub const FOLD: &str = "Fold";
+
+/// What opens a folded group whole.
+pub fn show_all(count: usize) -> String {
+    format!("Show all {count}")
+}
+
+/// The rows a filter leaves out of an open group.
+pub fn filtered_out(count: usize) -> String {
+    format!("{count} not matching")
+}
 pub const SOURCES: &str = "Sources";
 pub const MEDIA: &str = "Media";
 pub const ENTRY: &str = "Entry";
@@ -103,6 +124,62 @@ pub fn held(from: Option<&str>, until: Option<&str>) -> Option<String> {
         (None, Some(until)) => Some(format!("until {}", date_in_words(until))),
         (None, None) => None,
     }
+}
+
+// A listing.
+pub const ENTRIES: &str = "Entries";
+pub const REMOVE_FILTER: &str = "Remove this filter";
+pub const NOTHING_LISTED: &str = "No entry keeps every filter";
+pub const NOTHING_LISTED_DETAIL: &str = "Remove a filter to see more.";
+pub const MORE: &str = "More";
+
+/// A filter by type, in a listing.
+pub fn of_type(label: &str) -> String {
+    format!("Type: {label}")
+}
+
+/// A filter by tag, in a listing.
+pub fn with_tag(tag: &str) -> String {
+    format!("Tag: {tag}")
+}
+
+/// How many entries a listing shows, and whether more follow.
+pub fn listed(count: usize, more: bool) -> String {
+    match (count, more) {
+        (1, false) => "1 entry".to_string(),
+        (count, false) => format!("{count} entries"),
+        (count, true) => format!("{count} entries and more"),
+    }
+}
+
+// The history of an entry.
+pub const HISTORY: &str = "History";
+pub const SHOW_HISTORY: &str = "Show the history";
+pub const OLDER: &str = "Older";
+
+/// What a write did, as the history names it.
+pub fn action(action: &str) -> String {
+    match action {
+        "create" => "Created".to_string(),
+        "update" => "Edited".to_string(),
+        "rewrite" => "Rewritten after a rename".to_string(),
+        "archive" => "Archived".to_string(),
+        "link" => "Linked".to_string(),
+        "unlink" => "Unlinked".to_string(),
+        "attach" => "Media attached".to_string(),
+        "describe" => "Media described".to_string(),
+        other => other.replace('_', " "),
+    }
+}
+
+/// Who wrote, and when.
+pub fn by_on(actor: &str, at: &str) -> String {
+    format!("by {actor} · {}", date_in_words(at))
+}
+
+/// More changes in an event than are shown.
+pub fn more_changes(count: usize) -> String {
+    format!("and {count} more")
 }
 
 // A search.

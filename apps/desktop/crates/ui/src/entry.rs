@@ -6,8 +6,8 @@ use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
 use api::{
-    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, Link, Medium, Source,
-    TypeDefinition,
+    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, HistoryEvent, Link, Medium,
+    Source, TypeDefinition,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::text::TextView;
@@ -21,11 +21,13 @@ use gpui_kit::{
 };
 use serde_json::Value;
 
-use crate::intent::{FollowLink, Intent, OnIntent, with_entry_links};
+use crate::intent::{FollowLink, Intent, ListFilter, OnIntent, with_entry_links};
+use crate::links::LinksState;
 use crate::load::Load;
 use crate::motion::{SPRING, hoverable, reveal};
 use crate::parts::{
-    Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, title, warning_chip,
+    Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, text_button, title,
+    warning_chip,
 };
 use crate::status;
 use crate::text as words;
@@ -39,6 +41,10 @@ pub const HIDDEN: &str = "[hidden]";
 pub struct EntryData {
     pub read: EntryRead,
     pub type_definition: Option<TypeDefinition>,
+    /// Its history, newest first, once asked for (`Empty` until then).
+    pub history: Load<Vec<HistoryEvent>>,
+    /// Whether older events wait on the server.
+    pub more_history: bool,
 }
 
 /// The screen of one entry, in any state. `shown` counts what the pane has shown: a new value
@@ -50,6 +56,7 @@ pub struct EntryScreen {
     scroll: ScrollHandle,
     shown: usize,
     jump: Option<SharedString>,
+    links: LinksState,
 }
 
 impl EntryScreen {
@@ -67,7 +74,14 @@ impl EntryScreen {
             scroll,
             shown,
             jump,
+            links: LinksState::default(),
         }
+    }
+
+    /// Which groups of links are open whole, and the filter of the open one.
+    pub fn with_links(mut self, links: LinksState) -> Self {
+        self.links = links;
+        self
     }
 }
 
@@ -93,15 +107,12 @@ impl RenderOnce for EntryScreen {
                 ))
                 .into_any_element(),
             Load::Ready(data) => {
-                return ready(
-                    data,
-                    &self.on_intent,
-                    &self.scroll,
-                    self.shown,
-                    self.jump,
-                    window,
-                    cx,
-                );
+                let place = Place {
+                    scroll: &self.scroll,
+                    shown: self.shown,
+                    jump: self.jump,
+                };
+                return ready(data, &self.links, &self.on_intent, place, window, cx);
             }
         };
         layout(window, &self.scroll, self.shown, article, None).into_any_element()
@@ -116,6 +127,22 @@ fn opener(
     let on_intent = on_intent.clone();
     let target = target.into();
     move |_, window, cx| on_intent(Intent::Open(target.clone()), window, cx)
+}
+
+/// A chip that lists the entries it names: of that type, with that tag, unverified.
+fn lister(
+    id: impl Into<SharedString>,
+    chip: gpui_kit::Div,
+    filter: ListFilter,
+    on_intent: &OnIntent,
+) -> AnyElement {
+    let on_intent = on_intent.clone();
+    let id = id.into();
+    chip.id(ElementId::Name(id.clone()))
+        .debug_selector(move || id.to_string())
+        .cursor_pointer()
+        .on_click(move |_, window, cx| on_intent(Intent::List(filter.clone()), window, cx))
+        .into_any_element()
 }
 
 /// Opens a web address when called.
@@ -159,18 +186,31 @@ impl Article {
     }
 }
 
-fn ready(
-    data: EntryData,
-    on_intent: &OnIntent,
-    scroll: &ScrollHandle,
+/// Where the page stands: its scroll, how many pages the pane has shown, the heading to glide to.
+struct Place<'a> {
+    scroll: &'a ScrollHandle,
     shown: usize,
     jump: Option<SharedString>,
+}
+
+fn ready(
+    data: EntryData,
+    links: &LinksState,
+    on_intent: &OnIntent,
+    place: Place,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    let Place {
+        scroll,
+        shown,
+        jump,
+    } = place;
     let EntryData {
         read,
         type_definition,
+        history,
+        more_history,
     } = data;
     let entry = &read.entry;
     let mut article = Article::default();
@@ -194,14 +234,37 @@ fn ready(
             .flex_wrap()
             .border_b_1()
             .border_color(border)
-            .child(chip(Some(Icon::new(IconName::FileText)), type_label, cx))
-            .children(
-                (!entry.verified)
-                    .then(|| warning_chip(Icon::new(IconName::CircleAlert), words::UNVERIFIED, cx)),
-            )
+            .child(lister(
+                "chip-type",
+                chip(Some(Icon::new(IconName::FileText)), type_label.clone(), cx),
+                ListFilter {
+                    type_name: Some((entry.type_.clone().into(), type_label.into())),
+                    ..ListFilter::default()
+                },
+                on_intent,
+            ))
+            .children((!entry.verified).then(|| {
+                lister(
+                    "chip-unverified",
+                    warning_chip(Icon::new(IconName::CircleAlert), words::UNVERIFIED, cx),
+                    ListFilter {
+                        unverified: true,
+                        ..ListFilter::default()
+                    },
+                    on_intent,
+                )
+            }))
             .children(entry.tags.iter().map(|tag| {
-                chip(Some(Icon::new(IconName::Tag)), tag.clone(), cx)
-                    .text_color(cx.theme().muted_foreground)
+                lister(
+                    SharedString::from(format!("chip-tag-{tag}")),
+                    chip(Some(Icon::new(IconName::Tag)), tag.clone(), cx)
+                        .text_color(cx.theme().muted_foreground),
+                    ListFilter {
+                        tag: Some(tag.clone().into()),
+                        ..ListFilter::default()
+                    },
+                    on_intent,
+                )
             })),
     );
     if let Some(fields) = fields(&read, type_definition.as_ref(), on_intent, window, cx) {
@@ -216,9 +279,23 @@ fn ready(
         window,
         cx,
     );
-    links(&mut article, &read, on_intent, window, cx);
+    if let Some(section) = crate::links::section(
+        &read,
+        type_definition.as_ref(),
+        links,
+        on_intent,
+        window,
+        cx,
+    ) {
+        article.anchored(words::LINKS, 2, section);
+    }
     sources(&mut article, &entry.sources, on_intent, window, cx);
     media(&mut article, &read.media, cx);
+    article.anchored(
+        words::HISTORY,
+        2,
+        history_section(&history, more_history, on_intent, window, cx),
+    );
     article.push(
         h_flex()
             .mt(space::XXXL)
@@ -954,56 +1031,132 @@ pub fn link_detail(link: &Link) -> Option<String> {
     (!said.is_empty()).then(|| said.join(" · "))
 }
 
-/// The links of the entry, both ways: each card says how it relates, and what the link says of
-/// itself.
-fn links(
-    article: &mut Article,
-    read: &EntryRead,
+/// The history of the entry, newest first: asked for, since it costs a read of its own.
+fn history_section(
+    history: &Load<Vec<HistoryEvent>>,
+    more: bool,
     on_intent: &OnIntent,
     window: &mut Window,
     cx: &mut App,
-) {
-    if read.links.is_empty() && read.backlinks.is_empty() {
-        return;
-    }
-    let outgoing = read.links.iter().map(|link| ("out", link));
-    let incoming = read.backlinks.iter().map(|link| ("in", link));
-    let list: Vec<AnyElement> = outgoing
-        .chain(incoming)
-        .map(|(way, link)| {
-            let mut relation = label_of(&link.relation);
-            if let Some(period) = &link.period {
-                relation = format!("{relation} · {period}");
-            }
-            card(
-                SharedString::from(format!("{way}-{}-{}", link.relation, link.id)),
-                Card {
-                    icon: Icon::new(if way == "out" {
-                        IconName::ArrowRight
-                    } else {
-                        IconName::ArrowLeft
-                    }),
-                    title: link.title.clone().into(),
-                    detail: link_detail(link).map(Into::into),
-                    relation: Some(relation.into()),
-                },
-                opener(on_intent, link.slug.clone()),
-                window,
-                cx,
-            )
-        })
-        .collect();
-    article.anchored(
-        words::LINKS,
-        2,
-        v_flex()
-            .child(heading(
-                words::LINKS,
-                Some(read.links.len() + read.backlinks.len()),
-                cx,
-            ))
-            .child(cards(list)),
-    );
+) -> AnyElement {
+    let ask = {
+        let on_intent = on_intent.clone();
+        move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+            on_intent(Intent::History, window, cx)
+        }
+    };
+    let body = match history {
+        Load::Empty => text_button("history-show", words::SHOW_HISTORY, ask, window, cx),
+        Load::Loading => status::loading(3).into_any_element(),
+        Load::Failed(problem) => {
+            status::failed("history-retry", problem, on_intent.clone(), window, cx)
+                .into_any_element()
+        }
+        Load::Ready(events) => {
+            let theme = cx.theme();
+            let (border, muted) = (theme.border, theme.muted_foreground);
+            let faint = theme::faint(cx);
+            v_flex()
+                .children(events.iter().map(|event| {
+                    let shown: Vec<(String, String, String)> = event
+                        .changes
+                        .iter()
+                        .take(HISTORY_CHANGES)
+                        .map(|change| {
+                            (
+                                format!("{}:", field_label(&change.field)),
+                                value_text(&change.before),
+                                value_text(&change.after),
+                            )
+                        })
+                        .collect();
+                    let hidden = event.changes.len().saturating_sub(HISTORY_CHANGES);
+                    v_flex()
+                        .debug_selector({
+                            let id = event.id.clone();
+                            move || format!("history-{id}")
+                        })
+                        .py(space::S)
+                        .border_b_1()
+                        .border_color(border)
+                        .gap(px(2.))
+                        .child(
+                            h_flex()
+                                .gap(space::S)
+                                .child(
+                                    div()
+                                        .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                        .child(words::action(&event.action)),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(text::SMALL)
+                                        .text_color(muted)
+                                        .child(words::by_on(&event.actor, &event.at)),
+                                ),
+                        )
+                        .children(shown.into_iter().map(|(field, before, after)| {
+                            h_flex()
+                                .gap(px(6.))
+                                .min_w_0()
+                                .text_size(text::SMALL)
+                                .text_color(muted)
+                                .child(div().flex_none().child(field))
+                                .child(div().min_w_0().truncate().child(before))
+                                .child(Icon::new(IconName::ArrowRight).xsmall().text_color(faint))
+                                .child(div().min_w_0().truncate().child(after))
+                        }))
+                        .children((hidden > 0).then(|| {
+                            div()
+                                .text_size(text::SMALL)
+                                .text_color(faint)
+                                .child(words::more_changes(hidden))
+                        }))
+                }))
+                .children(more.then(|| {
+                    div().pt(space::S).child(text_button(
+                        "history-older",
+                        words::OLDER,
+                        ask,
+                        window,
+                        cx,
+                    ))
+                }))
+                .into_any_element()
+        }
+    };
+    v_flex()
+        .child(heading(words::HISTORY, None, cx))
+        .child(body)
+        .into_any_element()
+}
+
+/// How many changes of one event the history shows.
+const HISTORY_CHANGES: usize = 3;
+
+/// A field of an event as a person reads it: `fields.provider` as `Provider`.
+fn field_label(field: &str) -> String {
+    let name = field
+        .strip_prefix("fields.")
+        .or_else(|| field.strip_prefix("links."))
+        .unwrap_or(field);
+    label_of(name)
+}
+
+/// A value of an event in a few words, on one line: text as it is, a long text by its excerpt,
+/// nothing as `—`.
+fn value_text(value: &Value) -> String {
+    let text = match value {
+        Value::Null => "—".to_string(),
+        Value::String(text) => text.clone(),
+        Value::Object(object) => match object.get("excerpt") {
+            Some(Value::String(excerpt)) => excerpt.clone(),
+            _ => value.to_string(),
+        },
+        other => other.to_string(),
+    };
+    // On one line: a body's excerpt keeps its breaks in the history.
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Where the entry comes from.

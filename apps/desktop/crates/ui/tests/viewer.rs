@@ -4,7 +4,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui_kit::component::Root;
-use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{
+    AppContext as _, Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px,
+};
 use ui::intent::{FollowLink, Intent};
 use ui::load::Load;
 use ui::search::SearchData;
@@ -181,4 +183,58 @@ fn the_version_of_the_viewer_stands_beside_the_server(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     assert!(cx.debug_bounds("viewer-version").is_some());
+}
+
+#[test]
+fn a_title_in_the_tree_drops_the_beginning_it_shares_with_its_parent() {
+    use ui::viewer::short_title;
+    let parent = Some("Contrats d'entretien");
+    assert_eq!(short_title("Contrats d'entretien : fibre", parent), "fibre");
+    assert_eq!(short_title("contrats d'entretien — box", parent), "box");
+    assert_eq!(
+        short_title("Contrats d'entretien", parent),
+        "Contrats d'entretien"
+    );
+    assert_eq!(
+        short_title("Contrats d'entretienX", parent),
+        "Contrats d'entretienX"
+    );
+    assert_eq!(short_title("Facture d'août", parent), "Facture d'août");
+    assert_eq!(short_title("Facture d'août", None), "Facture d'août");
+}
+
+#[gpui_kit::test]
+fn a_drag_of_the_sidebar_edge_says_its_width_once_when_it_ends(cx: &mut TestAppContext) {
+    let (viewer, cx, intents) = viewer(cx);
+    cx.run_until_parked();
+    let edge = cx
+        .debug_bounds("sidebar-edge")
+        .expect("the edge of the sidebar is drawn");
+    let start = edge.center();
+    cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+    for step in 1..=10 {
+        cx.simulate_mouse_move(
+            point(start.x + px(step as f32 * 8.), start.y),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+    }
+    let widths = |intents: &Rc<RefCell<Vec<Intent>>>| {
+        intents
+            .borrow()
+            .iter()
+            .filter(|intent| matches!(intent, Intent::SidebarWidth(_)))
+            .count()
+    };
+    // While it moves, nothing is kept.
+    assert_eq!(widths(&intents), 0);
+    cx.simulate_mouse_up(
+        point(start.x + px(80.), start.y),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    assert_eq!(widths(&intents), 1);
+    let width = viewer.read_with(cx, |viewer, _| viewer.sidebar_width());
+    assert!(width > px(300.), "the sidebar is wider: {width:?}");
 }

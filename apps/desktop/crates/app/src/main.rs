@@ -3,6 +3,7 @@
 
 use app::shell::Shell;
 use gpui_kit::{AppContext as _, WindowAppearance, WindowOptions};
+use ui::theme::ThemeChoice;
 
 fn main() {
     if std::env::args()
@@ -18,18 +19,22 @@ fn main() {
             gpui_kit::init(cx);
             ui::theme::load_fonts(cx);
             ui::viewer::init(cx);
-            let dark = matches!(
+            let preferences = app::config::preferences();
+            let choice = ThemeChoice::from_name(preferences.theme.as_deref().unwrap_or(""));
+            let system_dark = matches!(
                 cx.window_appearance(),
                 WindowAppearance::Dark | WindowAppearance::VibrantDark
             );
-            ui::theme::set_dark(dark, cx);
+            ui::theme::set_dark(choice.is_dark(system_dark), cx);
             gpui_kit::open_window(
                 WindowOptions {
                     app_id: Some("grenier".into()),
                     ..WindowOptions::default()
                 },
                 cx,
-                |window, cx| cx.new(|cx| Shell::new(app::config::client(), window, cx)),
+                |window, cx| {
+                    cx.new(|cx| Shell::new(app::config::client(), &preferences, window, cx))
+                },
             )
             .expect("the window opens");
         });

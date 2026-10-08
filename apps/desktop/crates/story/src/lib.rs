@@ -122,6 +122,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "tree/long-titles",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::long_titles_tree()),
+                    Some("contrat-technique-1"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::bare()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "tree/empty",
             build: |window, cx| {
                 viewer(
@@ -182,6 +194,48 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "entry/many-links",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::long_titles_tree()),
+                    Some("phare"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::many_links()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
+            name: "entry/many-links-open",
+            build: |window, cx| {
+                cx.new(|cx| {
+                    let mut viewer = Viewer::new(window, cx);
+                    viewer.set_tree(Load::Ready(fixtures::long_titles_tree()), cx);
+                    viewer.set_connection(Some("grenier.local".into()), cx);
+                    viewer.set_pane(
+                        Pane::Entry(Box::new(Load::Ready(fixtures::many_links()))),
+                        window,
+                        cx,
+                    );
+                    viewer.toggle_links("in-mentions".into(), window, cx);
+                    viewer
+                })
+                .into()
+            },
+        },
+        Story {
+            name: "entry/history",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    Some("fibre-maison"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::with_history()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "entry/bare",
             build: |window, cx| {
                 viewer(
@@ -236,6 +290,18 @@ pub fn stories() -> Vec<Story> {
                     Load::Ready(fixtures::tree()),
                     None,
                     Pane::Entry(Box::new(Load::Failed(refused()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
+            name: "results/filtered",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    None,
+                    Pane::List(fixtures::listed()),
                     window,
                     cx,
                 )

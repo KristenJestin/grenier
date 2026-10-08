@@ -247,3 +247,33 @@ pub fn cards(children: impl IntoIterator<Item = AnyElement>) -> Div {
 pub fn mix(from: Hsla, to: Hsla, share: f32) -> Hsla {
     gpui_kit::AnimationPhase(share).interpolate(from, to)
 }
+
+/// A quiet button of text: what opens more, folds, or tries again.
+pub fn text_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let theme = cx.theme();
+    let (accent, over, radius) = (theme.primary, theme.accent, theme.radius);
+    let label = label.into();
+    let id = id.into();
+    let selector = id.clone();
+    crate::motion::hoverable(id, window, cx, move |element, hover| {
+        element
+            .debug_selector(move || selector.to_string())
+            .h(px(28.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .rounded(radius)
+            .bg(over.opacity(hover.0))
+            .text_size(text::SMALL)
+            .text_color(accent)
+            .cursor_pointer()
+            .on_click(on_click)
+            .child(label)
+    })
+}

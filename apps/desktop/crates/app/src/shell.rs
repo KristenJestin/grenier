@@ -5,15 +5,20 @@ use std::collections::HashMap;
 
 use api::{TreeEntry, TypeDefinition};
 use gpui_kit::{
-    AppContext as _, Context, Entity, IntoElement, Render, SharedString, Subscription, Task, Window,
+    AppContext as _, Context, Entity, IntoElement, Render, SharedString, Subscription, Task,
+    Window, WindowAppearance, px,
 };
 use ui::entry::EntryData;
 use ui::intent::Intent;
+use ui::intent::ListFilter;
+use ui::list::ListData;
 use ui::load::{Load, Problem};
 use ui::search::SearchData;
+use ui::theme::ThemeChoice;
 use ui::viewer::{Pane, TreeNode, Viewer};
 
 use crate::client::Client;
+use crate::config;
 
 /// What the pane shows, as the history keeps it.
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +28,7 @@ enum Location {
         query: SharedString,
         type_name: Option<SharedString>,
     },
+    List(ListFilter),
 }
 
 pub struct Shell {
@@ -36,6 +42,11 @@ pub struct Shell {
     // A request replaced by another is dropped, and so cancelled: a late answer never shows.
     tree_request: Option<Task<()>>,
     pane_request: Option<Task<()>>,
+    history_request: Option<Task<()>>,
+    /// Where the history of the open entry continues, when it does.
+    history_cursor: Option<String>,
+    /// Where the listing shown continues, when it does.
+    list_cursor: Option<String>,
     _intents: Subscription,
 }
 
@@ -43,10 +54,19 @@ impl Shell {
     /// The viewer on the server of `client`, or saying what to set up.
     pub fn new(
         client: Result<Client, String>,
+        preferences: &config::Preferences,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let viewer = cx.new(|cx| Viewer::new(window, cx));
+        let viewer = cx.new(|cx| {
+            let mut viewer = Viewer::new(window, cx);
+            if let Some(width) = preferences.sidebar_width {
+                viewer.set_sidebar_width(px(width as f32), cx);
+            }
+            let choice = ThemeChoice::from_name(preferences.theme.as_deref().unwrap_or(""));
+            viewer.set_theme_choice(choice, cx);
+            viewer
+        });
         let intents = cx.subscribe_in(&viewer, window, |shell, _, intent: &Intent, window, cx| {
             shell.asked(intent.clone(), window, cx)
         });
@@ -59,6 +79,9 @@ impl Shell {
             at: 0,
             tree_request: None,
             pane_request: None,
+            history_request: None,
+            history_cursor: None,
+            list_cursor: None,
             _intents: intents,
         };
         match client {
@@ -112,6 +135,30 @@ impl Shell {
                 self.show(window, cx);
             }
             Intent::Back | Intent::Forward => {}
+            Intent::SidebarWidth(width) => config::remember("sidebar_width", width.into()),
+            Intent::Theme(choice) => {
+                config::remember("theme", choice.name().into());
+                let system_dark = matches!(
+                    window.appearance(),
+                    WindowAppearance::Dark | WindowAppearance::VibrantDark
+                );
+                ui::theme::set_dark(choice.is_dark(system_dark), cx);
+                window.refresh();
+            }
+            // No filter left: the listing closes, back to what was open before it.
+            Intent::List(filter) if filter.is_empty() => {
+                if self.at > 0 {
+                    self.at -= 1;
+                    self.show(window, cx);
+                } else {
+                    self.set_pane(Pane::Entry(Box::new(Load::Empty)), window, cx);
+                }
+            }
+            Intent::List(filter) => self.go(Location::List(filter), window, cx),
+            Intent::MoreListed => self.load_more_listed(window, cx),
+            Intent::History => self.load_history(window, cx),
+            // The viewer keeps its groups of links itself.
+            Intent::ToggleLinks(_) => {}
             Intent::Retry => {
                 self.load_tree(window, cx);
                 if !self.history.is_empty() {
@@ -119,6 +166,115 @@ impl Shell {
                 }
             }
         }
+    }
+
+    /// Reads the next page of the listing shown, after the last one, and adds it.
+    fn load_more_listed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(client), Some(cursor)) = (self.client.clone(), self.list_cursor.clone()) else {
+            return;
+        };
+        let Some(Location::List(filter)) = self.history.get(self.at).cloned() else {
+            return;
+        };
+        let request = cx
+            .background_executor()
+            .spawn(async move { client.list(&filter, Some(&cursor)) });
+        self.pane_request = Some(cx.spawn_in(window, async move |shell, cx| {
+            let answer = request.await;
+            shell
+                .update_in(cx, |shell, _, cx| match answer {
+                    Ok((found, next)) => {
+                        let more = next.is_some();
+                        shell.list_cursor = next;
+                        shell.viewer.update(cx, |viewer, cx| {
+                            viewer.update_list(
+                                |list| {
+                                    list.more = more;
+                                    if let Load::Ready(entries) = &mut list.entries {
+                                        entries.extend(found);
+                                    }
+                                },
+                                cx,
+                            )
+                        });
+                    }
+                    Err(problem) => shell.viewer.update(cx, |viewer, cx| {
+                        viewer.update_list(|list| list.entries = Load::Failed(problem), cx)
+                    }),
+                })
+                .ok();
+        }));
+    }
+
+    /// Reads the history of the open entry: its first page, or the page after the one shown.
+    fn load_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let Some((entry, older)) = self.viewer.read(cx).entry().map(|data| {
+            (
+                data.read.entry.id.clone(),
+                matches!(data.history, Load::Ready(_)),
+            )
+        }) else {
+            return;
+        };
+        let cursor = if older {
+            self.history_cursor.clone()
+        } else {
+            None
+        };
+        if older && cursor.is_none() {
+            return;
+        }
+        if !older {
+            self.viewer.update(cx, |viewer, cx| {
+                viewer.update_entry(|data| data.history = Load::Loading, cx)
+            });
+        }
+        let entry_id = entry.clone();
+        let request = cx
+            .background_executor()
+            .spawn(async move { client.history(&entry, cursor.as_deref()) });
+        self.history_request = Some(cx.spawn_in(window, async move |shell, cx| {
+            let answer = request.await;
+            shell
+                .update_in(cx, |shell, _, cx| {
+                    // Another entry opened in the meantime: this history is not its own.
+                    let still = shell
+                        .viewer
+                        .read(cx)
+                        .entry()
+                        .map(|data| data.read.entry.id.clone());
+                    if still.as_deref() != Some(entry_id.as_str()) {
+                        return;
+                    }
+                    shell.history_cursor = answer
+                        .as_ref()
+                        .ok()
+                        .and_then(|page| page.next_cursor.clone());
+                    shell.viewer.update(cx, |viewer, cx| {
+                        viewer.update_entry(
+                            |data| match answer {
+                                Ok(page) => {
+                                    data.more_history = page.next_cursor.is_some();
+                                    data.history =
+                                        match std::mem::replace(&mut data.history, Load::Loading) {
+                                            Load::Ready(mut shown) if older => {
+                                                shown.extend(page.events);
+                                                Load::Ready(shown)
+                                            }
+                                            _ => Load::Ready(page.events),
+                                        };
+                                }
+                                Err(problem) => data.history = Load::Failed(problem),
+                            },
+                            cx,
+                        )
+                    });
+                })
+                .ok();
+        }));
     }
 
     /// Opens `location`, after what is open now: what was opened from there is forgotten.
@@ -139,6 +295,9 @@ impl Shell {
         match location.clone() {
             Location::Entry(entry) => {
                 let jump = self.jump.take();
+                // A history still on its way is the previous entry's: dropped.
+                self.history_request = None;
+                self.history_cursor = None;
                 self.set_pane(Pane::Entry(Box::new(Load::Loading)), window, cx);
                 let request = cx
                     .background_executor()
@@ -159,6 +318,8 @@ impl Shell {
                                     Load::Ready(EntryData {
                                         read,
                                         type_definition,
+                                        history: Load::Empty,
+                                        more_history: false,
                                     })
                                 }
                                 Err(problem) => Load::Failed(problem),
@@ -170,6 +331,43 @@ impl Shell {
                                     .viewer
                                     .update(cx, |viewer, cx| viewer.jump_to(heading, cx));
                             }
+                        })
+                        .ok();
+                }));
+            }
+            Location::List(filter) => {
+                let type_labels: HashMap<String, String> = self
+                    .types
+                    .iter()
+                    .map(|definition| (definition.name.clone(), definition.label.to_string()))
+                    .collect();
+                let listed = {
+                    let filter = filter.clone();
+                    move |entries, more| {
+                        Pane::List(ListData {
+                            filter: filter.clone(),
+                            type_labels: type_labels.clone(),
+                            entries,
+                            more,
+                        })
+                    }
+                };
+                self.set_pane(listed(Load::Loading, false), window, cx);
+                self.list_cursor = None;
+                let request = cx
+                    .background_executor()
+                    .spawn(async move { client.list(&filter, None) });
+                self.pane_request = Some(cx.spawn_in(window, async move |shell, cx| {
+                    let (entries, next) = match request.await {
+                        Ok((found, _)) if found.is_empty() => (Load::Empty, None),
+                        Ok((found, next)) => (Load::Ready(found), next),
+                        Err(problem) => (Load::Failed(problem), None),
+                    };
+                    shell
+                        .update_in(cx, |shell, window, cx| {
+                            let more = next.is_some();
+                            shell.list_cursor = next;
+                            shell.set_pane(listed(entries, more), window, cx)
                         })
                         .ok();
                 }));

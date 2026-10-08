@@ -28,6 +28,35 @@ pub enum Intent {
     Forward,
     /// Try again what failed.
     Retry,
+    /// The sidebar was dragged to this width, in pixels: to keep for the next start.
+    SidebarWidth(u32),
+    /// A theme was chosen: to show, and to keep for the next start.
+    Theme(crate::theme::ThemeChoice),
+    /// List the entries a filter keeps: of a type, with a tag, unverified.
+    List(ListFilter),
+    /// Show the history of the open entry, or the next page of it.
+    History,
+    /// The next page of the listing shown.
+    MoreListed,
+    /// Open a group of links whole, or fold it again (the viewer keeps it, the application
+    /// never sees it).
+    ToggleLinks(SharedString),
+}
+
+/// What a listing keeps, each filter shown and removable.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListFilter {
+    /// A type, by its name, with its label to show.
+    pub type_name: Option<(SharedString, SharedString)>,
+    pub tag: Option<SharedString>,
+    pub unverified: bool,
+}
+
+impl ListFilter {
+    /// Whether it keeps every entry.
+    pub fn is_empty(&self) -> bool {
+        self.type_name.is_none() && self.tag.is_none() && !self.unverified
+    }
 }
 
 /// Where a screen sends what the user asks for: the viewer turns it into an event.
