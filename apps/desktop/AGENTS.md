@@ -38,6 +38,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+## Releases and updates
+
+A release of Grenier builds the viewer from its tag (`.github/workflows/release.yml`), its version
+taken from the tag (`GRENIER_VERSION` at build time, `unknown` in a local build; shown at the foot
+of the sidebar and by `grenier-desktop --version`), packs it with `scripts/package.sh` and attaches
+the archives and their checksums to the release. `scripts/update.sh` installs or updates it on
+Linux from the latest release; its tests (`crates/app/tests/update_script.rs`) run it against a
+local fake release server. The launcher and the icon of an archive are in `assets/release/` (the
+icon is provisional).
+
 ## Pointing the viewer at a server
 
 The application reads `grenier/desktop.json` in the system's configuration folder
