@@ -3,6 +3,7 @@ import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { Effect, ManagedRuntime, Schema } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { startAndExit, startServer } from './stdio-client.ts'
+import { writeTool } from '../../src/mcp/tools/write.ts'
 
 const database = ManagedRuntime.make(scratchDatabase)
 const scratchUrl = Effect.gen(function* () {
@@ -522,6 +523,20 @@ describe('an agent writes several entries in one call', () => {
     expect(await mcp().call('read', { entry: 'hedge-plan' })).toMatchObject({
       result: { backlinks: [{ slug: 'hedge-plants' }] },
     })
+  })
+})
+
+describe('an agent adds a part at the top of a body', () => {
+  test('write and write_many take prepend, which the description of write gives', async () => {
+    await mcp().call('write', { type: 'note', title: 'Frog log', body: 'Spawn in the pond.\n' })
+    await mcp().call('write', { entry: 'frog-log', body: 'Tadpoles.', prepend: true })
+    await mcp().call('write_many', {
+      entries: [{ entry: 'frog-log', body: 'Frogs on the lawn.', prepend: true }],
+    })
+    expect(await mcp().call('read', { entry: 'frog-log' })).toMatchObject({
+      result: { entry: { body: 'Frogs on the lawn.\n\nTadpoles.\n\nSpawn in the pond.\n' } },
+    })
+    expect(writeTool.description).toContain('`prepend: true`')
   })
 })
 
