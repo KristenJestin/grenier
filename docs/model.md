@@ -193,7 +193,8 @@ value of a field that becomes a link to an entry, by a change or a merge, is sto
 the entry its slug or id names; one that names no entry is refused. Deleting or merging a type is a
 proposal; only a key with the right `owner` confirms it, and no agent key has that right. A merge
 moves the entries to the other type, their fields renamed by its mapping, and is refused if a value
-would be lost or an entry left invalid. A deleted type is marked, not removed, so its history
+would be lost or an entry left invalid; a single field mapped onto a `many` one is refused too:
+make it `many` first with `change_field`, then merge. A deleted type is marked, not removed, so its history
 stays; its name cannot be used again. A change of a type locks the type, then its entries; a write of an
 entry locks its type, then the entry, in the same order. A write PostgreSQL still breaks off
 because of another one at the same moment is refused with one sentence: try the write again.
