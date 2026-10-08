@@ -106,7 +106,8 @@ describe('an agent works through MCP calls only', () => {
       result: { changes: [{ actor: 'agent-test', before: 'busy', after: 'calm' }] },
     })
     expect(await mcp().call('history', { entry: 'spring-tasks' })).toMatchObject({
-      result: { events: [{ action: 'create' }, { action: 'update' }] },
+      // Newest first, in pages.
+      result: { events: [{ action: 'update' }, { action: 'create' }], next_cursor: null },
     })
   })
 

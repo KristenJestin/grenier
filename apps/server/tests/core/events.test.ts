@@ -1,7 +1,14 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
-import { Actor, entryHistory, fieldHistory, typeHistory } from '../../src/core/events/index.ts'
+import {
+  Actor,
+  entryHistory,
+  fieldHistory,
+  fieldHistoryPage,
+  historyPage,
+  typeHistory,
+} from '../../src/core/events/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { addField, defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
@@ -122,5 +129,37 @@ describe('every change of a type is in its history', () => {
     expect(history[1]?.changes).toEqual([
       { field: 'fields.colour', before: null, after: { name: 'colour', kind: 'text' } },
     ])
+  })
+})
+
+describe('the history of a long entry comes in pages', () => {
+  test('newest first, a page at a time, long texts as their size and an excerpt', async () => {
+    const long = 'A line of the log.\n'.repeat(200)
+    await run(writeEntry({ type: 'area', title: 'Logbook', body: long }))
+    await run(writeEntry({ entry: 'logbook', summary: 'One.' }))
+    await run(writeEntry({ entry: 'logbook', summary: 'Two.' }))
+    const first = await run(historyPage('logbook', { limit: 2 }))
+    expect(first.events.map(({ action }) => action)).toEqual(['update', 'update'])
+    expect(first.events[0]?.changes).toMatchObject([{ field: 'summary', after: 'Two.' }])
+    expect(first.next_cursor).toEqual(expect.any(String))
+    const second = await run(historyPage('logbook', { limit: 2, cursor: first.next_cursor ?? '' }))
+    expect(second.events.map(({ action }) => action)).toEqual(['create'])
+    expect(second.next_cursor).toBeNull()
+    expect(second.events[0]?.changes.find(({ field }) => field === 'body')?.after).toEqual({
+      size: long.length,
+      excerpt: `${long.slice(0, 200)}…`,
+    })
+  })
+
+  test('one field comes whole, in pages too', async () => {
+    const changes = await run(fieldHistoryPage('logbook', 'summary', { limit: 1 }))
+    expect(changes.changes).toMatchObject([{ before: 'One.', after: 'Two.' }])
+    expect(
+      (
+        await run(
+          fieldHistoryPage('logbook', 'summary', { limit: 1, cursor: changes.next_cursor ?? '' }),
+        )
+      ).changes,
+    ).toMatchObject([{ before: '', after: 'One.' }])
   })
 })
