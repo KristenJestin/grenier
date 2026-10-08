@@ -1,5 +1,13 @@
 import { execFile, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, relative, resolve as resolvePath, sep } from 'node:path'
 import { Clock, Config, Effect, Schema } from 'effect'
 import { markdownFiles } from '../core/export/index.ts'
@@ -88,6 +96,9 @@ const committed = (folder: string): ReadonlyMap<string, string> => {
   return contents
 }
 
+/** A folder as the disk knows it, through any link to it; as given, while it does not exist. */
+const realOf = (folder: string) => (existsSync(folder) ? realpathSync(folder) : resolvePath(folder))
+
 /** Where a folder says which export it holds: inside git's own folder, never committed. */
 const MODE = join('.git', 'grenier-export')
 
@@ -143,7 +154,7 @@ export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: Ex
     return yield* new ExportRefused({
       message: 'An export with sensitive data is never pushed: leave out --remote.',
     })
-  if (sensitive && nightly.trim() !== '' && resolvePath(nightly) === resolvePath(folder))
+  if (sensitive && nightly.trim() !== '' && realOf(nightly) === realOf(folder))
     return yield* new ExportRefused({
       message:
         'The folder of the nightly export (EXPORT_DIR) never holds sensitive data: give another folder.',
@@ -162,6 +173,14 @@ export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: Ex
   )
     return yield* new ExportRefused({
       message: `The folder ${folder} has a remote: an export with sensitive data is never pushed.`,
+    })
+  if (
+    existsSync(join(folder, '.git')) &&
+    !existsSync(join(folder, MODE)) &&
+    (yield* gitOrDie(folder, ['rev-list', '--all', '--max-count=1'])).trim() !== ''
+  )
+    return yield* new ExportRefused({
+      message: `The folder ${folder} holds an earlier export that does not say whether it has sensitive data: if it has none, mark it with \`echo plain > ${join(folder, MODE)}\`, then start again.`,
     })
   if (!existsSync(join(folder, '.git'))) {
     if (existsSync(folder) && readdirSync(folder).length > 0)

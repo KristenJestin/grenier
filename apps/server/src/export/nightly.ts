@@ -42,7 +42,8 @@ export const exportOnce = (options: Omit<ExportOptions, 'sensitive'>) =>
     ),
     Effect.catchCause((cause) =>
       Effect.gen(function* () {
-        yield* Effect.logError('The export failed.', cause)
+        // The defect itself goes to standard error with `recordDefect`, without query values.
+        yield* Effect.logError('The export failed.')
         yield* recordDefect('export', cause)
       }),
     ),

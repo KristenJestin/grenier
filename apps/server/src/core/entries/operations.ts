@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { Effect, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/rights.ts'
@@ -46,7 +47,9 @@ const ancestors = rowsOf(
 )
 const typedSlugs = rowsOf(Schema.Struct({ slug: Schema.String, type: Schema.String }))
 const rowsBodies = rowsOf(Schema.Struct({ slug: Schema.String, body: Schema.String }))
-const bodies = rowsOf(Schema.Struct({ id: Schema.String, body: Schema.String }))
+const bodies = rowsOf(
+  Schema.Struct({ id: Schema.String, body: Schema.String, hiding: Schema.Boolean }),
+)
 
 const { entries: table } = tables
 
@@ -804,6 +807,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           )
         }
 
+        // The stored ids of entries the caller may not see: read as `null` (a parent, a
+        // successor) or as the marker (a field), and kept when written back as read.
+        const storedHidden = yield* hiddenIn(
+          existing === undefined
+            ? []
+            : [existing.parent_id, existing.superseded_by, existing.fields],
+        )
+
         /**
          * The id of the entry a field names, or a problem when there is none. A reference the
          * write leaves as it is stored is kept unchecked: it may name an entry the caller may not
@@ -815,6 +826,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           stored: Schema.Json | undefined,
           accepted?: ReadonlyArray<string>,
         ) {
+          if (
+            (reference === null || reference === HIDDEN) &&
+            Predicate.isString(stored) &&
+            storedHidden.has(stored)
+          )
+            return stored
           if (reference === null) return null
           if (existing !== undefined && textsOf(stored).includes(reference)) return reference
           // A slug a new entry of the batch would have had, had it been free, names the old one.
@@ -863,15 +880,25 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           if (field.many !== true && Predicate.isString(value)) {
             references[field.name] = (yield* resolve(at, value, stored, field.types)) ?? value
           } else if (field.many === true && Array.isArray(value)) {
-            // Each item as one value; what is not text is the decoder's problem.
+            // Each item as one value; what is not text is the decoder's problem. The entries
+            // the caller may not see stay: each marker in place of the next one, the rest at the
+            // end, as a list written without them never drops what it could not read.
+            const unseen = textsOf(stored).filter(
+              (id) => storedHidden.has(id) && !value.includes(id),
+            )
             const resolved: Array<Schema.Json> = []
             for (const [index, item] of value.entries()) {
+              if (item === HIDDEN && unseen.length > 0) {
+                resolved.push(unseen.shift() ?? item)
+                continue
+              }
               resolved.push(
                 Predicate.isString(item)
                   ? ((yield* resolve(`${at}.${index}`, item, stored, field.types)) ?? item)
                   : item,
               )
             }
+            resolved.push(...unseen)
             // Two names of one entry, a slug and an id, are one value given twice; the same name
             // given twice is the decoder's problem.
             const again = resolved.findIndex((id, index) => resolved.indexOf(id) !== index)
@@ -1028,7 +1055,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // A body left as it was keeps its links: its references only change with it.
         if (existing === undefined || existing.body !== entry.body)
           yield* keepReferences(id, entry.body, coming)
-        if (renamed) yield* rewriteReferences(actor, id, existing.slug, entry.slug)
+        if (renamed)
+          yield* rewriteReferences(actor, { id, aliases: entry.aliases }, existing.slug, entry.slug)
         // A new slug or alias is what references written before may wait for.
         if (
           existing === undefined ||
@@ -1045,14 +1073,22 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
 /**
  * The entries whose bodies mention an entry, with their bodies, locked in the order of their ids:
  * an edit of one of them at the same moment as a rename is either before the rename, and
- * rewritten with the rest, or after it.
+ * rewritten with the rest, or after it. `hiding` says whether that body may be read by a key the
+ * entry is hidden from: the entry is of a sensitive type, the body's own is not.
  */
 const mentioningOf = Effect.fn('mentioningOf')(function* (id: string) {
   const db = yield* drizzle
   const { links } = tables
+  const sensitive = (type: SQL) =>
+    sql`EXISTS (SELECT 1 FROM types t WHERE t.name = ${type} AND t.sensitive)`
   return yield* bodies(
     db
-      .select({ id: table.id, body: table.body })
+      .select({
+        id: table.id,
+        body: table.body,
+        hiding: sql<boolean>`${sensitive(sql`(SELECT e.type FROM entries e WHERE e.id = ${id}::uuid)`)}
+          AND NOT ${sensitive(sql`${table.type}`)}`,
+      })
       .from(links)
       .innerJoin(table, eq(table.id, links.source_id))
       .where(and(eq(links.target_id, id), eq(links.relation, MENTIONS), ne(links.source_id, id)))
@@ -1063,18 +1099,43 @@ const mentioningOf = Effect.fn('mentioningOf')(function* (id: string) {
 
 /**
  * After a slug changes from `from` to `to`, points the references of every body that mentions
- * the entry to the new slug, each rewrite recorded as a change of that body.
+ * the entry to the new slug, each rewrite recorded as a change of that body. A body that a key
+ * the entry is hidden from may read is never rewritten, which that key would see: its reference
+ * to the old slug waits, as one to a slug no entry has (unless it names the entry by an alias too).
  */
 const rewriteReferences = Effect.fn('rewriteReferences')(function* (
   actor: string,
-  id: string,
+  entry: { readonly id: string; readonly aliases: ReadonlyArray<string> },
   from: string,
   to: string,
 ) {
   const db = yield* drizzle
+  const { id } = entry
   const mentioning = yield* mentioningOf(id)
   yield* Effect.forEach(mentioning, (source) =>
     Effect.gen(function* () {
+      if (source.hiding) {
+        const references = referencesIn(source.body)
+        if (!references.includes(from)) return
+        yield* db
+          .insert(tables.pendingReferences)
+          .values({ source_id: source.id, slug: from })
+          .onConflictDoNothing()
+        if (references.some((reference) => entry.aliases.includes(reference))) return
+        yield* db
+          .delete(tables.links)
+          .where(
+            and(
+              eq(tables.links.source_id, source.id),
+              eq(tables.links.target_id, id),
+              eq(tables.links.relation, MENTIONS),
+            ),
+          )
+        yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'unlink', [
+          { field: `links.${MENTIONS}`, before: id, after: null },
+        ])
+        return
+      }
       const body = renameReferences(source.body, from, to)
       yield* db
         .update(table)

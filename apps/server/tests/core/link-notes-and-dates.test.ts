@@ -1,4 +1,3 @@
-import { HIDDEN } from '@grenier/api/model'
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
@@ -178,10 +177,8 @@ describe('links carry a note and dates', () => {
     expect(read.links).toEqual([])
     const history = JSON.stringify(await run(plain(entryHistory('mo-ash'))))
     expect(history).not.toContain('velvet')
-    expect(await run(plain(fieldHistory('mo-ash', 'links.wrote')))).toMatchObject([
-      { before: HIDDEN, after: HIDDEN },
-      { before: HIDDEN, after: HIDDEN },
-    ])
+    // Left out, as a link that never was.
+    expect(await run(plain(fieldHistory('mo-ash', 'links.wrote')))).toEqual([])
     const exported = JSON.stringify(await run(plain(markdownFiles)))
     expect(exported).not.toContain('velvet')
   })
