@@ -214,7 +214,8 @@ export const link = Effect.fn('link')(function* (
       const name = fieldOf(relation, kept, closed)
       /** What the link says once this write is applied to what it said. */
       const merged = (held: About) => ({
-        note: about.note === undefined ? held.note : about.note,
+        // An empty note says nothing: it is no note.
+        note: about.note === undefined ? held.note : about.note === '' ? null : about.note,
         valid_from: about.valid_from === undefined ? held.valid_from : about.valid_from,
         valid_until: about.valid_until === undefined ? held.valid_until : about.valid_until,
       })
@@ -279,16 +280,22 @@ export const unlink = Effect.fn('unlink')(function* (
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
       const closed = yield* fieldClosed(relation, target, field)
-      const deleted = yield* sql`DELETE FROM links WHERE source_id = ${source.id}::uuid
+      // What the link said goes into the history with it.
+      const [deleted] = yield* abouts(sql`DELETE FROM links WHERE source_id = ${source.id}::uuid
         AND target_id = ${target.id}::uuid AND relation = ${relation} AND period = ${period}
-        AND field = ${closed} RETURNING relation`
-      if (deleted.length === 0) {
+        AND field = ${closed}
+        RETURNING note, valid_from::text AS valid_from, valid_until::text AS valid_until`)
+      if (deleted === undefined) {
         return yield* new Refused({
           message: `There is no link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\`.`,
         })
       }
       yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'unlink', [
-        { field: fieldOf(relation, period, closed), before: target.id, after: null },
+        {
+          field: fieldOf(relation, period, closed),
+          before: endOf(target.id, deleted),
+          after: null,
+        },
       ])
     }),
   )

@@ -169,6 +169,28 @@ describe('links carry a note and dates', () => {
     expect((await run(linksOf('lou-pike'))).map(({ relation }) => relation)).toEqual(['mentions'])
   })
 
+  test('the history of an unlink keeps what the link said, its note and its dates', async () => {
+    await run(
+      link('lou-pike', 'copper-shop', 'visited', '', '', {
+        note: 'twice',
+        valid_from: '2025-02-01',
+      }),
+    )
+    await run(unlink('lou-pike', 'copper-shop', 'visited'))
+    expect((await run(fieldHistory('lou-pike', 'links.visited'))).at(-1)).toMatchObject({
+      before: { entry: await idOf('copper-shop'), note: 'twice', valid_from: '2025-02-01' },
+      after: null,
+    })
+  })
+
+  test('an empty note is no note', async () => {
+    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { note: 'a book' }))
+    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { note: '' }))
+    expect(
+      (await run(linksOf('lou-pike'))).find(({ relation }) => relation === 'owes'),
+    ).toMatchObject({ note: null })
+  })
+
   test('nothing of a link to a hidden entry reaches a key without `sensitive`', async () => {
     await run(writeEntry({ type: 'person', title: 'Mo Ash' }))
     await run(link('mo-ash', 'quiet-evening', 'wrote', '', '', { note: 'velvet-secret' }))
