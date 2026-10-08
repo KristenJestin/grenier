@@ -59,9 +59,37 @@ grenier service uninstall --purge   # nothing stays
 npm rm -g @netsirk/grenier
 ```
 
+## Publishing on npm (the owner, once)
+
+Each release from `main` publishes both packages from the `npm` job of
+`.github/workflows/release.yml`, after `scripts/prove-package.sh` has installed them and seen
+`/health` answer with the release's version. The job publishes through npm's **trusted
+publishing**: GitHub Actions proves who it is (OIDC), npm checks it against the publisher set on
+each package, and the packages carry provenance. No token is stored. On npmjs.com, once:
+
+1. **The scope.** Sign in as the account that owns `@netsirk` (or create the organisation
+   `netsirk`); turn on two-factor authentication.
+2. **The first publication, by hand.** A trusted publisher is set on a package that exists, so
+   the very first version of each is published from your machine: build the tarballs from the
+   release tag (`git checkout v<version>`, then `bun scripts/pack.ts <version> /tmp/npm` in
+   `apps/server`), prove them (`scripts/prove-package.sh <version> /tmp/npm`), then
+   `npm login` and `npm publish /tmp/npm/netsirk-grenier-linux-x64-<version>.tgz --access public`
+   followed by `npm publish /tmp/npm/netsirk-grenier-<version>.tgz --access public`, in that
+   order. A re-run of the release job then skips these versions.
+3. **The trusted publisher, on each package** (`@netsirk/grenier-linux-x64`, then
+   `@netsirk/grenier`): *Settings → Trusted publishing → GitHub Actions*, with the owner
+   `KristenJestin`, the repository `grenier`, the workflow `release.yml`, and no environment.
+4. **No token afterwards.** In *Settings → Publishing access*, choose "Require two-factor
+   authentication and disallow tokens": only the trusted publisher publishes from then on.
+
+A failed `npm` job says so in the run of the release. It never leaves the launcher without its
+executable: the executable is published first, and the launcher only once npm shows it. Run it
+again from the run's page: what is on npm already is skipped.
+
 ## For a developer
 
 `bun scripts/pack.ts <version> <folder>`, in `apps/server`, compiles the executable
 (`bun build --compile`), lays it beside its migrations in `@netsirk/grenier-linux-x64`, and packs
 that package and the launcher `@netsirk/grenier` into `folder`; `npm i -g <both tarballs>` installs
-them as the registry would. The release workflow publishes both with each version.
+them as the registry would; `scripts/prove-package.sh <version> <folder>` checks that they install
+and serve. The release workflow publishes both with each version.
