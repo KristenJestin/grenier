@@ -541,14 +541,18 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
-  const twice = ids.find((id, index) => ids.indexOf(id) !== index)
-  if (twice !== undefined)
-    return yield* new Refused({ message: `Give each item once: \`${twice}\` comes twice.` })
+  // An id in any case names the item it names in lower case, as PostgreSQL reads it.
+  const canonical = ids.map((id) => id.toLowerCase())
+  const twice = canonical.findIndex((id, index) => canonical.indexOf(id) !== index)
+  if (twice !== -1)
+    return yield* new Refused({
+      message: `Give each item once: \`${ids[twice] ?? ''}\` comes twice.`,
+    })
   return yield* client.withTransaction(
     Effect.gen(function* () {
       // Locked in one order whatever the order given: two agents taking the same items never
       // wait for each other in a circle. Answered in the order given.
-      const found = yield* Effect.forEach(ids.toSorted(), (id) =>
+      const found = yield* Effect.forEach(canonical.toSorted(), (id) =>
         lockedItem(id).pipe(
           Effect.flatMap((item) => {
             const refused = refusalFor(item, actor)
@@ -568,7 +572,7 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
         .where(inArray(inbox.id, taken))
       const read = yield* items(db.select(FULL).from(inbox).where(inArray(inbox.id, taken)))
       return yield* Effect.forEach(
-        ids.flatMap((id) => read.filter((item) => item.id === id)),
+        canonical.flatMap((id) => read.filter((item) => item.id === id)),
         asRead,
       )
     }),
@@ -637,13 +641,17 @@ export const finishItem = Effect.fn('finishItem')(function* (input: FinishInput)
           return yield* identityOf(written)
         }),
       )
+      // Each named by its slug, as in `entries`, whatever name the caller gave.
       const media = yield* Effect.forEach(
-        named.flatMap((given) => ('attach' in given ? [given] : [])),
-        ({ entry, attach }) =>
-          Effect.map(attachMedia({ entry, item: item.id, ...attach }), ({ media: medium }) => ({
-            entry,
-            medium,
-          })),
+        named.flatMap((given, index) => {
+          const slug = entries[index]?.slug
+          return 'attach' in given && slug !== undefined ? [{ ...given, slug }] : []
+        }),
+        ({ slug, attach }) =>
+          Effect.map(
+            attachMedia({ entry: slug, item: item.id, ...attach }),
+            ({ media: medium }) => ({ entry: slug, medium }),
+          ),
       )
       yield* db
         .update(inbox)

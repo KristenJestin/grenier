@@ -173,6 +173,8 @@ describe('diagnostics over HTTP', () => {
 
   test('a forced defect writes one line to standard error with the stack, diagnostics on or off', async () => {
     const { database, base, secret, errors } = server(off)
+    // Only what the server writes from here: a line of an earlier request may still be arriving.
+    const from = errors().length
     await database.runPromise(renameTable('types', 'types_gone'))
     try {
       await fetch(`${base}/api/types`, { headers: { authorization: `Bearer ${secret}` } })
@@ -181,6 +183,7 @@ describe('diagnostics over HTTP', () => {
     }
     const logged = async (tries: number): Promise<ReadonlyArray<string>> => {
       const lines = errors()
+        .slice(from)
         .split('\n')
         .filter((line) => line.includes('types_gone') || line.includes('"place":"GET /api/types"'))
       if (lines.length > 0 || tries === 0) return lines

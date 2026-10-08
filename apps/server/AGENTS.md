@@ -16,6 +16,12 @@ Effect is written: in `apps/server` (`src/core`, `src/mcp`, `src/export`, the HT
   SQL statements for what it does not express exactly (recursive tree walks with their cycle
   guard, weighted full-text search, row and advisory locks). Rows cross into the domain through
   the core's schemas. No `pg` driver.
+- A write takes its locks in one order, so two writes never wait for each other in a circle:
+  first the advisory locks (the tree lock of a move, then every slug it cites, creates, renames
+  or aliases, sorted, through `lockReferences`), then the rows of the types, then the rows of the
+  entries in the order of their ids. A slug lock taken after a row lock is a deadlock waiting for
+  its second writer; a test with two transactions forced to interleave (`whileLocked`) proves an
+  order.
 - A schema change is a change of `schema.ts`, then `bun run db:generate` in `apps/server`:
   drizzle-kit writes the migration under `src/core/database/migrations/`; review it, commit both.
   A test fails when the schema and the migrations differ. Migrations run when the server, the

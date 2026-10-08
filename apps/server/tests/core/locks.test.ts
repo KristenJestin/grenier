@@ -2,7 +2,7 @@ import { Effect, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
-import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { readEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
 import {
   addToInbox,
   finishItem,
@@ -203,6 +203,46 @@ describe('references and renames at the same moment', () => {
   })
 })
 
+describe('slug locks come before row locks: concurrent writes never deadlock', () => {
+  // Held while both writes start: each takes what it takes before the type, then waits for it.
+  const holdingType = execute("SELECT 1 FROM types WHERE name = 'note' FOR UPDATE")
+
+  test('two entries created at once, each citing the other, are both written and linked', async () => {
+    const ended = await run(
+      whileLocked(holdingType, [
+        Effect.asVoid(writeEntry({ type: 'note', title: 'Alder', body: 'Beside [[birch]].' })),
+        Effect.asVoid(writeEntry({ type: 'note', title: 'Birch', body: 'Beside [[alder]].' })),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    expect((await run(readEntry('alder'))).links.map(({ slug }) => slug)).toEqual(['birch'])
+    expect((await run(readEntry('birch'))).links.map(({ slug }) => slug)).toEqual(['alder'])
+  })
+
+  test('an alias added while the same entry gets a body citing it: both written', async () => {
+    await run(writeEntry({ type: 'note', title: 'Hornbeam' }))
+    const ended = await run(
+      whileLocked(holdingType, [
+        Effect.asVoid(writeEntry({ entry: 'hornbeam', aliases: ['charmille'] })),
+        Effect.asVoid(writeEntry({ entry: 'hornbeam', body: 'Also [[charmille]].' })),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+  })
+
+  test('a batch that leaves a body as it is, while the entry it cites is renamed: both written', async () => {
+    await run(writeEntry({ type: 'note', title: 'Rowan' }))
+    await run(writeEntry({ type: 'note', title: 'Berries', body: 'Of [[rowan]].' }))
+    const ended = await run(
+      whileLocked(holdingType, [
+        Effect.asVoid(writeEntries([{ entry: 'berries', summary: 'Red ones.' }])),
+        Effect.asVoid(writeEntry({ entry: 'rowan', slug: 'rowan-tree' })),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+  })
+})
+
 describe('several inbox items taken at once', () => {
   test('two agents taking the same items in two orders never wait for each other in a circle', async () => {
     const [a, b] = await run(
@@ -228,6 +268,15 @@ describe('several inbox items taken at once', () => {
     )
     const refused = await run(Effect.flip(takeItems([id, id])))
     expect(refused.message).toBe(`Give each item once: \`${id}\` comes twice.`)
+  })
+
+  test('an id in upper case takes its item and answers it; the same id in two cases is twice', async () => {
+    const id = await run(
+      Effect.map(addToInbox({ kind: 'text', text: 'Shout.' }), (item) => item.id),
+    )
+    const refused = await run(Effect.flip(takeItems([id, id.toUpperCase()])))
+    expect(refused.message).toBe(`Give each item once: \`${id.toUpperCase()}\` comes twice.`)
+    expect(await run(takeItems([id.toUpperCase()]))).toMatchObject([{ id, status: 'taken' }])
   })
 
   test('a long text is cut between characters, never inside one', async () => {
