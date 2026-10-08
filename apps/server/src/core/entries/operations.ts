@@ -125,6 +125,37 @@ export const visibleOf = Effect.fn('visibleOf')(function* (reference: string) {
   return row === undefined || (yield* sensitivity).hidesType(row.type) ? undefined : row
 })
 
+const typedNames = rowsOf(
+  Schema.Struct({ id: Schema.String, slug: Schema.String, type: Schema.String }),
+)
+
+/**
+ * The type of each entry these references name, by slug or id, in one read: those the caller may
+ * not see, and names of no entry, are absent.
+ */
+export const visibleTypesOf = Effect.fn('visibleTypesOf')(function* (
+  references: ReadonlyArray<string>,
+) {
+  const wanted = [...new Set(references)]
+  if (wanted.length === 0) return new Map<string, string>()
+  const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
+  const rows = yield* typedNames(
+    db
+      .select({ id: table.id, slug: table.slug, type: table.type })
+      .from(table)
+      .where(or(inArray(table.slug, wanted), inArray(sql`${table.id}::text`, wanted))),
+  )
+  return new Map(
+    rows
+      .filter(({ type }) => !hidesType(type))
+      .flatMap(({ id, slug, type }) => [
+        [id, type],
+        [slug, type],
+      ]),
+  )
+})
+
 /** Names in a sentence: `a`, `a` or `b`, `a`, `b` or `c`. */
 export const eitherOf = (names: ReadonlyArray<string>) =>
   names
