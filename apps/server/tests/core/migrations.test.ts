@@ -286,7 +286,7 @@ describe('references left waiting by an old race are resolved', () => {
           (${citing?.id ?? ''}::uuid, 'cited'), (${citing?.id ?? ''}::uuid, 'also-cited'),
           (${citing?.id ?? ''}::uuid, 'nobody')`
         yield* sql`DELETE FROM drizzle.__drizzle_migrations
-          WHERE id = (SELECT max(id) FROM drizzle.__drizzle_migrations)`
+          WHERE name = '20261008075945_resolve_stale_pending'`
         yield* migrate
         return [
           yield* ids(sql`SELECT target_id::text AS id FROM links WHERE relation = 'mentions'`),

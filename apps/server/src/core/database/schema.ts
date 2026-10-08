@@ -95,6 +95,8 @@ export const entries = pgTable(
     valid_until: date({ mode: 'string' }),
     superseded_by: uuid(),
     archived_at: timestamp(at),
+    // Why it was archived, in a few words, when the archive said it.
+    archived_reason: text(),
     search_language: regconfig()
       .notNull()
       .default(sql`'simple'`),

@@ -73,6 +73,7 @@ const COLUMNS = {
   valid_until: table.valid_until,
   superseded_by: table.superseded_by,
   archived_at: table.archived_at,
+  archived_reason: table.archived_reason,
 }
 
 /** The entry named by its slug or its id, given as text so that any text may name none. */
@@ -558,6 +559,7 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   valid_until: base.valid_until,
   superseded_by: base.superseded_by,
   archived_at: base.archived_at,
+  archived_reason: base.archived_reason,
   // Kept as the database keeps them: an entry by its id.
   sources: base.sources.map((source): SourceKept => {
     if (!('entry' in source)) return source
@@ -1013,6 +1015,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
               sources,
               superseded_by: supersededBy,
               archived_at: existing?.archived_at ?? null,
+              archived_reason: existing?.archived_reason ?? null,
             }),
           ),
           ...redating,
@@ -1166,8 +1169,14 @@ const rewriteReferences = Effect.fn('rewriteReferences')(function* (
   )
 })
 
-/** Archives an entry: it stays in place, keeps its slug, and leaves the default views. */
-export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: string) {
+/**
+ * Archives an entry: it stays in place, keeps its slug, and leaves the default views. A short
+ * `reason` says why, read with `archived_at`, so that no one takes the archive for a mistake.
+ */
+export const archiveEntry = Effect.fn('archiveEntry')(function* (
+  reference: string,
+  reason?: string,
+) {
   const client = yield* SqlClient.SqlClient
   const db = yield* drizzle
   const actor = yield* currentActor
@@ -1177,7 +1186,7 @@ export const archiveEntry = Effect.fn('archiveEntry')(function* (reference: stri
       if (entry.archived_at !== null) return entry
       yield* db
         .update(table)
-        .set({ archived_at: sql`now()`, updated: sql`now()` })
+        .set({ archived_at: sql`now()`, archived_reason: reason ?? null, updated: sql`now()` })
         .where(eq(table.id, entry.id))
       const archived = yield* findEntry(entry.id)
       yield* recordEvent(

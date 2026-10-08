@@ -110,6 +110,7 @@ const snapshot = Effect.gen(function* () {
         valid_until: entries.valid_until,
         superseded_by: entries.superseded_by,
         archived_at: entries.archived_at,
+        archived_reason: entries.archived_reason,
       })
       .from(entries)
       .orderBy(asc(entries.slug)),
@@ -175,6 +176,7 @@ const snapshot = Effect.gen(function* () {
         superseded_by: slugOf(entry.superseded_by),
         verified: entry.verified,
         archived_at: entry.archived_at?.toISOString() ?? null,
+        archived_reason: entry.archived_reason,
         sources: entry.sources.map((source) =>
           sorted(
             'entry' in source && leftOut.has(source.entry) ? { ...source, entry: HIDDEN } : source,

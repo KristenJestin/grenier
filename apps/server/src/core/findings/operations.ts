@@ -128,7 +128,7 @@ const worst = (
 ): (typeof SEVERITIES)[number] =>
   SEVERITIES.indexOf(left) <= SEVERITIES.indexOf(right) ? left : right
 
-/** What a reporter says of a finding open at the same kind and place, once it has seen it. */
+/** What a reporter says of a finding open at the same place, once it has seen it. */
 export type ReportChoice = {
   /** The number of the open finding this report is one more occurrence of. */
   readonly same_as?: number | undefined
@@ -138,9 +138,10 @@ export type ReportChoice = {
 
 /**
  * Records a report: one more occurrence of the finding of the same kind and place whose title is
- * similar enough, or of the one `same_as` names, or a new finding. When the title matches none
- * but an agent's report has the kind and place of open findings, nothing is written: the answer
- * names them (`same_place`), and the agent reports again with `same_as` or `new`. The occurrence
+ * similar enough, or of the one `same_as` names at that place, or a new finding. When the title
+ * matches none but open findings exist at the place of an agent's report, of any kind, nothing is
+ * written: the answer names them (`same_place`), and the agent reports again with `same_as` or
+ * `new`. The occurrence
  * keeps what was reported, and what the server adds: the instance, its version and commit, the
  * current actor's key, and the call it is about, its arguments masked and cut short. Reports are
  * recorded one at a time, so two at once never make the same finding twice.
@@ -164,13 +165,7 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         db
           .select(FINDING)
           .from(findings)
-          .where(
-            and(
-              eq(findings.kind, report.kind),
-              eq(findings.place, report.place),
-              isNull(findings.merged_into),
-            ),
-          )
+          .where(and(eq(findings.place, report.place), isNull(findings.merged_into)))
           .orderBy(asc(findings.number)),
       )
       const named =
@@ -186,11 +181,16 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
         return yield* new Refused({
           message: `There is no open finding ${choice.same_as}: read \`grenier_reports\`.`,
         })
-      if (named !== undefined && (named.kind !== report.kind || named.place !== report.place))
+      // One problem may be seen as slow by one agent and as a bug by another: a place, not a
+      // kind, is what a report joins.
+      if (named !== undefined && named.place !== report.place)
         return yield* new Refused({
-          message: `The finding ${named.number} is of another kind or place: report this one with \`new: true\`.`,
+          message: `The finding ${named.number} is at another place: report this one with \`new: true\`.`,
         })
+      // A title alone joins a finding of the same kind; any other open one at the place is
+      // listed for the agent to choose.
       const [similar] = candidates
+        .filter(({ kind }) => kind === report.kind)
         .map((finding) => ({ finding, similarity: titleSimilarity(finding.title, report.title) }))
         .filter(({ similarity }) => similarity >= SIMILAR)
         .toSorted((left, right) => right.similarity - left.similarity)

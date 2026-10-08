@@ -86,20 +86,22 @@ describe('a report becomes a finding, or one more occurrence of it', () => {
     expect(again.finding).toMatchObject({ number: 1, occurrences: 3, severity: 'blocks' })
   })
 
-  test('the same title at another place, or of another kind, is another finding', async () => {
+  test('the same title at another place, or of another kind once the reporter says so, is another finding', async () => {
     const elsewhere = await run(
       reportFinding(report('The write tool refuses a valid date', { place: 'write_many' })),
     )
     expect(elsewhere).toMatchObject({ new: true, finding: { number: 2 } })
-    const slow = await run(
-      reportFinding(report('The write tool refuses a valid date', { kind: 'slow' })),
-    )
+    const slowly = report('The write tool refuses a valid date', { kind: 'slow' })
+    // Open findings at its place, of another kind: listed first.
+    expect(await run(reportFinding(slowly))).toMatchObject({ same_place: [{ number: 1 }] })
+    const slow = await run(reportFinding(slowly, undefined, 'agent', { new: true }))
     expect(slow).toMatchObject({ new: true, finding: { number: 3 } })
   })
 
   test('a title less than half similar, at the same kind and place, is another finding once the reporter says so', async () => {
     const asked = await run(reportFinding(report('Archived children vanish from the tree')))
-    expect(asked).toMatchObject({ same_place: [{ number: 1 }] })
+    // Every open finding at its place, whatever its kind.
+    expect(asked).toMatchObject({ same_place: [{ number: 1 }, { number: 3, kind: 'slow' }] })
     const other = await run(
       reportFinding(report('Archived children vanish from the tree'), undefined, 'agent', {
         new: true,
@@ -430,8 +432,33 @@ describe('reports and merges keep findings apart where they differ', () => {
     place,
   })
 
-  test('same_as naming a finding of another kind or place is refused', async () => {
-    const first = recordedOf(await run(reportFinding(at('search', 'Search takes seconds'))))
+  test('a report at a place with open findings of another kind lists them first; same_as joins one', async () => {
+    const slow = recordedOf(
+      await run(reportFinding(at('tree', 'The tree answers too much to read'))),
+    )
+    const asked = await run(reportFinding({ ...report('A long tree is cut off'), place: 'tree' }))
+    expect(asked).toMatchObject({
+      same_place: [
+        { number: slow.finding.number, kind: 'slow', title: 'The tree answers too much to read' },
+      ],
+    })
+    const joined = recordedOf(
+      await run(
+        reportFinding({ ...report('A long tree is cut off'), place: 'tree' }, undefined, 'agent', {
+          same_as: slow.finding.number,
+        }),
+      ),
+    )
+    expect(joined.finding).toMatchObject({ number: slow.finding.number, occurrences: 2 })
+  })
+
+  test('same_as naming a finding of another place is refused', async () => {
+    // The server's defects at the same places are open: each of these is another problem.
+    const first = recordedOf(
+      await run(
+        reportFinding(at('search', 'Search takes seconds'), undefined, 'agent', { new: true }),
+      ),
+    )
     const refused = await run(
       Effect.flip(
         reportFinding(at('briefing', 'Briefing takes seconds'), undefined, 'agent', {
@@ -440,12 +467,16 @@ describe('reports and merges keep findings apart where they differ', () => {
       ),
     )
     expect(refused.message).toBe(
-      `The finding ${first.finding.number} is of another kind or place: report this one with \`new: true\`.`,
+      `The finding ${first.finding.number} is at another place: report this one with \`new: true\`.`,
     )
   })
 
   test('a merge into itself, of a merged finding, or into one is refused', async () => {
-    const one = recordedOf(await run(reportFinding(at('upcoming', 'Upcoming takes seconds'))))
+    const one = recordedOf(
+      await run(
+        reportFinding(at('upcoming', 'Upcoming takes seconds'), undefined, 'agent', { new: true }),
+      ),
+    )
     const two = recordedOf(
       await run(
         reportFinding(at('upcoming', 'The window of dates is slow'), undefined, 'agent', {

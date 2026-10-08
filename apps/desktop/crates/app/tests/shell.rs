@@ -23,7 +23,7 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
             "parent_id": parent, "fields": {}, "provenance": {}, "sources": [], "body": body,
             "summary": "", "verified": true, "created": "2026-09-01T08:00:00.000Z",
             "updated": "2026-10-01T08:00:00.000Z", "valid_from": null, "valid_until": null,
-            "superseded_by": null, "archived_at": null
+            "superseded_by": null, "archived_at": null, "archived_reason": null
         },
         "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
         "hidden_children": 0, "cited_by": [], "titles": {}

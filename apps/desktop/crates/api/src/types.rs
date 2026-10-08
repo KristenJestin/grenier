@@ -92,6 +92,8 @@ pub struct Entry {
     pub aliases: ::std::vec::Vec<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub archived_at: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub archived_reason: ::std::option::Option<::std::string::String>,
     pub body: ::std::string::String,
     pub created: ::std::string::String,
     pub fields: ::serde_json::Map<::std::string::String, ::serde_json::Value>,

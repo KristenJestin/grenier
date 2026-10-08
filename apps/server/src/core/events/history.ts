@@ -1,4 +1,4 @@
-import { Effect, Schema } from 'effect'
+import { Effect, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { findEntry } from '../entries/operations.ts'
@@ -27,6 +27,9 @@ export const FieldChange = Schema.Struct({
 export type FieldChange = typeof FieldChange.Type
 
 const events = rowsOf(Event)
+/** An event or a change with its place in the log, for pages. */
+const sequenced = rowsOf(Schema.Struct({ ...Event.fields, seq: Schema.Number }))
+const sequencedChanges = rowsOf(Schema.Struct({ ...FieldChange.fields, seq: Schema.Number }))
 
 /** The values a change holds, before and after. */
 const valuesOf = ({
@@ -36,7 +39,6 @@ const valuesOf = ({
   readonly before: Schema.Json
   readonly after: Schema.Json
 }) => [before, after]
-const fieldChanges = rowsOf(FieldChange)
 const names = rowsOf(Schema.Struct({ name: Schema.String }))
 
 /** The time of an event, in ISO 8601 and UTC. */
@@ -129,20 +131,21 @@ const ofHiddenLink = (
   change.field.startsWith('links.') &&
   (holdsHidden(change.before, hidden) || holdsHidden(change.after, hidden))
 
-/** Every write of an entry, oldest first. */
-export const entryHistory = Effect.fn('entryHistory')(function* (reference: string) {
+/** Every write of an entry, oldest first, each with its place in the log. */
+const eventsOf = Effect.fn('eventsOf')(function* (reference: string) {
   const sql = yield* SqlClient.SqlClient
   const { id, type } = yield* findEntry(reference)
   const hides = yield* maskingOf(id, type)
-  const written = yield* events(sql`SELECT ${sql.literal(AT)}, actor, action, changes FROM events
-    WHERE entry_id = ${id}::uuid ORDER BY id`)
+  const written = yield* sequenced(sql`SELECT ${sql.literal(AT)}, actor, action, changes,
+    id::float8 AS seq FROM events WHERE entry_id = ${id}::uuid ORDER BY id`)
   const hidden = yield* hiddenIn(written.flatMap(({ changes }) => changes.flatMap(valuesOf)))
   // A write that only linked an entry the caller may not see is not told at all.
-  return written.flatMap(({ at, actor, action, changes }) => {
+  return written.flatMap(({ at, actor, action, changes, seq }) => {
     const told = changes.filter((change) => !ofHiddenLink(change, hidden))
     if (told.length === 0 && changes.length > 0) return []
     return [
       {
+        seq,
         at,
         actor,
         action,
@@ -160,16 +163,24 @@ export const entryHistory = Effect.fn('entryHistory')(function* (reference: stri
   })
 })
 
-/**
- * The changes of one field of an entry, oldest first: `title`, `parent_id`, `fields.provider`…
- * The value an entry was created with is the `before` of the first change.
- */
-export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: string, field: string) {
+/** Every write of an entry, oldest first. */
+export const entryHistory = Effect.fn('entryHistory')(function* (reference: string) {
+  return (yield* eventsOf(reference)).map(({ at, actor, action, changes }) => ({
+    at,
+    actor,
+    action,
+    changes,
+  }))
+})
+
+/** The changes of one field of an entry, oldest first, each with its place in the log. */
+const fieldChangesOf = Effect.fn('fieldChangesOf')(function* (reference: string, field: string) {
   const sql = yield* SqlClient.SqlClient
   const { id, type } = yield* findEntry(reference)
   const hides = yield* maskingOf(id, type)
-  const changes = yield* fieldChanges(sql`
-    SELECT ${sql.literal(AT)}, e.actor, c.change -> 'before' AS before, c.change -> 'after' AS after
+  const changes = yield* sequencedChanges(sql`
+    SELECT ${sql.literal(AT)}, e.actor, c.change -> 'before' AS before, c.change -> 'after' AS after,
+      e.id::float8 AS seq
     FROM events e, jsonb_array_elements(e.changes) AS c(change)
     WHERE e.entry_id = ${id}::uuid AND e.action <> 'create' AND c.change ->> 'field' = ${field}
     ORDER BY e.id`)
@@ -178,12 +189,86 @@ export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: stri
   const hidden = yield* hiddenIn(changes.flatMap(valuesOf))
   return changes
     .filter(({ before, after }) => !ofHiddenLink({ field, before, after }, hidden))
-    .map(({ at, actor, before, after }) => ({
+    .map(({ seq, at, actor, before, after }) => ({
+      seq,
       at,
       actor,
       before: withoutHidden(before, hidden),
       after: withoutHidden(after, hidden),
     }))
+})
+
+/** A change of a field as it is answered, without its place in the log. */
+const withoutSeq = (change: FieldChange & { readonly seq: number }): FieldChange => ({
+  at: change.at,
+  actor: change.actor,
+  before: change.before,
+  after: change.after,
+})
+
+/**
+ * The changes of one field of an entry, oldest first: `title`, `parent_id`, `fields.provider`…
+ * The value an entry was created with is the `before` of the first change.
+ */
+export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: string, field: string) {
+  return (yield* fieldChangesOf(reference, field)).map(withoutSeq)
+})
+
+/** A page of a history: how many, and where the page before ended. */
+export type Page = { readonly limit?: number | undefined; readonly cursor?: string | undefined }
+
+/** A text longer than this is given by its size and an excerpt in a page of a whole history. */
+const LONG_TEXT = 500
+const EXCERPT = 200
+
+/** A value as a page of a whole history gives it: a long text by its size and an excerpt. */
+const shortened = (value: Schema.Json): Schema.Json =>
+  Predicate.isString(value) && value.length > LONG_TEXT
+    ? { size: value.length, excerpt: `${value.slice(0, EXCERPT)}…` }
+    : value
+
+/** The items of a page, newest first, and the cursor of the next page (`null` at the end). */
+const pageOf = <T extends { readonly seq: number }>(all: ReadonlyArray<T>, page: Page) => {
+  const limit = Math.min(Math.max(page.limit ?? 20, 1), 100)
+  const before = page.cursor === undefined ? Infinity : Number(page.cursor)
+  const older = all.filter(({ seq }) => seq < before).toReversed()
+  const shown = older.slice(0, limit)
+  const last = shown.at(-1)
+  return {
+    items: shown,
+    next_cursor: older.length > limit && last !== undefined ? String(last.seq) : null,
+  }
+}
+
+/**
+ * The writes of an entry a page at a time, newest first: long texts (a body) by their size and
+ * an excerpt, which `fieldHistoryPage` gives whole.
+ */
+export const historyPage = Effect.fn('historyPage')(function* (reference: string, page: Page) {
+  const { items, next_cursor } = pageOf(yield* eventsOf(reference), page)
+  return {
+    events: items.map(({ at, actor, action, changes }) => ({
+      at,
+      actor,
+      action,
+      changes: changes.map(({ field, before, after }) => ({
+        field,
+        before: shortened(before),
+        after: shortened(after),
+      })),
+    })),
+    next_cursor,
+  }
+})
+
+/** The changes of one field of an entry, whole, a page at a time, newest first. */
+export const fieldHistoryPage = Effect.fn('fieldHistoryPage')(function* (
+  reference: string,
+  field: string,
+  page: Page,
+) {
+  const { items, next_cursor } = pageOf(yield* fieldChangesOf(reference, field), page)
+  return { changes: items.map(withoutSeq), next_cursor }
 })
 
 /** Every change of a type, oldest first; a deleted or merged type keeps its history. */

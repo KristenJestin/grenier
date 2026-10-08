@@ -414,10 +414,11 @@ do, what happened, what it expected, the steps), and what the server adds (the i
 version and commit, the key, the time, and the tool call the report names, its arguments masked
 as for a key without the right `sensitive` and cut to 300 characters). A report is one more
 occurrence of the finding of the same kind and place whose title shares at least half of its
-words (lowercased, without punctuation or common English words). When none does but findings of
-that kind and place are open, an agent's report is not recorded yet: the answer names them, and
-the agent reports again with `same_as: <number>` (one more occurrence of it) or `new: true` (a
-finding of its own), since two agents describe one problem in different words, and only they can
+words (lowercased, without punctuation or common English words). When none does but findings
+are open at that place, of any kind (one agent sees as slow what another sees as a bug), an
+agent's report is not recorded yet: the answer names them, and the agent reports again with
+`same_as: <number>` (one more occurrence of it, at that place) or `new: true` (a finding of its
+own), since two agents describe one problem in different words, and only they can
 tell two problems of one tool apart. `grenier_reports` filters by place and kind, to check before
 reporting. The owner merges two findings of one problem with `findings:merge <into> <from>`: the
 occurrences move, and the merged finding is closed.

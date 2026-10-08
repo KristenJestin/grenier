@@ -15,7 +15,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
         "aliases": [], "tags": [], "parent_id": null, "fields": {}, "provenance": {},
         "sources": [], "body": "", "summary": "", "verified": true,
         "created": "2026-09-01T08:00:00.000Z", "updated": "2026-10-01T08:00:00.000Z",
-        "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null
+        "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null, "archived_reason": null
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
         base.extend(extra);

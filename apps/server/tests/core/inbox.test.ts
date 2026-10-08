@@ -215,6 +215,8 @@ describe('an item that comes again says what it gave before', () => {
         received_at: first.received_at,
         closed_at: expect.any(String),
         status: 'processed',
+        // Its text changed since: an agent compares what it says.
+        same_content: false,
         entries: [await run(identity('rose-pruning')), await run(identity('rose-varieties'))],
       },
     ]
@@ -240,10 +242,20 @@ describe('an item that comes again says what it gave before', () => {
         received_at: first.received_at,
         closed_at: expect.any(String),
         status: 'dismissed',
+        // The same text: only what the types and rules ask now is to compare.
+        same_content: true,
         entries: [],
       },
     ])
     expect(other?.earlier).toEqual([])
+  })
+
+  test('one unknown id among several refuses the take, naming it', async () => {
+    const item = await run(as('agent-one')(addToInbox({ kind: 'text', text: 'Moss.' })))
+    const missing = '01a00000-0000-7000-8000-000000000000'
+    const refused = await run(Effect.flip(as('agent-one')(takeItems([item.id, missing]))))
+    expect(refused.message).toBe(`There is no item \`${missing}\`.`)
+    expect((await run(peekItem(item.id))).status).toBe('pending')
   })
 
   test('an item with no earlier match gets none', async () => {

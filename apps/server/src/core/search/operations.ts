@@ -2,7 +2,7 @@ import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { SEARCHABLE } from '../database/schema.ts'
-import { findEntry, pathOf, TREE_DEPTH } from '../entries/operations.ts'
+import { findEntry, pathOf, slugOf, TREE_DEPTH } from '../entries/operations.ts'
 import { sensitivity } from '../sensitive.ts'
 import { searchConfiguration } from './language.ts'
 import { SearchResult } from '@grenier/api/model'
@@ -15,7 +15,8 @@ const HEADLINE = 'StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=12, Ma
 
 /**
  * Finds entries by their text: titles and aliases weigh most, then tags and summaries, then
- * bodies. Archived entries are left out unless asked for; `under` keeps only the descendants of
+ * bodies; a query made of the words of an entry's slug ranks it first. Archived entries are left
+ * out unless asked for; `under` keeps only the descendants of
  * an entry. Accents do not matter.
  */
 export const search = Effect.fn('search')(function* (query: string, options: SearchOptions = {}) {
@@ -57,7 +58,11 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
       ts_headline(${configuration}::regconfig,
         concat_ws(' — ', e.title, nullif(e.summary, ''), nullif(e.body, '')), query.q,
         ${HEADLINE}) AS excerpt,
-      ts_rank(e.words, query.q)::float8 AS rank
+      ts_rank(e.words, query.q)::float8 AS rank,
+      -- A query that is the words of a slug, whole and in order, names that entry: those come
+      -- first, the closest slug first.
+      CASE WHEN ('-' || e.slug || '-') LIKE ${`%-${slugOf(query)}-%`}
+        THEN ${slugOf(query).length}::float8 / length(e.slug) ELSE 0 END AS fit
     FROM found e, query
     WHERE (e.words @@ query.q
         -- A URL or an identifier given whole is found as it is, whatever the parser makes of it.
@@ -72,7 +77,7 @@ export const search = Effect.fn('search')(function* (query: string, options: Sea
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})
       AND (${options.archived ?? false} OR e.archived_at IS NULL)
       AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
-    ORDER BY rank DESC, e.title
+    ORDER BY fit DESC, rank DESC, e.title
     LIMIT ${options.limit ?? 20}`)
   return yield* Effect.forEach(rows, (row) =>
     Effect.map(pathOf(row.id), (path): SearchResult => ({ ...row, path })),

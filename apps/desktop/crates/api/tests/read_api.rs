@@ -17,7 +17,7 @@ const ENTRY: &str = r#"{
     ],
     "body": "Bake [[pastry]] first.", "summary": "A plum tart.", "verified": false,
     "created": "2026-10-06T09:00:00.000Z", "updated": "2026-10-06T09:30:00.000Z",
-    "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null
+    "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null, "archived_reason": null
   },
   "path": ["Kitchen"],
   "ancestors": [{ "id": "01a1-kitchen", "title": "Kitchen" }],

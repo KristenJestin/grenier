@@ -106,7 +106,8 @@ describe('an agent works through MCP calls only', () => {
       result: { changes: [{ actor: 'agent-test', before: 'busy', after: 'calm' }] },
     })
     expect(await mcp().call('history', { entry: 'spring-tasks' })).toMatchObject({
-      result: { events: [{ action: 'create' }, { action: 'update' }] },
+      // Newest first, in pages.
+      result: { events: [{ action: 'update' }, { action: 'create' }], next_cursor: null },
     })
   })
 
@@ -252,6 +253,18 @@ describe('an agent works through MCP calls only', () => {
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Friday' })).toEqual({
       error: 'The entry `week` has no heading `Friday`: read its headings first.',
+    })
+  })
+
+  test('read gives only the parts asked for, the entry without its body unless asked', async () => {
+    const { result } = await mcp().call('read', { entry: 'week', parts: ['links', 'media'] })
+    expect(Object.keys(result ?? {}).toSorted()).toEqual(
+      ['backlinks', 'entry', 'heads_up', 'links', 'media'].toSorted(),
+    )
+    expect(JSON.stringify(result)).not.toContain('Rain all day.')
+    expect(result).toMatchObject({ entry: { slug: 'week', title: 'Week' } })
+    expect(await mcp().call('read', { entry: 'week', parts: ['body'] })).toMatchObject({
+      result: { entry: { slug: 'week', body: expect.stringContaining('Rain') } },
     })
   })
 })

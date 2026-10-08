@@ -173,6 +173,7 @@ describe('the nightly export into a git repository', () => {
         superseded_by: null,
         verified: false,
         archived_at: null,
+        archived_reason: null,
         sources: [{ url: 'https://example.org/plum-tart' }],
         fields: { cost: '[hidden]', servings: 4 },
         provenance: {},

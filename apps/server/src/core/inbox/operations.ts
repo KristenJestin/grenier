@@ -348,6 +348,8 @@ const Earlier = Schema.Struct({
   received_at: Schema.String,
   closed_at: Schema.NullOr(Schema.String),
   status: Schema.Literals(['processed', 'dismissed']),
+  /** Whether it held exactly what this item holds: then only what the types ask now differs. */
+  same_content: Schema.Boolean,
 })
 
 const earlierRows = rowsOf(Earlier)
@@ -389,6 +391,9 @@ const earlierOf = Effect.fn('earlierOf')(function* (item: typeof Full.Type) {
           string | null
         >`to_char(${inbox.closed_at} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
         status: inbox.status,
+        same_content: sql<boolean>`${inbox.kind} = ${item.kind}
+          AND ${inbox.content} IS NOT DISTINCT FROM ${item.text ?? item.url}
+          AND ${inbox.sha256} IS NOT DISTINCT FROM ${item.sha256}`,
       })
       .from(inbox)
       .where(
