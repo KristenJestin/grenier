@@ -398,6 +398,29 @@ describe('the server output never carries the values of a failed write', () => {
     expect(line).toContain('insert into')
     expect(line).not.toContain('7-3-9')
   })
+
+  test('a value that looks like a line of the stack is left out with the rest', async () => {
+    // As Drizzle writes a failed query whose text value holds new lines.
+    const cause = Cause.die(
+      new Error(
+        'Failed query: insert into "entries" ("body") values ($1)\nparams: Open it so:\n    at the third hook, turn left\nthen 4-4-1.',
+      ),
+    )
+    const written: Array<string> = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      await run(recordDefect('write', cause))
+    } finally {
+      spy.mockRestore()
+    }
+    const [line = ''] = written
+    expect(line).toContain('insert into')
+    expect(line).not.toContain('4-4-1')
+    expect(line).not.toContain('third hook')
+  })
 })
 
 describe('reports and merges keep findings apart where they differ', () => {

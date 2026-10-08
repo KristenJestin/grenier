@@ -326,8 +326,32 @@ const firstLine = (text: string, length: number) => {
  * `params:`, and a write's values may be sensitive. The text of the query stays, to investigate.
  */
 const withoutParameters = (text: string) =>
-  // Up to the stack that follows, or the end: a value may hold new lines.
-  text.replace(/\nparams: [\s\S]*?(?=\n {4}at |$)/g, '\nparams: [left out]')
+  // To the end of the message: a value may hold new lines, even one that looks like the stack.
+  text.replace(/\nparams: [\s\S]*$/, '\nparams: [left out]')
+
+/** The messages of an error and of the errors under it, the way `Cause.pretty` writes them too. */
+const messagesOf = (value: ReturnType<typeof Cause.squash>): ReadonlyArray<string> =>
+  value instanceof Error
+    ? [
+        value.message,
+        ...messagesOf(Cause.isCause(value.cause) ? Cause.squash(value.cause) : value.cause),
+      ]
+    : []
+
+/** A whole cause as text, each message in it without the values of its query. */
+const prettyWithoutParameters = <E>(cause: Cause.Cause<E>) =>
+  cause.reasons
+    .flatMap((reason) =>
+      Cause.isDieReason(reason)
+        ? messagesOf(reason.defect)
+        : Cause.isFailReason(reason)
+          ? messagesOf(reason.error)
+          : [],
+    )
+    .reduce(
+      (text, message) => text.replaceAll(message, withoutParameters(message)),
+      Cause.pretty(cause),
+    )
 
 /** The tag of a tagged error, such as `SqlError`. */
 const Tagged = Schema.Struct({ _tag: Schema.String })
@@ -383,7 +407,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
         tool: call?.tool ?? null,
         key: key ?? null,
         instance: instance.name,
-        stack: withoutParameters(Cause.pretty(cause)),
+        stack: prettyWithoutParameters(cause),
       })}\n`,
     ),
   )
@@ -397,7 +421,7 @@ export const recordDefect = Effect.fn('recordDefect')(function* <E>(
       trying: call === undefined ? `A request to ${place}.` : `A call of the tool ${call.tool}.`,
       happened: production
         ? 'The server failed unexpectedly; in production, its message and stack are kept only in the server output.'
-        : withoutParameters(Cause.pretty(cause)).slice(0, 4000),
+        : prettyWithoutParameters(cause).slice(0, 4000),
       expected: 'An answer or a refusal, not an unexpected error.',
     },
     call === undefined || !production ? call : { tool: call.tool, arguments: null },
