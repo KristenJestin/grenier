@@ -225,6 +225,28 @@ describe('an entry field names the types it accepts', () => {
   })
 })
 
+describe('an entry named by a field keeps a type the field accepts', () => {
+  test('changing the type of an entry that a field names is refused, naming who names it', async () => {
+    await run(writeEntry({ type: 'organization', title: 'Tin Works' }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Oto Vale',
+        fields: { employer: 'tin-works', bought_from: ['tin-works'] },
+      }),
+    )
+    expect(await run(refusalOf(writeEntry({ entry: 'tin-works', type: 'recipe' })))).toBe(
+      'The entry `tin-works` cannot become a `recipe`: `oto-vale` names it in `fields.bought_from`, which accepts `organization` or `person`; `oto-vale` names it in `fields.employer`, which accepts `organization`.',
+    )
+    // A field that accepts any type does not hold it back.
+    await run(writeEntry({ type: 'organization', title: 'Brass Works' }))
+    await run(
+      writeEntry({ type: 'person', title: 'Pia Vale', fields: { mentors: ['brass-works'] } }),
+    )
+    expect((await run(writeEntry({ entry: 'brass-works', type: 'recipe' }))).type).toBe('recipe')
+  })
+})
+
 describe('a repeated field', () => {
   test('keeps a list in the order given, refuses a duplicate, and `required` refuses an empty list', async () => {
     await run(
