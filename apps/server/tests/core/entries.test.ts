@@ -280,6 +280,23 @@ describe('an archived entry stays in place', () => {
   })
 })
 
+describe('the reason of an archive', () => {
+  test('a new reason given to an entry archived already is recorded, its date kept', async () => {
+    await run(writeEntry({ ...contract, slug: 'oldest-contract' }))
+    const first = await run(archiveEntry('oldest-contract', 'Replaced.'))
+    const again = await run(archiveEntry('oldest-contract', 'Replaced by the 2026 contract.'))
+    expect(again.archived_reason).toBe('Replaced by the 2026 contract.')
+    expect(again.archived_at).toBe(first.archived_at)
+    expect((await run(entryHistory('oldest-contract'))).at(-1)?.changes).toEqual([
+      { field: 'archived_reason', before: 'Replaced.', after: 'Replaced by the 2026 contract.' },
+    ])
+    // Archived again without a reason, it keeps the one it has.
+    expect((await run(archiveEntry('oldest-contract'))).archived_reason).toBe(
+      'Replaced by the 2026 contract.',
+    )
+  })
+})
+
 describe('the tree is listed in one read: every entry with its parent, archived ones left out', () => {
   test('a folder, what it holds, and not what was archived', async () => {
     const garden = await run(writeEntry({ type: 'area', title: 'Garden', slug: 'garden' }))

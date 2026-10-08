@@ -1348,10 +1348,16 @@ export const archiveEntry = Effect.fn('archiveEntry')(function* (
   return yield* client.withTransaction(
     Effect.gen(function* () {
       const entry = yield* findEntry(reference)
-      if (entry.archived_at !== null) return entry
+      // Archived already: a new reason is recorded, its date kept; without one, nothing changes.
+      const archivedAgain = entry.archived_at !== null
+      if (archivedAgain && (reason === undefined || reason === entry.archived_reason)) return entry
       yield* db
         .update(table)
-        .set({ archived_at: sql`now()`, archived_reason: reason ?? null, updated: sql`now()` })
+        .set(
+          archivedAgain
+            ? { archived_reason: reason ?? null, updated: sql`now()` }
+            : { archived_at: sql`now()`, archived_reason: reason ?? null, updated: sql`now()` },
+        )
         .where(eq(table.id, entry.id))
       const archived = yield* findEntry(entry.id)
       yield* recordEvent(
