@@ -51,7 +51,8 @@ export const INBOX_STANDARD = [
   '- A dated text keeps its time: never put names or states of today into what was true at its date.',
   '- To change a few words of a body, use `edits`; never retype a whole body.',
   "- Keep the item's language, unless the instance's rules say otherwise.",
-  '- Leave out a sensitive value this key may not write, and say in the entry that it was left out.',
+  '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
+  '- Cite another entry as `[[slug]]`, never by its title in plain text: the link is kept and follows renames.',
   "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_read` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
 ].join('\n')
 
