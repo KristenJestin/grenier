@@ -758,29 +758,28 @@ type Batch = {
 
 const ALONE: Batch = { coming: new Set(), renamed: new Map(), displaced: new Map() }
 
+/** The slug and the body an entry has before a write, if the write names an entry. */
+const storedOf = Effect.fn('storedOf')(function* (entry: string | undefined) {
+  if (entry === undefined) return undefined
+  const db = yield* drizzle
+  const [stored] = yield* rowsBodies(
+    db.select({ slug: table.slug, body: table.body }).from(table).where(named(entry)),
+  )
+  return stored
+})
+
 /**
- * The slugs a write locks before any row: those its body names, before and after; the entry's own
- * when it is created or renamed; and its aliases. None for a write that touches none of them.
+ * The slugs a write locks before any row: those its body names, before and after, when it changes
+ * the body (a body sent as it is changes nothing it names); the entry's own when it is created or
+ * renamed; and its aliases.
  */
 const slugsLockedBy = Effect.fn('slugsLockedBy')(function* (input: WriteEntryInput) {
-  if (
-    input.entry !== undefined &&
-    input.body === undefined &&
-    input.edits === undefined &&
-    input.slug === undefined &&
-    input.aliases === undefined
-  )
-    return []
-  const db = yield* drizzle
-  const [stored] =
-    input.entry === undefined
-      ? []
-      : yield* rowsBodies(
-          db.select({ slug: table.slug, body: table.body }).from(table).where(named(input.entry)),
-        )
+  const stored = yield* storedOf(input.entry)
+  const bodyChanges =
+    input.edits !== undefined || (input.body !== undefined && input.body !== stored?.body)
   return [
-    ...referencesIn(stored?.body ?? ''),
-    ...referencesIn(input.body ?? ''),
+    ...(bodyChanges ? referencesIn(stored?.body ?? '') : []),
+    ...(bodyChanges ? referencesIn(input.body ?? '') : []),
     ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
     ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
     ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
@@ -1557,6 +1556,8 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
     client.withTransaction(
       Effect.gen(function* () {
         const { planned, order, deferred, known } = yield* planBatch(batch)
+        // The bodies as they are, so that one sent unchanged is not linked again.
+        const before = yield* Effect.forEach(planned, (input) => storedOf(input.entry))
         // Every slug the whole batch locks, sorted, before the row of any of its entries: each
         // write of it takes them again, which a transaction holding them does at once.
         yield* lockReferences(
@@ -1594,14 +1595,9 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
           )
         })
         // The references to entries written later in the batch are linked now that all exist: of
-        // the bodies the batch wrote only, whose slugs their write locked before any row.
+        // the bodies the batch wrote or changed only, whose slugs their write locked before any row.
         yield* Effect.forEach(
-          written.filter((_, index) => {
-            const given = batch[index]
-            return (
-              given?.entry === undefined || given.body !== undefined || given.edits !== undefined
-            )
-          }),
+          written.filter((entry, index) => entry.body !== before[index]?.body),
           (entry) => keepReferences(entry.id, entry.body),
         )
         return written

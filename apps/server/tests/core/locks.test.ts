@@ -1,4 +1,5 @@
-import { Effect, Result } from 'effect'
+import { Deferred, Effect, Fiber, Result } from 'effect'
+import { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
@@ -265,6 +266,40 @@ describe('a batch takes every slug lock before any row lock', () => {
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
     expect((await run(readEntry('pergola'))).links.map(({ slug }) => slug)).toEqual(['wisteria'])
+  })
+})
+
+describe('a body sent as it is changes nothing it names', () => {
+  test('a batch that sends a body unchanged does not wait for the slugs it cites', async () => {
+    await run(writeEntry({ type: 'note', title: 'Arbour', body: 'Beside the [[sundial]].' }))
+    const outcome = await run(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient
+        const held = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        // Another transaction holds the slug the body cites, until the batch is done.
+        const holder = yield* Effect.forkChild(
+          sql.withTransaction(
+            execute(`SELECT pg_advisory_xact_lock(hashtext('grenier.reference sundial'))`).pipe(
+              Effect.andThen(Deferred.succeed(held, undefined)),
+              Effect.andThen(Deferred.await(release)),
+            ),
+          ),
+        )
+        yield* Deferred.await(held)
+        const written = yield* writeEntries([
+          { entry: 'arbour', body: 'Beside the [[sundial]].', summary: 'Shady.' },
+        ]).pipe(
+          Effect.timeout('3 seconds'),
+          Effect.as('written'),
+          Effect.catch(() => Effect.succeed('waited')),
+        )
+        yield* Deferred.succeed(release, undefined)
+        yield* Fiber.join(holder)
+        return written
+      }),
+    )
+    expect(outcome).toBe('written')
   })
 })
 
