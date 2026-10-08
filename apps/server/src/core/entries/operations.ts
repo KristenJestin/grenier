@@ -860,7 +860,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           }
           if (found !== undefined) return found.id
           problems.push(
-            `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
+            coming.has(reference)
+              ? // Only a required field closing a loop is written before the entry it names.
+                `The field \`${field}\` names \`${reference}\`, which this batch writes after it: two required fields cannot name each other in one batch; write one entry first, then the other.`
+              : `The field \`${field}\` must name an existing entry: \`${reference}\` does not exist.`,
           )
           return null
         })
@@ -931,7 +934,13 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
               (held) => 'entry' in held && held.entry === source.entry,
             )
             const id = kept === true ? source.entry : yield* visibleIdOf(source.entry)
-            if (id === undefined)
+            // A slug a new entry of the batch would have had, had it been free, names the old one.
+            const other = kept === true ? undefined : displaced.get(source.entry)
+            if (other !== undefined)
+              problems.push(
+                `The source ${at} names \`${source.entry}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+              )
+            else if (id === undefined)
               problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
             else sources.push({ ...source, entry: id })
           } else if (
