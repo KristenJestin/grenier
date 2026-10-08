@@ -836,6 +836,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           created,
           updated,
           append,
+          prepend,
           edits,
           ...given
         } = input
@@ -844,11 +845,14 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const state = {
           ...base,
           ...given,
-          // A part of a long body, added at the end of what is there; or words changed in place.
+          // A part of a long body, added at the end of what is there, or at the top, one blank line
+          // before it; or words changed in place.
           body:
             append === true
               ? base.body + (given.body ?? '')
-              : (given.body ?? (edits === undefined ? base.body : edited.body)),
+              : prepend === true
+                ? [(given.body ?? '').replace(/\n+$/, ''), base.body].filter(Boolean).join('\n\n')
+                : (given.body ?? (edits === undefined ? base.body : edited.body)),
           fields: withoutNulls({ ...base.fields, ...fields }),
           provenance: withoutNulls({ ...base.provenance, ...provenance }),
         }
@@ -913,8 +917,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
-        if (edits !== undefined && append === true) {
+        if (append === true && prepend === true) {
+          problems.push('Give `append` or `prepend`, not both: one write each.')
+        } else if (edits !== undefined && append === true) {
           problems.push('Give `edits` or `append`, not both: write the edits, then append.')
+        } else if (edits !== undefined && prepend === true) {
+          problems.push('Give `edits` or `prepend`, not both: write the edits, then prepend.')
         } else if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
           problems.push(
             'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',

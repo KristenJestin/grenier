@@ -53,8 +53,10 @@ parent (`parent`) and `superseded_by` by id or slug. An update changes only the 
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
 the `body` given is added at the end of the current body: a body too long for one call (a
 journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
-sees a whole number of parts. With `edits: [{ find, replace }]`, a few words of the body change in
-place: each `find` must match the body, as the edits before it left it, exactly once, or the
+sees a whole number of parts. With `prepend: true`, the `body` given goes at the top, one blank
+line before the current body, in one write: a journal kept newest first, or a "Resume here" that
+comes before the rest; `append` and `prepend` together, or either with `edits`, are refused.
+With `edits: [{ find, replace }]`, a few words of the body change in place: each `find` must match the body, as the edits before it left it, exactly once, or the
 write is refused naming each edit that matches twice or never; all apply in one write and one
 event, so an agent never retypes a long body to change a word.
 
