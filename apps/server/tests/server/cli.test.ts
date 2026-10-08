@@ -270,3 +270,18 @@ describe('links fulfills stored before their period was checked', () => {
     )
   })
 })
+
+describe('the command line says what it takes', () => {
+  test('--help lists every command, and each command its own flags, from effect/cli', () => {
+    const help = cli('--help')
+    for (const name of [
+      'owner:create',
+      'key:create',
+      'inbox:add',
+      'findings:merge',
+      'export:markdown',
+    ])
+      expect(help).toContain(name)
+    expect(cli('key:create', '--help')).toMatch(/--rights[\s\S]*--expires-in-days/)
+  })
+})
