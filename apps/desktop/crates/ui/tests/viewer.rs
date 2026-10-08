@@ -182,3 +182,21 @@ fn the_version_of_the_viewer_stands_beside_the_server(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(cx.debug_bounds("viewer-version").is_some());
 }
+
+#[test]
+fn a_title_in_the_tree_drops_the_beginning_it_shares_with_its_parent() {
+    use ui::viewer::short_title;
+    let parent = Some("Contrats d'entretien");
+    assert_eq!(short_title("Contrats d'entretien : fibre", parent), "fibre");
+    assert_eq!(short_title("contrats d'entretien — box", parent), "box");
+    assert_eq!(
+        short_title("Contrats d'entretien", parent),
+        "Contrats d'entretien"
+    );
+    assert_eq!(
+        short_title("Contrats d'entretienX", parent),
+        "Contrats d'entretienX"
+    );
+    assert_eq!(short_title("Facture d'août", parent), "Facture d'août");
+    assert_eq!(short_title("Facture d'août", None), "Facture d'août");
+}

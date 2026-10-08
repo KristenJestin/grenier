@@ -56,6 +56,46 @@ pub fn set_dark(dark: bool, cx: &mut App) {
     Theme::global_mut(cx).font_family = font::TEXT.into();
 }
 
+/// Which theme the owner chose: the system's, or one of the two.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemeChoice {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeChoice {
+    /// Every choice, in the order the menu shows them.
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark];
+
+    /// The name the configuration keeps it under.
+    pub fn name(self) -> &'static str {
+        match self {
+            ThemeChoice::System => "system",
+            ThemeChoice::Light => "light",
+            ThemeChoice::Dark => "dark",
+        }
+    }
+
+    /// The choice a name keeps; the system's for any other.
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|choice| choice.name() == name)
+            .unwrap_or_default()
+    }
+
+    /// Whether it shows the dark theme, the system being dark or not.
+    pub fn is_dark(self, system_dark: bool) -> bool {
+        match self {
+            ThemeChoice::System => system_dark,
+            ThemeChoice::Light => false,
+            ThemeChoice::Dark => true,
+        }
+    }
+}
+
 /// Whether the application shows the dark theme.
 pub fn is_dark(cx: &App) -> bool {
     Theme::global(cx).mode.is_dark()
@@ -110,6 +150,9 @@ pub mod width {
     pub const READING: Pixels = px(720.);
     /// The sidebar of the tree.
     pub const SIDEBAR: Pixels = px(260.);
+    /// How narrow, and how wide, the sidebar may be dragged.
+    pub const SIDEBAR_MIN: Pixels = px(200.);
+    pub const SIDEBAR_MAX: Pixels = px(560.);
     /// The column of contents beside a page.
     pub const CONTENTS: Pixels = px(220.);
     /// The labels of a list of fields.

@@ -4,7 +4,12 @@ use std::borrow::Cow;
 
 use gpui_kit::{AssetSource, Result, SharedString};
 
-gpui_kit::assets::icon_assets!(Extra, [Hash, Image, Link, List, Tag]);
+gpui_kit::assets::icon_assets!(
+    Extra,
+    [
+        Clock, Hash, Image, Link, List, ListFilter, Monitor, Moon, Sun, Tag, X
+    ]
+);
 
 /// What the application and the gallery load their icons from.
 pub struct Assets;

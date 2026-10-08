@@ -5,9 +5,13 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use api::{EntryList, EntryRead, SearchResult, SearchResults, TreeEntry, TypeDefinition, TypeList};
+use api::{
+    EntryList, EntryRead, HistoryPage, SearchResult, SearchResults, TreeEntry, TypeDefinition,
+    TypeList,
+};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use ui::intent::ListFilter;
 use ui::load::Problem;
 use ui::text as words;
 
@@ -93,6 +97,35 @@ impl Client {
         parameters.extend(type_name.map(|name| ("type", name)));
         self.get::<SearchResults>("/api/search", &parameters)
             .map(|found| found.results)
+    }
+
+    /// The entries a filter keeps, by title, and whether more follow.
+    pub fn list(&self, filter: &ListFilter) -> Result<(Vec<TreeEntry>, bool), Problem> {
+        let mut parameters = Vec::new();
+        if let Some((name, _)) = &filter.type_name {
+            parameters.push(("type", name.to_string()));
+        }
+        if let Some(tag) = &filter.tag {
+            parameters.push(("tag", tag.to_string()));
+        }
+        if filter.unverified {
+            parameters.push(("verified", "false".to_string()));
+        }
+        let pairs: Vec<(&str, &str)> = parameters
+            .iter()
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect();
+        self.get::<EntryList>("/api/entries", &pairs)
+            .map(|list| (list.entries, list.next_cursor.is_some()))
+    }
+
+    /// A page of the history of an entry, newest first, after `cursor` when given.
+    pub fn history(&self, entry: &str, cursor: Option<&str>) -> Result<HistoryPage, Problem> {
+        let query: Vec<(&str, &str)> = cursor
+            .map(|cursor| ("cursor", cursor))
+            .into_iter()
+            .collect();
+        self.get(&format!("/api/entries/{}/history", encoded(entry)), &query)
     }
 
     fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T, Problem> {
