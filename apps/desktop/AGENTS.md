@@ -51,6 +51,21 @@ Linux from the latest release; its tests (`crates/app/tests/update_script.rs`) r
 local fake release server. The launcher and the icon of an archive are in `assets/release/` (the
 icon is provisional).
 
+## When the viewer fails at start
+
+The viewer and the gallery print the errors GPUI logs on standard error; `RUST_LOG` shows more.
+To report a failure at start (a window that never opens, a viewer that quits at once), run it from
+a terminal and keep everything it prints:
+
+```
+RUST_LOG=debug WAYLAND_DEBUG=1 grenier-desktop 2> grenier-desktop.log; echo "exit $?"
+```
+
+`WAYLAND_DEBUG=1` adds the exchange with the Wayland compositor; leave it out on X11. Give the
+log, the exit code, the desktop (compositor, scale) and the graphics card with the report. On
+Windows, a release build has no console: in PowerShell, `$env:RUST_LOG="debug"`, then
+`Start-Process .\grenier-desktop.exe -Wait -RedirectStandardError grenier-desktop.log`.
+
 ## Pointing the viewer at a server
 
 The application reads `grenier/desktop.json` in the system's configuration folder

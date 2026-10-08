@@ -1,5 +1,6 @@
 //! `cargo run -p story [-- --story <name>] [--dark]`: the gallery of the viewer's screens;
-//! `--list` prints the names of the stories and opens nothing.
+//! `--list` prints the names of the stories and opens nothing. Errors are logged on standard
+//! error, and more with `RUST_LOG`.
 
 use gpui_kit::{AppContext as _, WindowOptions};
 use story::Gallery;
@@ -18,6 +19,7 @@ fn main() {
         .and_then(|index| arguments.get(index + 1))
         .cloned();
     let dark = arguments.iter().any(|argument| argument == "--dark");
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error")).init();
     gpui_kit::application()
         .with_assets(ui::assets::Assets)
         .run(move |cx| {
