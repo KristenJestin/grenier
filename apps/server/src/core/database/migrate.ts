@@ -3,13 +3,20 @@ import { migrate as applyMigrations } from 'drizzle-orm/effect-postgres/migrator
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { Effect, Option, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { reindexSearch } from '../search/language.ts'
 import { rowsOf } from './rows.ts'
 import { sqlErrorOf } from './sql-error.ts'
 
-/** The migrations drizzle-kit generated from `schema.ts`, one folder each, in order. */
-const migrationsFolder = fileURLToPath(new URL('migrations', import.meta.url))
+/**
+ * The migrations drizzle-kit generated from `schema.ts`, one folder each, in order: beside this
+ * file, or, in the executable `bun build --compile` makes, in the `migrations` folder beside it.
+ */
+const sources = fileURLToPath(new URL('migrations', import.meta.url))
+const migrationsFolder = sources.startsWith('/$bunfs/')
+  ? join(dirname(process.execPath), 'migrations')
+  : sources
 
 const local = readMigrationFiles({ migrationsFolder })
 

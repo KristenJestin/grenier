@@ -6,6 +6,12 @@ in a small web interface. Nothing is typed in code: types and their fields are d
 Early development. See [`AGENTS.md`](AGENTS.md) for how the repository works and
 [`docs/model.md`](docs/model.md) for the data model.
 
+## Grenier on one machine
+
+`npm i -g @netsirk/grenier`, then `grenier service install`: Grenier runs as a service of your
+session on Linux, with a database of its own, on `127.0.0.1` only. Install, update, uninstall and
+where the data is: [`docs/install.md`](docs/install.md). `grenier --help` lists every command.
+
 ## The desktop viewer
 
 Each release carries the viewer, built for Linux (`grenier-desktop-<version>-linux-x86_64.tar.gz`)

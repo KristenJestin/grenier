@@ -1,7 +1,6 @@
 import { readFileOf } from '../../core/media/files.ts'
 import { Effect, Option, Schema } from 'effect'
 import { McpSchema } from 'effect/ai'
-import sharp from 'sharp'
 
 /** A file an answer of `inbox_take` holds, as far as its content needs it. */
 const Held = Schema.Struct({
@@ -22,12 +21,14 @@ const LONGEST = 1568
 const imageOf = Effect.fn('imageOf')(function* ({ sha256, mime }: typeof Held.Type) {
   if (sha256 === null || mime === null || !mime.startsWith('image/')) return []
   const bytes = yield* readFileOf(sha256)
-  const reduced = yield* Effect.tryPromise(() =>
-    sharp(bytes)
+  // Loaded when an image comes: an executable without its native library still serves the rest.
+  const reduced = yield* Effect.tryPromise(async () => {
+    const { default: sharp } = await import('sharp')
+    return sharp(bytes)
       .resize({ width: LONGEST, height: LONGEST, fit: 'inside', withoutEnlargement: true })
       .png()
-      .toBuffer(),
-  ).pipe(Effect.option)
+      .toBuffer()
+  }).pipe(Effect.option)
   return Option.match(reduced, {
     onNone: () => [],
     onSome: (image) => [

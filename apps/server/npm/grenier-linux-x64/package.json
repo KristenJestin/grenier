@@ -1,0 +1,19 @@
+{
+  "name": "@netsirk/grenier-linux-x64",
+  "version": "0.0.0",
+  "description": "The executable of Grenier for Linux x64, with its migrations and its PostgreSQL.",
+  "license": "UNLICENSED",
+  "repository": "github:KristenJestin/grenier",
+  "files": [
+    "bin"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "dependencies": {
+    "@embedded-postgres/linux-x64": "18.4.0-beta.17"
+  }
+}

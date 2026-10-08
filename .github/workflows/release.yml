@@ -105,3 +105,36 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ARCHIVE: ${{ steps.pack.outputs.archive }}
         run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+
+  # The npm package of the tag: the launcher and the executable of Linux x64, published together
+  # (`npm i -g @netsirk/grenier`). Needs the secret NPM_TOKEN, of an account that owns @netsirk.
+  npm:
+    needs: release
+    if: needs.release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/server
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - name: Pack both packages
+        run: bun scripts/pack.ts "${TAG#v}" "$RUNNER_TEMP/npm"
+      - name: Publish the executable, then the launcher that needs it
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish "$RUNNER_TEMP"/npm/netsirk-grenier-linux-x64-*.tgz --access public
+          npm publish "$RUNNER_TEMP"/npm/netsirk-grenier-[0-9]*.tgz --access public
