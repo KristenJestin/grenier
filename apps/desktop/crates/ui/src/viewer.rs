@@ -207,14 +207,20 @@ impl Viewer {
         self.sidebar_width
     }
 
-    /// The sidebar dragged to `edge`: its new width, told to the application to keep.
+    /// The sidebar dragged to `edge`: its new width, shown at once.
     fn resize_sidebar(&mut self, edge: Pixels, cx: &mut Context<Self>) {
         let width = edge.clamp(width::SIDEBAR_MIN, width::SIDEBAR_MAX);
         if width != self.sidebar_width {
             self.sidebar_width = width;
-            cx.emit(Intent::SidebarWidth(f32::from(width).round() as u32));
             cx.notify();
         }
+    }
+
+    /// The drag of the sidebar's edge ended: its width, told to the application to keep, once.
+    fn resized_sidebar(&mut self, cx: &mut Context<Self>) {
+        cx.emit(Intent::SidebarWidth(
+            f32::from(self.sidebar_width).round() as u32
+        ));
     }
 
     /// The version of the viewer, beside the server it reads.
@@ -1021,6 +1027,7 @@ impl Render for Viewer {
                     viewer.resize_sidebar(event.event.position.x, cx);
                 }),
             )
+            .on_drop(cx.listener(|viewer, _: &ResizeSidebar, _, cx| viewer.resized_sidebar(cx)))
             .size_full()
             .bg(page)
             .text_color(foreground)

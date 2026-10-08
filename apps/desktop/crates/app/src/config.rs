@@ -65,8 +65,17 @@ fn remember_in(path: &Path, name: &str, value: serde_json::Value) {
         return;
     };
     config.insert(name.to_string(), value);
-    if let Ok(text) = serde_json::to_string_pretty(&config) {
-        let _ = std::fs::write(path, text + "\n");
+    let Ok(text) = serde_json::to_string_pretty(&config) else {
+        return;
+    };
+    // Written beside it, then renamed over it: an interrupted write never leaves it empty.
+    let file = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    let next = path.with_file_name(format!(".{file}.new"));
+    if std::fs::write(&next, text + "\n").is_ok() {
+        let _ = std::fs::rename(&next, path);
     }
 }
 
@@ -169,6 +178,22 @@ mod tests {
         );
         // The server and the key are still read from it.
         assert!(client_from(&config, Some(&home)).is_ok());
+        std::fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn an_interrupted_write_keeps_the_configuration_as_it_was() {
+        let home = folder("interrupted");
+        let config = home.join("desktop.json");
+        let before = r#"{ "server": "http://x", "key_file": "~/key" }"#;
+        std::fs::write(&config, before).expect("the configuration is written");
+        // The file the new configuration is written to first cannot be written.
+        std::fs::create_dir_all(home.join(".desktop.json.new")).expect("a folder in its way");
+        remember_in(&config, "theme", serde_json::json!("dark"));
+        assert_eq!(
+            std::fs::read_to_string(&config).expect("still there"),
+            before
+        );
         std::fs::remove_dir_all(home).ok();
     }
 }
