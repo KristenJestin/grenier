@@ -639,10 +639,17 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (input.entry !== undefined && Predicate.isString(input.parent)) {
           yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
-        // Before any row lock too: the slugs the body names, before and after, and the entry's
-        // own when it is renamed. A rename takes them first as well, so a write that cites the
-        // renamed slug and the rename never wait for each other in a circle.
-        if (input.body !== undefined || input.edits !== undefined || input.slug !== undefined) {
+        // Before any row lock too, every slug the write will lock, in one sorted order: those the
+        // body names, before and after; the entry's own when it is created or renamed; and its
+        // aliases. Writes that cite, create, rename or alias the same slug then never wait for
+        // each other in a circle.
+        if (
+          input.entry === undefined ||
+          input.body !== undefined ||
+          input.edits !== undefined ||
+          input.slug !== undefined ||
+          input.aliases !== undefined
+        ) {
           const [stored] =
             input.entry === undefined
               ? []
@@ -657,6 +664,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             ...referencesIn(input.body ?? ''),
             ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
             ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
+            ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
+            ...(input.aliases ?? []),
           ])
         }
         // The types first, then the entry, in the order a change of a type takes them: two writes
@@ -1395,8 +1404,17 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
             ),
           )
         })
-        // The references to entries written later in the batch are linked now that all exist.
-        yield* Effect.forEach(written, (entry) => keepReferences(entry.id, entry.body))
+        // The references to entries written later in the batch are linked now that all exist: of
+        // the bodies the batch wrote only, whose slugs their write locked before any row.
+        yield* Effect.forEach(
+          written.filter((_, index) => {
+            const given = batch[index]
+            return (
+              given?.entry === undefined || given.body !== undefined || given.edits !== undefined
+            )
+          }),
+          (entry) => keepReferences(entry.id, entry.body),
+        )
         return written
       }),
     ),
