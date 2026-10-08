@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 use gpui_kit::px;
-use ui::intent::{FollowLink, Intent};
+use ui::intent::{FollowLink, Intent, ListFilter};
 use ui::load::{Load, Problem};
 use ui::viewer::{Pane, Viewer};
 
@@ -34,7 +34,17 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
 fn serve(listener: TcpListener) {
     thread::spawn(move || {
         for stream in listener.incoming() {
-            let Ok(mut stream) = stream else { continue };
+            let Ok(stream) = stream else { continue };
+            // Each request on its own thread: a slow answer holds no other.
+            thread::spawn(move || answer(stream));
+        }
+    });
+}
+
+/// Answers one request of the read API with invented entries.
+fn answer(mut stream: std::net::TcpStream) {
+    {
+        {
             let mut line = String::new();
             BufReader::new(&stream).read_line(&mut line).ok();
             let path = line.split(' ').nth(1).unwrap_or("").to_string();
@@ -104,6 +114,34 @@ fn serve(listener: TcpListener) {
                         "action": "update", "changes": [{ "field": "summary", "before": "", "after": "Dusty." }] }],
                         "next_cursor": "9" }),
                 ),
+                "/api/entries/plum-tart/history" => {
+                    // Answered late: the owner has opened another entry by then.
+                    thread::sleep(Duration::from_millis(400));
+                    (
+                        "200 OK",
+                        json!({ "events": [{ "id": "77", "at": "2026-10-07T08:00:00.000Z", "actor": "agent-test",
+                            "action": "update", "changes": [] }], "next_cursor": "77" }),
+                    )
+                }
+                listing if listing.starts_with("/api/entries?type=note") => {
+                    // 120 notes, 50 a page, the next page after the cursor `<n>`.
+                    let from: usize = listing
+                        .split("cursor=")
+                        .nth(1)
+                        .and_then(|cursor| cursor.parse().ok())
+                        .unwrap_or(0);
+                    let to = (from + 50).min(120);
+                    let entries: Vec<Value> = (from..to)
+                        .map(|n| json!({ "id": format!("note-{n:03}"), "slug": format!("note-{n:03}"), "type": "note",
+                            "title": format!("Note {n:03}"), "parent_id": null, "in_parent": false }))
+                        .collect();
+                    let next = if to < 120 {
+                        json!(to.to_string())
+                    } else {
+                        Value::Null
+                    };
+                    ("200 OK", json!({ "entries": entries, "next_cursor": next }))
+                }
                 "/api/entries/attic/history?cursor=9" => (
                     "200 OK",
                     json!({ "events": [{ "id": "2", "at": "2026-09-01T08:00:00.000Z", "actor": "agent-test",
@@ -166,7 +204,7 @@ fn serve(listener: TcpListener) {
             );
             stream.write_all(answer.as_bytes()).ok();
         }
-    });
+    }
 }
 
 fn viewer_on(server: String, cx: &mut TestAppContext) -> (Entity<Viewer>, &mut VisualTestContext) {
@@ -437,6 +475,86 @@ fn a_group_of_links_folded_shows_five_and_opens_whole(cx: &mut TestAppContext) {
     cx.simulate_click(open.center(), Modifiers::none());
     settle(cx);
     assert!(cx.debug_bounds("link-in-mentions-box-8").is_some());
+}
+
+#[gpui_kit::test]
+fn a_history_answered_after_another_entry_is_opened_is_dropped(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    ask(&viewer, Intent::Open("plum-tart".into()), cx);
+    // "Show the history", then another entry before the answer comes.
+    cx.update(|_, cx| {
+        viewer.update(cx, |_, cx| {
+            cx.emit(Intent::History);
+            cx.emit(Intent::Open("attic".into()));
+        })
+    });
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(600));
+    cx.run_until_parked();
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("attic"));
+    let history = viewer.read_with(cx, |viewer, _| {
+        viewer
+            .entry()
+            .map(|data| matches!(data.history, Load::Empty))
+    });
+    assert_eq!(
+        history,
+        Some(true),
+        "the history of plum-tart is not shown on attic"
+    );
+}
+
+#[gpui_kit::test]
+fn a_listing_of_120_entries_comes_in_pages_to_the_end(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    let filter = ListFilter {
+        type_name: Some(("note".into(), "Note".into())),
+        ..ListFilter::default()
+    };
+    ask(&viewer, Intent::List(filter), cx);
+    let listed = |viewer: &Entity<Viewer>, cx: &mut VisualTestContext| {
+        viewer.read_with(cx, |viewer, _| match viewer.pane() {
+            Pane::List(list) => match &list.entries {
+                Load::Ready(entries) => (entries.len(), list.more),
+                _ => (0, false),
+            },
+            _ => (0, false),
+        })
+    };
+    assert_eq!(listed(&viewer, cx), (50, true));
+    ask(&viewer, Intent::MoreListed, cx);
+    assert_eq!(listed(&viewer, cx), (100, true));
+    ask(&viewer, Intent::MoreListed, cx);
+    assert_eq!(listed(&viewer, cx), (120, false));
+}
+
+#[gpui_kit::test]
+fn removing_the_last_filter_closes_the_listing(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    ask(&viewer, Intent::Open("attic".into()), cx);
+    ask(
+        &viewer,
+        Intent::List(ListFilter {
+            tag: Some("dusty".into()),
+            ..ListFilter::default()
+        }),
+        cx,
+    );
+    ask(&viewer, Intent::List(ListFilter::default()), cx);
+    // Back to what was open before the listing.
+    assert_eq!(opened(&viewer, cx).as_deref(), Some("attic"));
 }
 
 /// Lets the page play its motion to the end: a spring moves one frame at each drawing.

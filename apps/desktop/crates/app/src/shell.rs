@@ -45,6 +45,8 @@ pub struct Shell {
     history_request: Option<Task<()>>,
     /// Where the history of the open entry continues, when it does.
     history_cursor: Option<String>,
+    /// Where the listing shown continues, when it does.
+    list_cursor: Option<String>,
     _intents: Subscription,
 }
 
@@ -79,6 +81,7 @@ impl Shell {
             pane_request: None,
             history_request: None,
             history_cursor: None,
+            list_cursor: None,
             _intents: intents,
         };
         match client {
@@ -142,7 +145,17 @@ impl Shell {
                 ui::theme::set_dark(choice.is_dark(system_dark), cx);
                 window.refresh();
             }
+            // No filter left: the listing closes, back to what was open before it.
+            Intent::List(filter) if filter.is_empty() => {
+                if self.at > 0 {
+                    self.at -= 1;
+                    self.show(window, cx);
+                } else {
+                    self.set_pane(Pane::Entry(Box::new(Load::Empty)), window, cx);
+                }
+            }
             Intent::List(filter) => self.go(Location::List(filter), window, cx),
+            Intent::MoreListed => self.load_more_listed(window, cx),
             Intent::History => self.load_history(window, cx),
             // The viewer keeps its groups of links itself.
             Intent::ToggleLinks(_) => {}
@@ -153,6 +166,44 @@ impl Shell {
                 }
             }
         }
+    }
+
+    /// Reads the next page of the listing shown, after the last one, and adds it.
+    fn load_more_listed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(client), Some(cursor)) = (self.client.clone(), self.list_cursor.clone()) else {
+            return;
+        };
+        let Some(Location::List(filter)) = self.history.get(self.at).cloned() else {
+            return;
+        };
+        let request = cx
+            .background_executor()
+            .spawn(async move { client.list(&filter, Some(&cursor)) });
+        self.pane_request = Some(cx.spawn_in(window, async move |shell, cx| {
+            let answer = request.await;
+            shell
+                .update_in(cx, |shell, _, cx| match answer {
+                    Ok((found, next)) => {
+                        let more = next.is_some();
+                        shell.list_cursor = next;
+                        shell.viewer.update(cx, |viewer, cx| {
+                            viewer.update_list(
+                                |list| {
+                                    list.more = more;
+                                    if let Load::Ready(entries) = &mut list.entries {
+                                        entries.extend(found);
+                                    }
+                                },
+                                cx,
+                            )
+                        });
+                    }
+                    Err(problem) => shell.viewer.update(cx, |viewer, cx| {
+                        viewer.update_list(|list| list.entries = Load::Failed(problem), cx)
+                    }),
+                })
+                .ok();
+        }));
     }
 
     /// Reads the history of the open entry: its first page, or the page after the one shown.
@@ -181,6 +232,7 @@ impl Shell {
                 viewer.update_entry(|data| data.history = Load::Loading, cx)
             });
         }
+        let entry_id = entry.clone();
         let request = cx
             .background_executor()
             .spawn(async move { client.history(&entry, cursor.as_deref()) });
@@ -188,6 +240,15 @@ impl Shell {
             let answer = request.await;
             shell
                 .update_in(cx, |shell, _, cx| {
+                    // Another entry opened in the meantime: this history is not its own.
+                    let still = shell
+                        .viewer
+                        .read(cx)
+                        .entry()
+                        .map(|data| data.read.entry.id.clone());
+                    if still.as_deref() != Some(entry_id.as_str()) {
+                        return;
+                    }
                     shell.history_cursor = answer
                         .as_ref()
                         .ok()
@@ -234,6 +295,8 @@ impl Shell {
         match location.clone() {
             Location::Entry(entry) => {
                 let jump = self.jump.take();
+                // A history still on its way is the previous entry's: dropped.
+                self.history_request = None;
                 self.history_cursor = None;
                 self.set_pane(Pane::Entry(Box::new(Load::Loading)), window, cx);
                 let request = cx
@@ -290,17 +353,20 @@ impl Shell {
                     }
                 };
                 self.set_pane(listed(Load::Loading, false), window, cx);
+                self.list_cursor = None;
                 let request = cx
                     .background_executor()
-                    .spawn(async move { client.list(&filter) });
+                    .spawn(async move { client.list(&filter, None) });
                 self.pane_request = Some(cx.spawn_in(window, async move |shell, cx| {
-                    let (entries, more) = match request.await {
-                        Ok((found, _)) if found.is_empty() => (Load::Empty, false),
-                        Ok((found, more)) => (Load::Ready(found), more),
-                        Err(problem) => (Load::Failed(problem), false),
+                    let (entries, next) = match request.await {
+                        Ok((found, _)) if found.is_empty() => (Load::Empty, None),
+                        Ok((found, next)) => (Load::Ready(found), next),
+                        Err(problem) => (Load::Failed(problem), None),
                     };
                     shell
                         .update_in(cx, |shell, window, cx| {
+                            let more = next.is_some();
+                            shell.list_cursor = next;
                             shell.set_pane(listed(entries, more), window, cx)
                         })
                         .ok();

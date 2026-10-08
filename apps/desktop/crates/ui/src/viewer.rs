@@ -260,6 +260,14 @@ impl Viewer {
         }
     }
 
+    /// Changes the listing shown in place: its next page once read. Nothing when none is shown.
+    pub fn update_list(&mut self, change: impl FnOnce(&mut ListData), cx: &mut Context<Self>) {
+        if let Pane::List(list) = &mut self.pane {
+            change(list);
+            cx.notify();
+        }
+    }
+
     /// The entry the main pane shows, as read.
     pub fn entry(&self) -> Option<&EntryData> {
         self.opened_entry()

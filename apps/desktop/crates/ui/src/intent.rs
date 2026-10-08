@@ -36,6 +36,8 @@ pub enum Intent {
     List(ListFilter),
     /// Show the history of the open entry, or the next page of it.
     History,
+    /// The next page of the listing shown.
+    MoreListed,
     /// Open a group of links whole, or fold it again (the viewer keeps it, the application
     /// never sees it).
     ToggleLinks(SharedString),

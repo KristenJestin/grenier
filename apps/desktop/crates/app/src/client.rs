@@ -99,8 +99,13 @@ impl Client {
             .map(|found| found.results)
     }
 
-    /// The entries a filter keeps, by title, and whether more follow.
-    pub fn list(&self, filter: &ListFilter) -> Result<(Vec<TreeEntry>, bool), Problem> {
+    /// A page of the entries a filter keeps, by title, after `cursor` when given; and where the
+    /// next page starts, if one does.
+    pub fn list(
+        &self,
+        filter: &ListFilter,
+        cursor: Option<&str>,
+    ) -> Result<(Vec<TreeEntry>, Option<String>), Problem> {
         let mut parameters = Vec::new();
         if let Some((name, _)) = &filter.type_name {
             parameters.push(("type", name.to_string()));
@@ -111,12 +116,15 @@ impl Client {
         if filter.unverified {
             parameters.push(("verified", "false".to_string()));
         }
+        if let Some(cursor) = cursor {
+            parameters.push(("cursor", cursor.to_string()));
+        }
         let pairs: Vec<(&str, &str)> = parameters
             .iter()
             .map(|(name, value)| (*name, value.as_str()))
             .collect();
         self.get::<EntryList>("/api/entries", &pairs)
-            .map(|list| (list.entries, list.next_cursor.is_some()))
+            .map(|list| (list.entries, list.next_cursor))
     }
 
     /// A page of the history of an entry, newest first, after `cursor` when given.

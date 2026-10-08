@@ -15,7 +15,7 @@ use gpui_kit::{
 use crate::intent::{Intent, ListFilter, OnIntent};
 use crate::load::Load;
 use crate::motion::hoverable;
-use crate::parts::{chip, layout, lead, page, title};
+use crate::parts::{chip, layout, lead, page, text_button, title};
 use crate::status;
 use crate::text as words;
 use crate::theme::{self, space, text};
@@ -135,7 +135,17 @@ impl RenderOnce for ListScreen {
                     .flex_wrap()
                     .children(chips),
             )
-            .child(body);
+            .child(body)
+            .children(more.then(|| {
+                let on_intent = on_intent.clone();
+                div().pt(space::M).child(text_button(
+                    "list-more",
+                    words::MORE,
+                    move |_, window, cx| on_intent(Intent::MoreListed, window, cx),
+                    window,
+                    cx,
+                ))
+            }));
         layout(window, &self.scroll, self.shown, page, None)
     }
 }
