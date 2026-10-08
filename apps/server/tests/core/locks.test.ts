@@ -243,6 +243,31 @@ describe('slug locks come before row locks: concurrent writes never deadlock', (
   })
 })
 
+describe('a batch takes every slug lock before any row lock', () => {
+  // The new slug held: the single write waits for it before any row, the batch, without the
+  // fix, only after the row of the entry it edits.
+  const holdingSlug = execute(
+    `SELECT pg_advisory_xact_lock(hashtext('grenier.reference wisteria'))`,
+  )
+
+  test('a batch that edits an entry and creates one, while a write of that entry cites the new one', async () => {
+    await run(writeEntry({ type: 'note', title: 'Pergola' }))
+    const ended = await run(
+      whileLocked(holdingSlug, [
+        Effect.asVoid(
+          writeEntries([
+            { entry: 'pergola', summary: 'Wood, painted.' },
+            { type: 'note', title: 'Wisteria' },
+          ]),
+        ),
+        Effect.asVoid(writeEntry({ entry: 'pergola', body: 'Under the [[wisteria]].' })),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    expect((await run(readEntry('pergola'))).links.map(({ slug }) => slug)).toEqual(['wisteria'])
+  })
+})
+
 describe('several inbox items taken at once', () => {
   test('two agents taking the same items in two orders never wait for each other in a circle', async () => {
     const [a, b] = await run(

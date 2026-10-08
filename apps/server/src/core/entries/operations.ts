@@ -759,6 +759,36 @@ type Batch = {
 const ALONE: Batch = { coming: new Set(), renamed: new Map(), displaced: new Map() }
 
 /**
+ * The slugs a write locks before any row: those its body names, before and after; the entry's own
+ * when it is created or renamed; and its aliases. None for a write that touches none of them.
+ */
+const slugsLockedBy = Effect.fn('slugsLockedBy')(function* (input: WriteEntryInput) {
+  if (
+    input.entry !== undefined &&
+    input.body === undefined &&
+    input.edits === undefined &&
+    input.slug === undefined &&
+    input.aliases === undefined
+  )
+    return []
+  const db = yield* drizzle
+  const [stored] =
+    input.entry === undefined
+      ? []
+      : yield* rowsBodies(
+          db.select({ slug: table.slug, body: table.body }).from(table).where(named(input.entry)),
+        )
+  return [
+    ...referencesIn(stored?.body ?? ''),
+    ...referencesIn(input.body ?? ''),
+    ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
+    ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
+    ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
+    ...(input.aliases ?? []),
+  ]
+})
+
+/**
  * Creates an entry, or updates the one `entry` names. The result is validated against the
  * entry's type and the rules of the tree; a write that breaks them is refused with one sentence
  * per problem, all problems at once. A write that changes nothing writes nothing.
@@ -780,35 +810,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         if (input.entry !== undefined && Predicate.isString(input.parent)) {
           yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
         }
-        // Before any row lock too, every slug the write will lock, in one sorted order: those the
-        // body names, before and after; the entry's own when it is created or renamed; and its
-        // aliases. Writes that cite, create, rename or alias the same slug then never wait for
-        // each other in a circle.
-        if (
-          input.entry === undefined ||
-          input.body !== undefined ||
-          input.edits !== undefined ||
-          input.slug !== undefined ||
-          input.aliases !== undefined
-        ) {
-          const [stored] =
-            input.entry === undefined
-              ? []
-              : yield* rowsBodies(
-                  db
-                    .select({ slug: table.slug, body: table.body })
-                    .from(table)
-                    .where(named(input.entry)),
-                )
-          yield* lockReferences([
-            ...referencesIn(stored?.body ?? ''),
-            ...referencesIn(input.body ?? ''),
-            ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
-            ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
-            ...(input.entry === undefined ? [input.slug ?? slugOf(input.title ?? '')] : []),
-            ...(input.aliases ?? []),
-          ])
-        }
+        // Before any row lock too, every slug the write will lock, in one sorted order (see
+        // `slugsLockedBy`). Writes that cite, create, rename or alias the same slug then never
+        // wait for each other in a circle.
+        yield* lockReferences(yield* slugsLockedBy(input))
         // The types first, then the entry, in the order a change of a type takes them: two writes
         // never wait for each other in a circle.
         const current =
@@ -1552,6 +1557,11 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
     client.withTransaction(
       Effect.gen(function* () {
         const { planned, order, deferred, known } = yield* planBatch(batch)
+        // Every slug the whole batch locks, sorted, before the row of any of its entries: each
+        // write of it takes them again, which a transaction holding them does at once.
+        yield* lockReferences(
+          (yield* Effect.forEach(planned, (input) => slugsLockedBy(input))).flat(),
+        )
         // A refusal is kept as a value, so that every entry of the batch is checked; each entry
         // after those of the batch it names, then answered in the order given. A reference that
         // closes a loop waits for a second write, once every entry exists.
