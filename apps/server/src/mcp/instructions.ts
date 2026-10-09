@@ -39,8 +39,8 @@ const DIAGNOSTICS = [
 
 /**
  * How an item of the inbox becomes entries, whatever the instance and the item: said to every key
- * that may write, and in the description of `inbox_take`. The rules of the instance come before
- * it in the instructions and may add to it (the language of the entries, for one).
+ * that may write, the keys that list `inbox_take`, whose description refers to it. The rules of
+ * the instance come before it and may add to it (the language of the entries, for one).
  */
 export const INBOX_STANDARD = [
   'How an inbox item becomes entries, whatever it holds:',

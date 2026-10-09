@@ -164,12 +164,12 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
 describe('agents that may write learn how an inbox item becomes entries', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take, the same for every key, carries it', () => {
+  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take refers to it', () => {
     const writer = instructionsFor(types, development, null, true)
     const reader = instructionsFor(types, development, null, false)
     expect(writer).toContain(INBOX_STANDARD)
     expect(reader).not.toContain(INBOX_STANDARD)
-    expect(inboxTakeTool.description).toContain(INBOX_STANDARD)
+    expect(inboxTakeTool.description).toContain('your instructions')
   })
 
   test('it says to report a value the key lacks the right for, and to cite entries as [[slug]]', () => {
@@ -187,9 +187,7 @@ describe('agents that may write learn how an inbox item becomes entries', () => 
     expect(instructionsFor(types, development, null, true)).toContain(
       'Never assume the entries are complete because they exist.',
     )
-    expect(inboxTakeTool.description).toContain(
-      'Never assume the entries are complete because they exist.',
-    )
+    expect(inboxTakeTool.description).toContain('`earlier`')
   })
 
   test('the rules of the instance come before it, and may add to it', () => {

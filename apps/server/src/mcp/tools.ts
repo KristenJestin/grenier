@@ -270,9 +270,44 @@ export const GrenierServer = Layer.unwrap(
   }),
 )
 
-/** The names of every tool, as an agent lists them, diagnostics off. */
-export const TOOL_NAMES = [
-  ...Object.keys(GrenierTools.tools),
-  inboxTakeTool.name,
-  inboxPeekTool.name,
+/** Every tool of Grenier, in the fixed order an agent lists them: the toolkit, then the inbox tools registered by hand. */
+export const TOOLS = [
+  defineTypeTool,
+  addFieldTool,
+  getTypeTool,
+  listTypesTool,
+  pendingReferencesTool,
+  instanceRulesTool,
+  writeTool,
+  readTool,
+  archiveTool,
+  searchTool,
+  linkTool,
+  unlinkTool,
+  historyTool,
+  changeFieldTool,
+  changeTypeTool,
+  proposeTypeChangeTool,
+  listProposalsTool,
+  confirmProposalTool,
+  attachMediaTool,
+  describeMediaTool,
+  upcomingTool,
+  briefingTool,
+  unverifiedTool,
+  writeManyTool,
+  inboxAddTool,
+  inboxListTool,
+  inboxReadTool,
+  inboxReleaseTool,
+  inboxDoneTool,
+  inboxDismissTool,
+  inboxTakeTool,
+  inboxPeekTool,
 ]
+
+/** The tools of diagnostics, listed after the others when they are on. */
+export const DIAGNOSTICS_TOOLS = [grenierReportTool, grenierReportsTool]
+
+/** The names of every tool, as an agent lists them, diagnostics off. */
+export const TOOL_NAMES = TOOLS.map(({ name }) => name)

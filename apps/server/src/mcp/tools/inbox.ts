@@ -14,7 +14,6 @@ import {
   takeItems,
 } from '../../core/inbox/index.ts'
 import { Effect, Schema } from 'effect'
-import { INBOX_STANDARD } from '../instructions.ts'
 import { defineTool } from '../tool.ts'
 
 export const inboxAddTool = defineTool({
@@ -38,8 +37,7 @@ export const inboxListTool = defineTool({
 export const inboxTakeTool = defineTool({
   name: 'inbox_take',
   description:
-    'Takes an item to process, the one `id` names or the oldest waiting, with its content (a long text in parts: the first here, the rest with `inbox_read` from `next_offset`); no other agent gets it until it is done, dismissed or given back with `inbox_release`. `ids` takes several at once, all or none, each text cut the same way and no image shown (each file at its `media_url`). `earlier` lists the items the same thing came as before, with the entries they gave; `same_content: true` says nothing in it changed. Then read it, search what exists, write or update the entries it gives (split it when it holds several things), and call `inbox_done`.\n\n' +
-    INBOX_STANDARD,
+    'Takes an item to process, the one `id` names or the oldest waiting, with its content (a long text in parts: the first here, the rest with `inbox_read` from `next_offset`); no other agent gets it until it is done, dismissed or given back with `inbox_release`. `ids` takes several at once, all or none, each text cut the same way and no image shown (each file at its `media_url`). `earlier` lists the items the same thing came as before, with the entries they gave; `same_content: true` says nothing in it changed. Then read it, search what exists, write or update the entries it gives (split it when it holds several things), and call `inbox_done`. How an item becomes entries is in your instructions, under "How an inbox item becomes entries": follow it.',
   input: Schema.Struct({
     id: Schema.optionalKey(Schema.String),
     ids: Schema.optionalKey(Schema.Array(Schema.String)),

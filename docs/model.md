@@ -147,9 +147,9 @@ Claude Code cuts server instructions at 2,048 characters, so the part an agent c
 comes first. What a type is for lives in its description, in the data: it should say when to use
 the type, not only what it is.
 
-A key that may write is also told, in its instructions and in the description of `inbox_take`, a
-generic standard for turning an inbox item into entries: the type from the content, one entry per
-subject, fields filled only from what the item says, every fact kept, nothing added without its
+A key that may write is also told, in its instructions (the description of `inbox_take` refers to
+them rather than repeating them), a generic standard for turning an inbox item into entries: the
+type from the content, one entry per subject, fields filled only from what the item says, every fact kept, nothing added without its
 source, a dated text kept in its time, `edits` rather than a retyped body, the item's language,
 sensitive values left out when the key may not write them, and, for an item that brings again
 what Grenier holds, the entries it gave before read and compared with the whole item fact by fact,
