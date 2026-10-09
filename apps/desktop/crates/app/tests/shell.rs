@@ -21,7 +21,7 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
         "entry": {
             "id": id, "type": "note", "title": title, "slug": id, "aliases": [], "tags": [],
             "parent_id": parent, "fields": {}, "provenance": {}, "sources": [], "body": body,
-            "summary": "", "verified": true, "created": "2026-09-01T08:00:00.000Z",
+            "summary": "", "created": "2026-09-01T08:00:00.000Z",
             "updated": "2026-10-01T08:00:00.000Z", "valid_from": null, "valid_until": null,
             "superseded_by": null, "archived_at": null, "archived_reason": null
         },
@@ -95,7 +95,7 @@ fn answer(mut stream: std::net::TcpStream) {
                     let mut attic = entry("attic", "Attic", None, "");
                     attic["entry"]["tags"] = json!(["dusty"]);
                     attic["backlinks"] = json!((1..=8).map(|n| json!({
-                        "relation": "mentions", "period": null, "field": null, "note": null,
+                        "relation": "mentions", "provenance": "extracted", "period": null, "field": null, "note": null,
                         "valid_from": null, "valid_until": null,
                         "id": format!("box-{n}"), "slug": format!("box-{n}"), "title": format!("Box {n}")
                     })).collect::<Vec<_>>());
@@ -108,6 +108,25 @@ fn answer(mut stream: std::net::TcpStream) {
                         { "id": "letters", "slug": "letters", "type": "note", "title": "Letters", "parent_id": "old-trunk", "in_parent": false }
                     ], "next_cursor": null }),
                 ),
+                "/api/entries?supposed=true" => (
+                    "200 OK",
+                    json!({ "entries": [
+                        { "id": "harbor", "slug": "harbor", "type": "note", "title": "Harbor", "parent_id": null, "in_parent": false }
+                    ], "next_cursor": null }),
+                ),
+                "/api/entries/harbor" => {
+                    // A summary, a link and a body the writer only supposed; the tags are known.
+                    let mut harbor = entry("harbor", "Harbor", None, "Probably a quiet one.");
+                    harbor["entry"]["summary"] = json!("A small harbor.");
+                    harbor["entry"]["provenance"] =
+                        json!({ "summary": "inferred", "body": "inferred" });
+                    harbor["links"] = json!([{
+                        "relation": "near", "provenance": "inferred", "period": null, "field": null,
+                        "note": null, "valid_from": null, "valid_until": null,
+                        "id": "kitchen", "slug": "kitchen", "title": "Kitchen"
+                    }]);
+                    ("200 OK", harbor)
+                }
                 "/api/entries/attic/history" => (
                     "200 OK",
                     json!({ "events": [{ "id": "9", "at": "2026-10-07T08:00:00.000Z", "actor": "agent-test",
@@ -154,7 +173,7 @@ fn answer(mut stream: std::net::TcpStream) {
                     neighbour["entry"]["fields"] = json!({ "visits": ["kitchen", "attic"] });
                     neighbour["titles"] = json!({ "kitchen": "Kitchen", "attic": "Attic" });
                     neighbour["links"] = json!([{
-                        "relation": "works_at", "period": null, "field": null, "note": "gardener",
+                        "relation": "works_at", "provenance": "extracted", "period": null, "field": null, "note": "gardener",
                         "valid_from": "2024-01-01", "valid_until": null,
                         "id": "kitchen", "slug": "kitchen", "title": "Kitchen"
                     }]);
@@ -564,4 +583,36 @@ fn settle(cx: &mut VisualTestContext) {
         cx.executor().advance_clock(Duration::from_millis(16));
         cx.run_until_parked();
     }
+}
+
+#[gpui_kit::test]
+fn an_entry_with_suppositions_says_so_and_lists_those_that_do(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    // What is known carries no mark.
+    ask(&viewer, Intent::Open("kitchen".into()), cx);
+    settle(cx);
+    assert!(cx.debug_bounds("chip-type").is_some());
+    assert!(cx.debug_bounds("chip-supposed").is_none());
+    ask(&viewer, Intent::Open("harbor".into()), cx);
+    settle(cx);
+    let chip = cx
+        .debug_bounds("chip-supposed")
+        .expect("an entry that holds suppositions says so");
+    cx.simulate_click(chip.center(), Modifiers::none());
+    cx.run_until_parked();
+    let listed = viewer.read_with(cx, |viewer, _| match viewer.pane() {
+        Pane::List(list) => match &list.entries {
+            Load::Ready(entries) => (
+                list.filter.supposed,
+                entries.iter().map(|entry| entry.title.clone()).collect(),
+            ),
+            _ => (false, Vec::new()),
+        },
+        _ => (false, Vec::new()),
+    });
+    assert_eq!(listed, (true, vec!["Harbor".to_string()]));
 }

@@ -32,7 +32,7 @@ pub enum Intent {
     SidebarWidth(u32),
     /// A theme was chosen: to show, and to keep for the next start.
     Theme(crate::theme::ThemeChoice),
-    /// List the entries a filter keeps: of a type, with a tag, unverified.
+    /// List the entries a filter keeps: of a type, with a tag, holding supposed values.
     List(ListFilter),
     /// Show the history of the open entry, or the next page of it.
     History,
@@ -49,13 +49,14 @@ pub struct ListFilter {
     /// A type, by its name, with its label to show.
     pub type_name: Option<(SharedString, SharedString)>,
     pub tag: Option<SharedString>,
-    pub unverified: bool,
+    /// Only the entries that hold supposed values, links, body or summary.
+    pub supposed: bool,
 }
 
 impl ListFilter {
     /// Whether it keeps every entry.
     pub fn is_empty(&self) -> bool {
-        self.type_name.is_none() && self.tag.is_none() && !self.unverified
+        self.type_name.is_none() && self.tag.is_none() && !self.supposed
     }
 }
 

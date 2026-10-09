@@ -14,6 +14,7 @@ use gpui_kit::{
 use gpui_kit::prelude::FluentBuilder as _;
 
 use crate::motion::{enter, hoverable};
+use crate::text as words;
 use crate::theme::{self, font, space, text, width};
 
 /// The column a page reads in.
@@ -133,13 +134,20 @@ pub fn chip(icon: Option<Icon>, label: impl Into<SharedString>, cx: &App) -> Div
         .child(label.into())
 }
 
-/// A chip that warns: what still waits for the owner.
-pub fn warning_chip(icon: Icon, label: impl Into<SharedString>, cx: &App) -> Div {
-    let warning = cx.theme().warning;
-    chip(Some(icon.text_color(warning)), label, cx)
-        .border_color(warning.opacity(0.))
-        .bg(warning.opacity(0.1))
-        .text_color(warning)
+/// A quiet mark beside what a writer only supposed, not knew: a value, a link, the body or the
+/// summary. What is known (`extracted`) carries none, and neither does what was written before
+/// writers were asked (`unstated`), which says nothing either way.
+pub fn supposed_mark(cx: &App) -> Div {
+    let theme = cx.theme();
+    div()
+        .flex_none()
+        .px(px(6.))
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .text_size(text::XS)
+        .text_color(theme.muted_foreground)
+        .child(words::SUPPOSED)
 }
 
 /// An icon in a small framed square, as cards and results lead with.

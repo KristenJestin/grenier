@@ -1,4 +1,4 @@
-//! The entries a filter keeps, without a query: of a type, with a tag, unverified. Opened from the
+//! The entries a filter keeps, without a query: of a type, with a tag, with supposed values. Opened from the
 //! chips of an entry; each filter shown, and removed by a click.
 
 use std::collections::HashMap;
@@ -91,14 +91,14 @@ impl RenderOnce for ListScreen {
                 cx,
             ));
         }
-        if filter.unverified {
+        if filter.supposed {
             let without = ListFilter {
-                unverified: false,
+                supposed: false,
                 ..filter.clone()
             };
             chips.push(removable(
-                "filter-unverified",
-                words::UNVERIFIED.to_string(),
+                "filter-supposed",
+                words::WITH_SUPPOSED.to_string(),
                 without,
                 &on_intent,
                 cx,

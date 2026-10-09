@@ -194,6 +194,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "entry/supposed",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    Some("fibre-maison"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::supposed()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "entry/many-links",
             build: |window, cx| {
                 viewer(
@@ -302,6 +314,23 @@ pub fn stories() -> Vec<Story> {
                     Load::Ready(fixtures::tree()),
                     None,
                     Pane::List(fixtures::listed()),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
+            name: "results/supposed",
+            build: |window, cx| {
+                let mut listed = fixtures::listed();
+                listed.filter = ui::intent::ListFilter {
+                    supposed: true,
+                    ..ui::intent::ListFilter::default()
+                };
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    None,
+                    Pane::List(listed),
                     window,
                     cx,
                 )
