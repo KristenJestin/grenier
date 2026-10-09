@@ -188,9 +188,24 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
   test('a project and three notes under it in one batch', async () => {
     const written = await run(
       writeEntries([
-        { type: 'note', title: 'Bed plan', parent: 'vegetable-garden' },
-        { type: 'note', title: 'Mulching', parent: 'vegetable-garden' },
-        { type: 'note', title: 'Harvest log', parent: 'vegetable-garden' },
+        {
+          type: 'note',
+          title: 'Bed plan',
+          parent: 'vegetable-garden',
+          provenance: { parent: 'inferred' },
+        },
+        {
+          type: 'note',
+          title: 'Mulching',
+          parent: 'vegetable-garden',
+          provenance: { parent: 'inferred' },
+        },
+        {
+          type: 'note',
+          title: 'Harvest log',
+          parent: 'vegetable-garden',
+          provenance: { parent: 'inferred' },
+        },
         { type: 'note', title: 'Vegetable garden' },
       ]),
     )
@@ -283,7 +298,7 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
       Effect.flip(
         writeEntries([
           { type: 'note', title: 'Projects' },
-          { type: 'note', title: 'Plan', parent: 'projects' },
+          { type: 'note', title: 'Plan', parent: 'projects', provenance: { parent: 'inferred' } },
         ]),
       ),
     )
@@ -343,14 +358,14 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
     const refusal = await run(
       Effect.flip(
         writeEntries([
-          { type: 'note', title: 'Hen house', parent: 'coop' },
-          { type: 'note', title: 'Coop', parent: 'hen-house' },
+          { type: 'note', title: 'Hen house', parent: 'coop', provenance: { parent: 'inferred' } },
+          { type: 'note', title: 'Coop', parent: 'hen-house', provenance: { parent: 'inferred' } },
           { type: 'note', title: 'Feed store' },
         ]),
       ),
     )
     expect(refusal.message).toBe(
-      'The entries `hen-house`, `coop` are filed under one another in this batch: an entry cannot be filed under itself or one of its descendants.',
+      'The entries `hen-house`, `coop` are part of one another in this batch: an entry cannot be part of itself or of one of its parts.',
     )
     expect(await run(search('coop'))).toEqual([])
     expect(await run(search('store'))).toEqual([])

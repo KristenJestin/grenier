@@ -61,7 +61,7 @@ beforeAll(async () => {
         parent: 'monday',
         superseded_by: 'monday',
         fields: { target: 'monday' },
-        provenance: { target: 'inferred' },
+        provenance: { parent: 'inferred', target: 'inferred' },
       })
       yield* writeEntry({
         type: 'pointer',
@@ -130,8 +130,8 @@ describe('a batch tells nothing of hidden entries', () => {
   test('a loop of parents through a hidden entry given by id never names it', async () => {
     const refused = await refusalOf(
       writeEntries([
-        { entry: monday, parent: 'loop-b' },
-        { type: 'pointer', title: 'Loop b', parent: monday },
+        { entry: monday, parent: 'loop-b', provenance: { parent: 'inferred' } },
+        { type: 'pointer', title: 'Loop b', parent: monday, provenance: { parent: 'inferred' } },
       ]),
     )
     expect(refused).not.toContain('monday')
@@ -158,16 +158,18 @@ describe('reads give no hidden id', () => {
   test('parent, successor and entry fields pointing to a hidden entry are masked, for the owner shown', async () => {
     const { entry } = await plain(readEntry('loose'))
     expect(entry).toMatchObject({
-      parent_id: null,
       superseded_by: null,
       fields: { target: HIDDEN },
     })
     expect((await owner(readEntry('loose'))).entry).toMatchObject({
-      parent_id: monday,
       superseded_by: monday,
       fields: { target: monday },
     })
-    expect((await plain(listEntries())).find(({ slug }) => slug === 'loose')?.parent_id).toBeNull()
+    expect((await plain(listEntries())).find(({ slug }) => slug === 'loose')?.part_of).toEqual([])
+    expect((await plain(readEntry('loose'))).part_of).toEqual([])
+    expect((await owner(readEntry('loose'))).part_of).toEqual([
+      expect.objectContaining({ id: monday }),
+    ])
   })
 
   test('the history shows no hidden id', async () => {

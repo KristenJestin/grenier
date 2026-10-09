@@ -386,7 +386,7 @@ describe('a batch that moves an entry takes the tree lock before its slug locks'
             entry: 'shelf',
             parent: 'closet',
             body: 'Grows [[lichen]].',
-            provenance: { body: 'inferred' },
+            provenance: { parent: 'inferred', body: 'inferred' },
           }),
         ),
         Effect.asVoid(
@@ -395,7 +395,7 @@ describe('a batch that moves an entry takes the tree lock before its slug locks'
               entry: 'drawer',
               parent: 'cabinet',
               body: 'Grows [[lichen]] too.',
-              provenance: { body: 'inferred' },
+              provenance: { parent: 'inferred', body: 'inferred' },
             },
           ]),
         ).pipe(Effect.delay('300 millis')),

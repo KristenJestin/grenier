@@ -106,7 +106,7 @@ beforeAll(async () => {
         title: 'Leek soup',
         parent: 'kitchen',
         fields: { servings: 2 },
-        provenance: { servings: 'inferred' },
+        provenance: { parent: 'inferred', servings: 'inferred' },
       })
       yield* writeEntry({
         type: 'recipe',
@@ -119,6 +119,7 @@ beforeAll(async () => {
         fields: { servings: 4, cost: '4.50 EUR' },
         body: 'Lighter than [[leek-soup]].\n',
         provenance: {
+          parent: 'inferred',
           servings: 'inferred',
           cost: 'inferred',
           body: 'inferred',
@@ -130,14 +131,14 @@ beforeAll(async () => {
         title: 'Shortcrust',
         parent: 'plum-tart',
         fields: { servings: 1 },
-        provenance: { servings: 'inferred' },
+        provenance: { parent: 'inferred', servings: 'inferred' },
       })
       yield* writeEntry({
         type: 'diary',
         title: 'Monday',
         parent: 'garden',
         body: 'Rain.\n',
-        provenance: { body: 'inferred' },
+        provenance: { parent: 'inferred', body: 'inferred' },
       })
       yield* link('plum-tart', 'leek-soup', 'goes_with', '', '', { provenance: 'inferred' })
       yield* attachMedia({
@@ -204,6 +205,7 @@ describe('the nightly export into a git repository', () => {
           { relation: 'goes_with', target: 'leek-soup', provenance: 'inferred' },
           // As known as the body it comes from.
           { relation: 'mentions', target: 'leek-soup', provenance: 'inferred' },
+          { relation: 'part_of', target: 'kitchen', provenance: 'inferred' },
         ],
         media: [
           {
@@ -273,7 +275,9 @@ describe('the nightly export into a git repository', () => {
   })
 
   test('an entry filed elsewhere moves its file, and the folder it leaves empty goes', async () => {
-    await run(writeEntry({ entry: 'shortcrust', parent: 'garden' }))
+    await run(
+      writeEntry({ entry: 'shortcrust', parent: 'garden', provenance: { parent: 'inferred' } }),
+    )
     expect(cli('export:markdown', folder).stdout).toMatch(/: 0 created, 1 updated, 0 archived\.\n$/)
     expect(filesOf(folder)).toContain('garden/shortcrust.md')
     expect(existsSync(join(folder, 'kitchen/plum-tart'))).toBe(false)

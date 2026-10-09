@@ -69,6 +69,7 @@ beforeAll(async () => {
         type: 'folder',
         title: 'Loose page',
         parent: 'secret-page',
+        provenance: { parent: 'inferred' },
         superseded_by: 'secret-page',
         sources: [{ entry: 'secret-page' }],
       })
@@ -97,10 +98,12 @@ describe('a key without the right sensitive works around what it may not see', (
     expect(updated.body).toBe('Torn at the corner.')
     const { entry } = await trusted(readEntry('loose-page'))
     expect(entry).toMatchObject({
-      parent_id: secret,
       superseded_by: secret,
       sources: [{ entry: secret }],
     })
+    expect((await trusted(readEntry('loose-page'))).part_of).toEqual([
+      expect.objectContaining({ id: secret }),
+    ])
     await plain(
       writeEntry({
         entry: 'library-card',
@@ -259,9 +262,21 @@ describe('the ancestors of an entry, for a breadcrumb', () => {
   test('an archived ancestor is there with its id; a hidden one without', async () => {
     const top = await trusted(writeEntry({ type: 'folder', title: 'Attic' }))
     const middle = await trusted(
-      writeEntry({ type: 'folder', title: 'Old trunk', parent: 'attic' }),
+      writeEntry({
+        type: 'folder',
+        title: 'Old trunk',
+        parent: 'attic',
+        provenance: { parent: 'inferred' },
+      }),
     )
-    await trusted(writeEntry({ type: 'folder', title: 'Letters', parent: 'old-trunk' }))
+    await trusted(
+      writeEntry({
+        type: 'folder',
+        title: 'Letters',
+        parent: 'old-trunk',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await trusted(archiveEntry('old-trunk'))
     expect((await plain(readEntry('letters'))).ancestors).toEqual([
       { id: top.id, title: 'Attic' },

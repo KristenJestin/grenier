@@ -4,9 +4,10 @@ import { rowsOf } from '../database/rows.ts'
 import { SEARCHABLE } from '../database/schema.ts'
 import { holding, wantedOf } from '../entries/certainty.ts'
 import { LAST_WRITER } from '../entries/last-writer.ts'
-import { findEntry, pathOf, slugOf, TREE_DEPTH } from '../entries/operations.ts'
+import { findEntry, pathOf, slugOf } from '../entries/operations.ts'
 import { supposedIn } from '../entries/supposed.ts'
 import { isDate, isDateTime } from '../entries/values.ts'
+import { subtreeOf } from '../links/places.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
 import { searchConfiguration } from './language.ts'
@@ -99,12 +100,7 @@ export const search = Effect.fn('search')(function* (
   )
   const ofTypesWithHiddenFields =
     withHiddenFields.length === 0 ? sql`false` : sql`e.type IN ${sql.in(withHiddenFields)}`
-  const subtree = sql`subtree AS (
-      SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
-      UNION ALL
-      SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
-      WHERE s.depth < ${TREE_DEPTH}
-    ) CYCLE id SET looped USING trail`
+  const subtree = yield* subtreeOf(under)
   // What the filters keep, whether there is a query or not.
   const filters = sql`
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})

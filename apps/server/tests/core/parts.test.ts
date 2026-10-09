@@ -34,16 +34,21 @@ beforeAll(() =>
         title: 'Main disk',
         parent: 'desk-computer',
         fields: { serial: 'SN-0001', price: '80.00 EUR' },
-        provenance: { serial: 'inferred', price: 'inferred' },
+        provenance: { parent: 'inferred', serial: 'inferred', price: 'inferred' },
       })
       yield* writeEntry({
         type: 'item',
         title: 'Graphics card',
         parent: 'desk-computer',
         fields: { warranty_until: '2028-01-31' },
-        provenance: { warranty_until: 'inferred' },
+        provenance: { parent: 'inferred', warranty_until: 'inferred' },
       })
-      yield* writeEntry({ type: 'note', title: 'Setup notes', parent: 'desk-computer' })
+      yield* writeEntry({
+        type: 'note',
+        title: 'Setup notes',
+        parent: 'desk-computer',
+        provenance: { parent: 'inferred' },
+      })
     }),
   ),
 )
@@ -54,7 +59,14 @@ describe('the parts of an object are read in its page', () => {
     expect(await run(getType('note'))).not.toHaveProperty('read_in_parent')
     await run(defineType({ name: 'gadget', label: 'Gadget', description: 'A gadget.', fields: [] }))
     await run(writeEntry({ type: 'gadget', title: 'Lamp' }))
-    await run(writeEntry({ type: 'gadget', title: 'Bulb', parent: 'lamp' }))
+    await run(
+      writeEntry({
+        type: 'gadget',
+        title: 'Bulb',
+        parent: 'lamp',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     expect((await run(readEntry('lamp'))).children).toEqual([
       expect.objectContaining({ in_parent: false }),
     ])
@@ -84,7 +96,9 @@ describe('the parts of an object are read in its page', () => {
 
   test('the tree says which entries are read in their parent', async () => {
     const tree = await run(listEntries())
-    const inParent = Object.fromEntries(tree.map(({ slug, in_parent }) => [slug, in_parent]))
+    const inParent = Object.fromEntries(
+      tree.map(({ slug, part_of }) => [slug, part_of.some(({ in_parent }) => in_parent)]),
+    )
     expect(inParent).toMatchObject({
       'desk-computer': false,
       'main-disk': true,
@@ -103,7 +117,7 @@ describe('a part naming another entry', () => {
         title: 'Spare fan',
         parent: 'desk-computer',
         fields: { bought_with: 'shop-receipt' },
-        provenance: { bought_with: 'inferred' },
+        provenance: { parent: 'inferred', bought_with: 'inferred' },
       }),
     )
     const { children } = await run(readEntry('desk-computer'))

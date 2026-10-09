@@ -282,7 +282,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
       title: 'Spanner',
       parent: 'tool-kit',
       fields: { about: ['secret-page', 'folder-one'] },
-      provenance: { about: 'inferred' },
+      provenance: { parent: 'inferred', about: 'inferred' },
     })
     const secret =
       JSON.stringify(await answerOf(keys.trusted, 'read', { entry: 'secret-page' })).match(
@@ -305,15 +305,15 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
       parent: 'secret-page',
       superseded_by: 'secret-page',
       fields: { about: ['secret-page', 'folder-one'] },
-      provenance: { about: 'inferred' },
+      provenance: { parent: 'inferred', about: 'inferred' },
     })
     const read = await answerOf(keys.plain, 'read', { entry: 'loose-kit' })
     expect(read).toMatchObject({
       entry: {
-        parent_id: null,
         superseded_by: null,
         fields: { about: ['[hidden]', expect.any(String)] },
       },
+      part_of: [],
     })
     const about = Schema.decodeUnknownSync(
       Schema.Struct({
@@ -333,10 +333,10 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
       expect(JSON.stringify(written)).not.toContain('"error"')
       expect(await answerOf(keys.trusted, 'read', { entry: 'loose-kit' })).toMatchObject({
         entry: {
-          parent_id: expect.any(String),
           superseded_by: expect.any(String),
           fields: { about: [expect.any(String), expect.any(String)] },
         },
+        part_of: [expect.objectContaining({ slug: 'secret-page' })],
       })
     })
     expect(

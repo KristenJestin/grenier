@@ -20,16 +20,29 @@ const decodeType = (input: typeof TypeDefinition.Encoded) =>
   )
 
 /**
- * Refuses a field named `body` or `summary`: they are the body and the summary of every entry, and
- * the keys under which `provenance` says whether those are known or supposed.
+ * Refuses a field named `body`, `summary` or `parent`: the first two are the body and the summary
+ * of every entry, and the keys under which `provenance` says whether those are known or supposed;
+ * the third is the key under which it says whether the place the entry is part of is.
  */
 export const refuseReservedNames = (names: ReadonlyArray<string>) => {
   const taken = names.filter((name) => name === 'body' || name === 'summary')
-  return taken.length === 0
+  const place = names.includes('parent')
+  return taken.length === 0 && !place
     ? Effect.void
     : Effect.fail(
         new Refused({
-          message: `${taken.map((name) => `The field \`${name}\``).join(' and ')} cannot be named so: \`body\` and \`summary\` are the body and the summary of every entry, and the keys of their \`provenance\`. Choose another name.`,
+          message: [
+            ...(taken.length === 0
+              ? []
+              : [
+                  `${taken.map((name) => `The field \`${name}\``).join(' and ')} cannot be named so: \`body\` and \`summary\` are the body and the summary of every entry, and the keys of their \`provenance\`. Choose another name.`,
+                ]),
+            ...(place
+              ? [
+                  'The field `parent` cannot be named so: `parent` is the place an entry is part of, and the key of its `provenance`. Choose another name.',
+                ]
+              : []),
+          ].join(' '),
         }),
       )
 }
@@ -233,8 +246,8 @@ export const addFields = Effect.fn('addFields')(function* (
 
 /**
  * What a change of a type as a whole says: its label, its description (what tells agents when to
- * use it), whether all its entries are sensitive, and whether its entries filed under one of the
- * same type are read in their parent. What it does not give stays.
+ * use it), whether all its entries are sensitive, and whether its entries that are part of one of the
+ * same type are read in that entry. What it does not give stays.
  */
 export const ChangeTypeInput = Schema.Struct({
   type: Schema.String.annotate({ description: 'The name of the type to change.' }),
@@ -246,7 +259,7 @@ export const ChangeTypeInput = Schema.Struct({
   }),
   read_in_parent: Schema.optionalKey(Schema.Boolean).annotate({
     description:
-      'Entries of the type filed under an entry of the same type are read as the parts of their parent, in its page.',
+      'Entries of the type that are part of an entry of the same type are read as the parts of that entry, in its page.',
   }),
 })
 export type ChangeTypeInput = typeof ChangeTypeInput.Type

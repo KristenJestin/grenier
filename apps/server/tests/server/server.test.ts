@@ -485,16 +485,26 @@ const answerOf = (answer: { result: Schema.Json } | { error: string }) => {
 }
 
 /** Every part a read may be asked for: with them, MCP answers with what the read API does. */
-const ALL_PARTS = ['fields', 'body', 'links', 'media', 'children', 'references', 'cited_by', 'path']
+const ALL_PARTS = [
+  'fields',
+  'body',
+  'links',
+  'media',
+  'children',
+  'references',
+  'cited_by',
+  'path',
+  'part_of',
+]
 
 /**
- * A read over MCP as the read API tells it: MCP names the parent and the successor by slug with
- * their id beside, and keys the titles by slug; the API keeps ids. For an entry that names none.
+ * A read over MCP as the read API tells it: MCP names the successor by slug with its id beside,
+ * and keys the titles by slug; the API keeps ids. For an entry that names none.
  */
 const asTheApiTellsIt = (data: typeof Answer.Type) => {
   const { entry, titles, ...rest } = data
   expect(titles).toEqual({})
-  const { parent: _, superseded_by_id, ...kept } = Schema.decodeUnknownSync(Answer)(entry)
+  const { superseded_by_id, ...kept } = Schema.decodeUnknownSync(Answer)(entry)
   return { ...rest, entry: { ...kept, superseded_by: superseded_by_id }, titles: {} }
 }
 
@@ -545,7 +555,7 @@ describe('the read API', () => {
     expect(Schema.decodeUnknownSync(NotFound)(unknown.body).message).toContain('nowhere-at-all')
   })
 
-  test('GET /api/entries lists the tree: every entry the key may see, with its parent', async () => {
+  test('GET /api/entries lists the tree: every entry the key may see, with the places it is part of', async () => {
     const { status, body } = await get(
       '/api/entries',
       bearer(await createKey('tree-reader', ['read'])),
@@ -555,8 +565,48 @@ describe('the read API', () => {
       Schema.Struct({ entries: Schema.Array(TreeEntry) }),
     )(body)
     expect(entries).toContainEqual(
-      expect.objectContaining({ slug: 'over-the-wire', type: 'note', parent_id: null }),
+      expect.objectContaining({ slug: 'over-the-wire', type: 'note', part_of: [] }),
     )
+  })
+
+  test('GET /api/entries lists an entry part of two places under both, and /api/entries/{slug} gives both with their dates', async () => {
+    const agent = connectStateless(`${base}/mcp`, bearer(writer))
+    await agent.call('write', { type: 'note', title: 'Left shelf' })
+    await agent.call('write', { type: 'note', title: 'Right shelf' })
+    await agent.call('write', {
+      type: 'note',
+      title: 'Shared lamp',
+      parent: 'left-shelf',
+      provenance: { parent: 'inferred' },
+    })
+    await agent.call('link', {
+      source: 'shared-lamp',
+      target: 'right-shelf',
+      relation: 'part_of',
+      provenance: 'inferred',
+      valid_from: '2026-02-01',
+    })
+    const reader = bearer(await createKey('places-reader', ['read']))
+    const { entries } = Schema.decodeUnknownSync(
+      Schema.Struct({ entries: Schema.Array(TreeEntry) }),
+    )((await get('/api/entries', reader)).body)
+    const ids = Object.fromEntries(entries.map(({ slug, id }) => [slug, id]))
+    expect(entries.find(({ slug }) => slug === 'shared-lamp')?.part_of).toEqual([
+      { id: ids['left-shelf'], in_parent: false },
+      { id: ids['right-shelf'], in_parent: false },
+    ])
+    const lamp = await get('/api/entries/shared-lamp', reader)
+    expect(lamp.body.part_of).toEqual([
+      expect.objectContaining({ slug: 'left-shelf', provenance: 'inferred', valid_from: null }),
+      expect.objectContaining({
+        slug: 'right-shelf',
+        provenance: 'inferred',
+        valid_from: '2026-02-01',
+      }),
+    ])
+    expect(lamp.body.path).toEqual(['Left shelf'])
+    const listed = await get('/api/entries?under=right-shelf', reader)
+    expect(listed.body.entries.map(({ slug }: { slug: string }) => slug)).toEqual(['shared-lamp'])
   })
 
   test('types and search answer as the types tool and search do over MCP', async () => {

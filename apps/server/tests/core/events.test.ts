@@ -136,14 +136,14 @@ describe('every write of an entry is in its history', () => {
         title: 'Old mill',
         parent: 'food',
         body: `${body}!`,
-        provenance: { body: 'inferred' },
+        provenance: { parent: 'inferred', body: 'inferred' },
       }),
     )
     const [change] = await run(entryHistory('mill')).then((history) => history.slice(1))
     expect(change?.changes).toEqual([
       { field: 'title', before: 'Mill', after: 'Old mill' },
-      { field: 'parent_id', before: null, after: area.id },
       { field: 'body', before: body, after: `${body}!` },
+      { field: 'links.part_of', before: null, after: { entry: area.id, provenance: 'inferred' } },
     ])
   })
 })

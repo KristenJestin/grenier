@@ -85,7 +85,12 @@ beforeAll(() =>
         title: 'Current account',
         parent: 'papers',
         fields: { bank: 'Lantern Bank', number: 'zebracode-4411', renewal: '2030-03-20' },
-        provenance: { bank: 'inferred', number: 'inferred', renewal: 'inferred' },
+        provenance: {
+          parent: 'inferred',
+          bank: 'inferred',
+          number: 'inferred',
+          renewal: 'inferred',
+        },
       })
       yield* writeEntry({
         type: 'account',
@@ -99,7 +104,7 @@ beforeAll(() =>
         title: 'Quiet morning',
         parent: 'papers',
         body: 'Walked by the orchard at dawn.',
-        provenance: { body: 'inferred' },
+        provenance: { parent: 'inferred', body: 'inferred' },
       })
       yield* link('quiet-morning', 'current-account', 'mentions_account', '', '', {
         provenance: 'inferred',
@@ -523,7 +528,7 @@ describe('a write does not tell a key without the right that a hidden entry exis
         fields: { target: 'quiet-morning' },
         sources: [{ entry: 'quiet-morning' }],
         body: 'See [[quiet-morning]].',
-        provenance: { target: 'inferred', body: 'inferred' },
+        provenance: { parent: 'inferred', target: 'inferred', body: 'inferred' },
       }),
     )
     expect(refused.message).toBe(

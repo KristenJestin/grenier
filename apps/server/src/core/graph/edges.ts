@@ -1,5 +1,7 @@
 import { Effect } from 'effect'
 import { SqlClient } from 'effect/sql'
+import { holdingToday } from '../links/places.ts'
+import { PART_OF } from '../links/store.ts'
 import { sensitivity } from '../sensitive.ts'
 
 /** What joins two entries. */
@@ -9,7 +11,9 @@ export const VIAS = ['link', 'parent', 'field', 'mention'] as const
  * The edges between entries as one SQL fragment, the `edges` of a `WITH` clause: for each, the
  * entry it leaves (`source_id`) and the one it reaches (`target_id`), what joins them (`via`:
  * the tree, an explicit link, a field of kind `entry`, or a `[[reference]]` of a body), the
- * relation (`parent`, the link's relation, the field's name), and what a link says of itself.
+ * relation (the link's relation, `part_of` for the tree, the field's name), and what a link says
+ * of itself. A link `part_of` that holds today is the tree (`parent`); one that is over, or has
+ * not begun, is a link like any other.
  *
  * It holds what the caller may see only: no edge to or from an entry of a sensitive type, none
  * through a field the caller may not see, none to or from an archived entry unless `archived` is
@@ -18,15 +22,14 @@ export const VIAS = ['link', 'parent', 'field', 'mention'] as const
 export const edgesFor = Effect.fn('edgesFor')(function* (archived: boolean, root: string | null) {
   const sql = yield* SqlClient.SqlClient
   const { hiddenTypes, hiddenFields } = yield* sensitivity
+  const holding = yield* holdingToday
   return sql`
     raw AS (
-      SELECT id AS source_id, parent_id AS target_id, 'parent' AS via, 'parent' AS relation,
-        NULL::text AS note, NULL::date AS valid_from, NULL::date AS valid_until
-      FROM entries WHERE parent_id IS NOT NULL
-      UNION ALL
-      SELECT source_id, target_id, CASE WHEN relation = 'mentions' THEN 'mention' ELSE 'link' END,
+      SELECT source_id, target_id,
+        CASE WHEN relation = 'mentions' THEN 'mention'
+          WHEN relation = ${PART_OF} AND ${holding} THEN 'parent' ELSE 'link' END AS via,
         relation, note, valid_from, valid_until
-      FROM links
+      FROM links l
       UNION ALL
       -- The entries named by the fields of kind entry, one or several. A value stores the id of
       -- the entry; a text that is not one names none.

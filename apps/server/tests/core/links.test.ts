@@ -138,18 +138,26 @@ describe('renaming a slug rewrites the references to it', () => {
   })
 })
 
-describe('links never change the tree', () => {
-  test('parent_id is untouched by link and unlink', async () => {
+describe('links other than part_of never change the tree', () => {
+  test('the places of an entry are untouched by link and unlink', async () => {
     await run(note('Folder'))
-    await run(writeEntry({ type: 'note', title: 'Filed', parent: 'folder' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Filed',
+        parent: 'folder',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await run(note('Elsewhere'))
-    const before = (await run(readEntry('filed'))).entry.parent_id
+    const before = (await run(readEntry('filed'))).part_of
+    expect(before).toHaveLength(1)
     await run(link('filed', 'elsewhere', 'related', '', '', { provenance: 'inferred' }))
     await run(link('elsewhere', 'filed', 'related', '', '', { provenance: 'inferred' }))
-    expect((await run(readEntry('filed'))).entry.parent_id).toBe(before)
+    expect((await run(readEntry('filed'))).part_of).toEqual(before)
     await run(unlink('filed', 'elsewhere', 'related'))
-    expect((await run(readEntry('filed'))).entry.parent_id).toBe(before)
-    expect((await run(readEntry('elsewhere'))).entry.parent_id).toBeNull()
+    expect((await run(readEntry('filed'))).part_of).toEqual(before)
+    expect((await run(readEntry('elsewhere'))).part_of).toEqual([])
   })
 })
 

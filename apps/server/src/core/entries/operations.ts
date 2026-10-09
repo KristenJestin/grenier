@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { Effect, Predicate, Result, Schema, Struct } from 'effect'
 import { SqlClient } from 'effect/sql'
@@ -13,7 +13,17 @@ import { Refused } from '../refused.ts'
 import { hiddenAmong, hiddenIn, isId, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
 import { referencesIn, renameReferences } from '../links/references.ts'
-import { incoming, MENTIONS, outgoing } from '../links/store.ts'
+import {
+  closesLoop,
+  holdingToday,
+  OLDEST_FIRST,
+  partOfEntry,
+  placesToday,
+  planPlace,
+  subtreeOf,
+  treePlaces,
+} from '../links/places.ts'
+import { incoming, MENTIONS, outgoing, PART_OF } from '../links/store.ts'
 import { keepReferences, lockReferences, referencesOf, resolvePending } from '../links/pending.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { mediaOf } from '../media/store.ts'
@@ -61,7 +71,6 @@ const COLUMNS = {
   slug: table.slug,
   aliases: table.aliases,
   tags: table.tags,
-  parent_id: table.parent_id,
   fields: table.fields,
   provenance: table.provenance,
   sources: table.sources,
@@ -244,11 +253,10 @@ const masked = Effect.fn('masked')(function* (entry: Kept) {
     }
     return source
   })
-  // No id of an entry the caller may not see: as its parent, its successor or a field's value.
-  const hidden = yield* hiddenIn([entry.parent_id, entry.superseded_by, entry.fields])
+  // No id of an entry the caller may not see: as its successor or a field's value.
+  const hidden = yield* hiddenIn([entry.superseded_by, entry.fields])
   return {
     ...entry,
-    parent_id: entry.parent_id !== null && hidden.has(entry.parent_id) ? null : entry.parent_id,
     superseded_by:
       entry.superseded_by !== null && hidden.has(entry.superseded_by) ? null : entry.superseded_by,
     fields: Object.fromEntries(
@@ -303,56 +311,64 @@ export const identityOf = Effect.fn('identityOf')(function* (entry: {
  */
 export const TREE_DEPTH = 1000
 
-/** Serialises the writes that move an entry, so that two moves cannot close a cycle together. */
+/**
+ * Serialises the writes that open or close a place of an entry, so that two moves cannot close a
+ * cycle together.
+ */
 export const TREE_LOCK = 7_418_309
 
-/** Whether a write moves an entry: it names the parent of one that exists. */
-const movesAnEntry = (input: WriteEntryInput) =>
-  input.entry !== undefined && Predicate.isString(input.parent)
+/** Whether a write moves an entry: it names its parent, a place to open or to close. */
+const movesAnEntry = (input: WriteEntryInput) => input.parent !== undefined
 
 /** Takes the tree lock, until the transaction ends; taken again, it is held already. */
-const lockTree = Effect.flatMap(
+export const lockTree = Effect.flatMap(
   SqlClient.SqlClient,
   (client) => client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`,
 )
 
-/** The entry and its ancestors, from the root down to the entry itself. */
+/**
+ * The entry and its ancestors, from the root down to the entry itself: at each step, the oldest
+ * place the entry is part of today.
+ */
 export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
   const client = yield* SqlClient.SqlClient
+  const heldToday = yield* holdingToday
   return yield* ancestors(client`
     WITH RECURSIVE up AS (
-      SELECT id, parent_id, title, type, 0 AS depth FROM entries WHERE id = ${id}::uuid
+      SELECT id, title, type, 0 AS depth FROM entries WHERE id = ${id}::uuid
       UNION ALL
-      SELECT e.id, e.parent_id, e.title, e.type, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
+      SELECT p.id, p.title, p.type, up.depth + 1
+      FROM up
+        CROSS JOIN LATERAL (
+          SELECT l.target_id FROM links l
+          WHERE l.source_id = up.id AND l.relation = ${PART_OF} AND ${heldToday}
+          ORDER BY ${client.literal(OLDEST_FIRST)} LIMIT 1
+        ) AS oldest
+        JOIN entries p ON p.id = oldest.target_id
       WHERE up.depth < ${TREE_DEPTH}
     ) CYCLE id SET looped USING trail
     SELECT id::text AS id, title, type FROM up WHERE NOT looped ORDER BY depth DESC`)
 })
 
 /**
- * An entry, the titles of its ancestors from the root, and its children that are not archived,
- * by title.
+ * An entry, the titles of its ancestors from the root (through the oldest place it is part of),
+ * every place it is or was part of, and the entries that are part of it today and are not
+ * archived, by title.
  */
 export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   const db = yield* drizzle
+  const client = yield* SqlClient.SqlClient
   const { hiddenTypes, maskFields } = yield* sensitivity
   const entry = yield* findEntry(reference)
-  const all = yield* kids(
-    db
-      .select({
-        id: table.id,
-        slug: table.slug,
-        type: table.type,
-        title: table.title,
-        summary: table.summary,
-        fields: table.fields,
-        in_parent: sql<boolean>`${table.type} = ${entry.type} AND EXISTS (SELECT 1 FROM types t
-          WHERE t.name = ${table.type} AND t.read_in_parent)`,
-      })
-      .from(table)
-      .where(and(eq(table.parent_id, entry.id), isNull(table.archived_at)))
-      .orderBy(asc(table.title)),
-  )
+  const heldToday = yield* holdingToday
+  const all = yield* kids(client`
+    SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, e.fields,
+      e.type = ${entry.type} AND EXISTS (SELECT 1 FROM types t
+        WHERE t.name = e.type AND t.read_in_parent) AS in_parent
+    FROM entries e JOIN links l ON l.source_id = e.id
+    WHERE l.target_id = ${entry.id}::uuid AND l.relation = ${PART_OF} AND ${heldToday}
+      AND e.archived_at IS NULL
+    ORDER BY e.title`)
   // A part of this entry comes with its fields, as the caller may see them on its own page.
   const parts = all.filter((child) => child.in_parent && !hiddenTypes.includes(child.type))
   // The entries the entry and its parts name in their fields, by id, for a reader to show their
@@ -410,6 +426,7 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   return {
     entry,
     path: yield* pathOf(entry.id),
+    part_of: yield* partOfEntry(entry.id, hiddenTypes),
     references: yield* referencesOf(entry.body),
     ancestors: yield* ancestorsOf(entry.id),
     links: yield* outgoing(entry.id, hiddenTypes),
@@ -428,35 +445,18 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
 
 /**
  * The whole tree in one read: every entry the caller may see that is not archived, by title,
- * with the id of the entry it is filed under.
+ * with the entries it is part of today (a place the caller may not see is no place: the entry
+ * stands at the top if it has no other).
  */
 export const listEntries = Effect.fn('listEntries')(function* () {
-  const db = yield* drizzle
-  const { hidesType } = yield* sensitivity
-  const all = yield* listed(
-    db
-      .select({
-        id: table.id,
-        slug: table.slug,
-        type: table.type,
-        title: table.title,
-        parent_id: table.parent_id,
-        // Named whole: inside the subquery, a bare column would be the parent's.
-        in_parent: sql<boolean>`EXISTS (SELECT 1 FROM entries p JOIN types t ON t.name = p.type
-          WHERE p.id = "entries"."parent_id" AND p.type = "entries"."type" AND t.read_in_parent)`,
-      })
-      .from(table)
-      .where(isNull(table.archived_at))
-      .orderBy(asc(table.title)),
-  )
-  const shown = all.filter(({ type }) => !hidesType(type))
-  // A parent the caller may not see is no parent: its child stands at the root.
-  const hidden = yield* hiddenIn(shown.map(({ parent_id }) => parent_id))
-  return shown.map((entry) =>
-    entry.parent_id !== null && hidden.has(entry.parent_id)
-      ? Object.assign(entry, { parent_id: null })
-      : entry,
-  )
+  const client = yield* SqlClient.SqlClient
+  const { hiddenTypes } = yield* sensitivity
+  const places = yield* treePlaces(hiddenTypes)
+  return yield* listed(client`
+    SELECT e.id::text AS id, e.slug, e.type, e.title, ${places}
+    FROM entries e
+    WHERE e.archived_at IS NULL AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
+    ORDER BY e.title`)
 })
 
 /**
@@ -501,16 +501,11 @@ export const filterEntries = Effect.fn('filterEntries')(function* (filter: Entry
     })
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200)
   const certain = yield* holding(wantedOf(filter))
+  const places = yield* treePlaces(hiddenTypes)
+  const subtree = yield* subtreeOf(under)
   const rows = yield* listed(client`
-    WITH RECURSIVE subtree AS (
-      SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
-      UNION ALL
-      SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
-      WHERE s.depth < ${TREE_DEPTH}
-    ) CYCLE id SET looped USING trail
-    SELECT e.id::text AS id, e.slug, e.type, e.title, e.parent_id::text AS parent_id,
-      EXISTS (SELECT 1 FROM entries p JOIN types t ON t.name = p.type
-        WHERE p.id = e.parent_id AND p.type = e.type AND t.read_in_parent) AS in_parent
+    WITH RECURSIVE ${subtree}
+    SELECT e.id::text AS id, e.slug, e.type, e.title, ${places}
     FROM entries e
     WHERE e.archived_at IS NULL
       AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
@@ -523,15 +518,9 @@ export const filterEntries = Effect.fn('filterEntries')(function* (filter: Entry
     ORDER BY e.title, e.id::text
     LIMIT ${limit + 1}`)
   const page = rows.slice(0, limit)
-  // A parent the caller may not see is no parent: its child stands at the root.
-  const hidden = yield* hiddenIn(page.map(({ parent_id }) => parent_id))
   const last = page.at(-1)
   return {
-    entries: page.map((entry) =>
-      entry.parent_id !== null && hidden.has(entry.parent_id)
-        ? Object.assign(entry, { parent_id: null })
-        : entry,
-    ),
+    entries: page,
     next_cursor: rows.length > limit && last !== undefined ? cursorOf(last) : null,
   }
 })
@@ -673,13 +662,12 @@ const CREATED = {
 }
 
 /** What a write may change of an existing entry, in the shape of a write. */
-const stateOf = ({ type, title, slug, parent_id, ...entry }: Kept) => ({
+const stateOf = ({ type, title, slug, ...entry }: Kept) => ({
   type,
   title,
   slug,
   aliases: entry.aliases,
   tags: entry.tags,
-  parent: parent_id,
   fields: entry.fields,
   provenance: entry.provenance,
   sources: entry.sources,
@@ -702,7 +690,6 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   slug: base.slug,
   aliases: base.aliases,
   tags: base.tags,
-  parent_id: base.parent_id,
   body: base.body,
   summary: base.summary,
   valid_from: base.valid_from,
@@ -882,10 +869,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // lock lets other writes still point to the entry (as a parent, through a foreign key).
         const existing =
           input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
+        // The place it is part of: the oldest of those that hold today, which `parent` names.
+        const place = existing === undefined ? undefined : (yield* placesToday(existing.id))[0]
         const {
           entry: _,
           fields = {},
-          provenance = {},
+          provenance: provenanceGiven = {},
           created,
           updated,
           append,
@@ -893,7 +882,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           edits,
           ...given
         } = input
-        const base = existing === undefined ? CREATED : stateOf(existing)
+        // What is said of the place is not said of a value of the entry: it is kept on its link.
+        const { parent: placeSaid, ...provenance } = provenanceGiven
+        const placeProvenance = placeSaid ?? undefined
+        const base =
+          existing === undefined ? CREATED : { ...stateOf(existing), parent: place?.target ?? null }
         const edited = editsOf(base.body, edits ?? [])
         // A part of a long body, added at the end of what is there, or at the top, one blank line
         // before it; or words changed in place.
@@ -1055,7 +1048,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const storedHidden = yield* hiddenIn(
           existing === undefined
             ? []
-            : [existing.parent_id, existing.superseded_by, existing.fields],
+            : [place?.target ?? null, existing.superseded_by, existing.fields],
         )
 
         /**
@@ -1102,14 +1095,32 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           return null
         })
 
-        const parentId = yield* resolve('parent', state.parent, existing?.parent_id)
-        if (parentId !== null && existing !== undefined) {
-          const lineage = yield* lineageOf(parentId)
-          if (lineage.some(({ id }) => id === existing.id)) {
+        const parentId = yield* resolve('parent', state.parent, place?.target)
+        const moving = parentId !== (place?.target ?? null)
+        if (parentId !== null && existing !== undefined && moving) {
+          if (yield* closesLoop(existing.id, parentId)) {
             problems.push(
-              `The field \`parent\` cannot be \`${state.parent}\`: an entry cannot be filed under itself or one of its descendants.`,
+              `The field \`parent\` cannot be \`${state.parent}\`: an entry cannot be part of itself or of one of its parts.`,
             )
           }
+        }
+        // The place says whether it is known or supposed, as a link does: `extracted` or `inferred`.
+        if (placeProvenance === undefined && parentId !== null && moving) {
+          problems.push(
+            'The field `provenance.parent` is required with `parent`: say `extracted` (known, read in a source) or `inferred` (supposed by you).',
+          )
+        } else if (placeProvenance !== undefined && input.parent === undefined) {
+          problems.push(
+            'The field `provenance.parent` goes with `parent`: give the entry it is part of.',
+          )
+        } else if (
+          placeProvenance !== undefined &&
+          placeProvenance !== 'extracted' &&
+          placeProvenance !== 'inferred'
+        ) {
+          problems.push(
+            `The field \`provenance.parent\` must be \`extracted\` (known, read in a source) or \`inferred\` (supposed by you), not \`${placeProvenance}\`.`,
+          )
         }
         const supersededBy = yield* resolve(
           'superseded_by',
@@ -1256,6 +1267,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             )
           }
         }
+        // The place is known when it is read in a source, which the entry then has.
+        if (placeProvenance === 'extracted' && sources.length === 0 && !sourcesRefused) {
+          problems.push(
+            'The field `provenance.parent` is `extracted` but the entry has no source: give one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`), or write it `inferred`.',
+          )
+        }
         for (const [name, value] of Object.entries(provenance)) {
           if (value === 'unstated') {
             problems.push(
@@ -1320,12 +1337,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             : [{ field: 'created', before: existing.created, after: redated }].filter(
                 (change) => change.before !== change.after,
               )
+        const move = yield* planPlace(existing?.id, place, parentId, placeProvenance)
         const changes = [
           ...changesBetween(
             existing === undefined ? {} : snapshotOf(existing),
             snapshotOf({
               ...entry,
-              parent_id: parentId,
               fields: references,
               sources,
               superseded_by: supersededBy,
@@ -1334,6 +1351,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             }),
           ),
           ...redating,
+          ...move.changes,
         ]
         if (existing !== undefined && changes.length === 0) return yield* masked(existing)
         const values = {
@@ -1342,7 +1360,6 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           slug: entry.slug,
           aliases: entry.aliases,
           tags: entry.tags,
-          parent_id: parentId,
           fields: references,
           provenance: entry.provenance,
           sources,
@@ -1378,6 +1395,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
                   .returning({ id: table.id }),
               )
         const id = written?.id ?? ''
+        yield* move.apply(id)
         yield* recordEvent(
           actor,
           { entryId: id, typeName: null },
@@ -1673,7 +1691,7 @@ const orderOf = Effect.fn('orderOf')(function* (
     const loop = loopFrom(index)
     if (loop !== undefined)
       return yield* new Refused({
-        message: `The entries ${loop.map((one) => `\`${ends[one]?.slug ?? planned[one]?.title}\``).join(', ')} are filed under one another in this batch: an entry cannot be filed under itself or one of its descendants.`,
+        message: `The entries ${loop.map((one) => `\`${ends[one]?.slug ?? planned[one]?.title}\``).join(', ')} are part of one another in this batch: an entry cannot be part of itself or of one of its parts.`,
       })
   }
 

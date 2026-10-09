@@ -1,6 +1,7 @@
 import { Entry, HIDDEN, SourceKept } from '@grenier/api/model'
 import { asc } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
+import { posix } from 'node:path'
 import { SqlClient } from 'effect/sql'
 import { stringify } from 'yaml'
 import { drizzle } from '../database/client.ts'
@@ -8,7 +9,9 @@ import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
 import { withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
+import { holdsOn, PART_OF } from '../links/store.ts'
 import { instanceRulesText } from '../rules.ts'
+import { Today } from '../time/index.ts'
 import { listTypes } from '../types/operations.ts'
 
 /** A file of the export: its path from the export's root, and its content. */
@@ -41,6 +44,7 @@ const linkRows = rowsOf(
     note: Schema.NullOr(Schema.String),
     valid_from: Schema.NullOr(Schema.String),
     valid_until: Schema.NullOr(Schema.String),
+    seq: Schema.Number,
   }),
 )
 const mediaRows = rowsOf(
@@ -67,10 +71,12 @@ const markdown = (front: { readonly [key: string]: Schema.Json | undefined }, bo
 
 /**
  * Everything Grenier holds, as the files of the Markdown export, sorted by path: each type in
- * `_types/<name>.md`, each entry in `<slug>.md` inside the folder of its parent (`<parent slug>/`,
- * beside the parent's own file), archived entries included. What the current caller may not see is
+ * `_types/<name>.md`, each entry in `<slug>.md` inside the folder of the oldest place it is part of
+ * today (`<place slug>/`, beside the place's own file), archived entries included; the file of an
+ * entry stays in that one folder, and every other place lists it, with a relative link, in its
+ * own file (`parts_elsewhere`). What the current caller may not see is
  * left out, as on every way out: entries of sensitive types, and the values of sensitive fields
- * (`[hidden]`); an entry whose parent is left out stands at the root. Media are listed, not
+ * (`[hidden]`); an entry whose only places are left out stands at the root. Media are listed, not
  * copied: their file is under the media folder, at `file`. The rules of the instance, when set,
  * are `_rules.md`, as the owner wrote them. Everything is read in one snapshot of the database,
  * so a write during the export never leaves it half before and half after.
@@ -98,7 +104,6 @@ const snapshot = Effect.gen(function* () {
         slug: entries.slug,
         aliases: entries.aliases,
         tags: entries.tags,
-        parent_id: entries.parent_id,
         fields: entries.fields,
         provenance: entries.provenance,
         sources: entries.sources,
@@ -134,15 +139,47 @@ const snapshot = Effect.gen(function* () {
       .orderBy(asc(media.position), asc(media.id)),
   )
 
-  /** The folders an entry is filed in, from the root: the slugs of its ancestors it may show. */
-  const folderOf = (id: string): ReadonlyArray<string> => {
-    const parent = shown.get(id)?.parent_id
-    const above = parent === null || parent === undefined ? undefined : shown.get(parent)
-    return above === undefined ? [] : [...folderOf(above.id), above.slug]
+  // The places each entry is part of today that the caller may see, the oldest first.
+  const today = (yield* Today)()
+  const placesOf = new Map<string, Array<string>>()
+  for (const { source_id, target_id } of allLinks
+    .filter(
+      (found) =>
+        found.relation === PART_OF &&
+        holdsOn(today, found) &&
+        shown.has(found.source_id) &&
+        shown.has(found.target_id),
+    )
+    .toSorted(
+      (left, right) =>
+        compare(left.valid_from ?? '', right.valid_from ?? '') || left.seq - right.seq,
+    )) {
+    placesOf.set(source_id, [...(placesOf.get(source_id) ?? []), target_id])
   }
+
+  /** The folders an entry is filed in, from the root: the slugs of the places above its first. */
+  const folderOf = (id: string, below: ReadonlySet<string> = new Set()): ReadonlyArray<string> => {
+    const place = placesOf.get(id)?.[0]
+    const above = place === undefined || below.has(place) ? undefined : shown.get(place)
+    return above === undefined ? [] : [...folderOf(above.id, new Set([...below, id])), above.slug]
+  }
+  const pathOf = (id: string) => [...folderOf(id), `${shown.get(id)?.slug ?? ''}.md`].join('/')
   const slugOf = (id: string | null) => (id === null ? null : (shown.get(id)?.slug ?? null))
   // The ids of the entries left out: written nowhere, as in `read`.
   const leftOut = new Set(all.filter(({ id }) => !shown.has(id)).map(({ id }) => id))
+
+  // To each place, the entries that are part of it today and have their file in another folder.
+  const elsewhere = new Map<string, Array<{ slug: string; file: string }>>()
+  for (const part of [...shown.values()].toSorted((left, right) =>
+    compare(left.slug, right.slug),
+  )) {
+    for (const place of (placesOf.get(part.id) ?? []).slice(1)) {
+      elsewhere.set(place, [
+        ...(elsewhere.get(place) ?? []),
+        { slug: part.slug, file: posix.relative(posix.dirname(pathOf(place)), pathOf(part.id)) },
+      ])
+    }
+  }
 
   const typeFiles = types.map((type): ExportedFile => ({
     path: `_types/${type.name}.md`,
@@ -158,7 +195,7 @@ const snapshot = Effect.gen(function* () {
     ),
   }))
   const entryFiles = [...shown.values()].map((entry): ExportedFile => ({
-    path: [...folderOf(entry.id), `${entry.slug}.md`].join('/'),
+    path: pathOf(entry.id),
     entry: { id: entry.id, archived: entry.archived_at !== null },
     content: markdown(
       {
@@ -194,6 +231,8 @@ const snapshot = Effect.gen(function* () {
           ),
         ),
         provenance: sorted(entry.provenance),
+        // The entries that are part of this one, filed in the folder of their oldest place.
+        parts_elsewhere: elsewhere.get(entry.id),
         links: allLinks
           .filter(({ source_id, target_id }) => source_id === entry.id && shown.has(target_id))
           .map(
