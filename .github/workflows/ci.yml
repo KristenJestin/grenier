@@ -37,7 +37,7 @@ jobs:
           printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
           bun tools/commit-message.ts "$RUNNER_TEMP/title"
 
-  # Grenier runs on a Linux server: one target, with the PostgreSQL of docker-compose.yml as a
+  # Hippocampe runs on a Linux server: one target, with the PostgreSQL of docker-compose.yml as a
   # service, so the suites that need a database get the same one as on a developer's machine.
   verify:
     runs-on: ubuntu-latest
@@ -45,18 +45,18 @@ jobs:
       postgres:
         image: postgres:18.0
         env:
-          POSTGRES_USER: grenier
-          POSTGRES_PASSWORD: grenier
-          POSTGRES_DB: grenier
+          POSTGRES_USER: hippocampe
+          POSTGRES_PASSWORD: hippocampe
+          POSTGRES_DB: hippocampe
         ports:
           - 55432:5432
         options: >-
-          --health-cmd "pg_isready -U grenier"
+          --health-cmd "pg_isready -U hippocampe"
           --health-interval 2s
           --health-timeout 5s
           --health-retries 15
     env:
-      DATABASE_URL: postgres://grenier:grenier@127.0.0.1:55432/grenier
+      DATABASE_URL: postgres://hippocampe:hippocampe@127.0.0.1:55432/hippocampe
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -110,4 +110,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the image of the server
-        run: docker build -f apps/server/Dockerfile -t grenier:ci .
+        run: docker build -f apps/server/Dockerfile -t hippocampe:ci .

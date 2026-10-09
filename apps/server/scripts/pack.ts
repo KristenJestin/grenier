@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Packs Grenier for npm: `bun scripts/pack.ts <version> <folder>` compiles the executable of this
+ * Packs Hippocampe for npm: `bun scripts/pack.ts <version> <folder>` compiles the executable of this
  * platform (`bun build --compile`, the version built in), lays it beside its migrations in the
  * package of the platform, and writes both packages' tarballs into `folder`, ready for
  * `npm i -g` or for `npm publish`. Nothing is published here.
@@ -38,7 +38,7 @@ const stage = (name: string, dependencies: Readonly<Record<string, string>> = {}
   return into
 }
 
-const platform = stage('grenier-linux-x64')
+const platform = stage('hippocampe-linux-x64')
 mkdirSync(join(platform, 'bin'), { recursive: true })
 execFileSync(
   process.execPath,
@@ -48,7 +48,7 @@ execFileSync(
     `--define=process.env.HIPPOCAMPE_BUILT_VERSION=${JSON.stringify(version)}`,
     'src/cli.ts',
     '--outfile',
-    join(platform, 'bin', 'grenier'),
+    join(platform, 'bin', 'hippo'),
   ],
   { cwd: app, stdio: 'inherit' },
 )
@@ -56,7 +56,7 @@ execFileSync(
 cpSync(join(app, 'src', 'core', 'database', 'migrations'), join(platform, 'bin', 'migrations'), {
   recursive: true,
 })
-const launcher = stage('grenier', { '@netsirk/grenier-linux-x64': version })
+const launcher = stage('hippocampe', { '@netsirk/hippocampe-linux-x64': version })
 for (const packed of [platform, launcher])
   execFileSync('npm', ['pack', '--pack-destination', folder], { cwd: packed, stdio: 'inherit' })
 console.log(`Packed into ${folder}.`)

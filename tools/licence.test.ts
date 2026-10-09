@@ -13,7 +13,7 @@ const manifests = execFileSync('git', ['ls-files', '*package.json', '*Cargo.toml
   .trim()
   .split('\n')
 
-describe('Grenier is under the AGPL-3.0', () => {
+describe('Hippocampe is under the AGPL-3.0', () => {
   test('the full text is at the root, and the README says it', () => {
     const text = readFileSync(join(repository, 'LICENSE'), 'utf8')
     expect(text).toMatch(/^GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007/)

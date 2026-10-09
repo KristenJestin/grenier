@@ -23,8 +23,8 @@ describe('the npm job publishes only what it proved, and only from a release', (
 
   test('the tarballs are proved before any publication, the executable before the launcher', () => {
     const proved = npm.indexOf('scripts/prove-package.sh')
-    const executable = npm.indexOf('publish @netsirk/grenier-linux-x64')
-    const launcher = npm.indexOf('publish @netsirk/grenier "')
+    const executable = npm.indexOf('publish @netsirk/hippocampe-linux-x64')
+    const launcher = npm.indexOf('publish @netsirk/hippocampe "')
     expect(proved).toBeGreaterThan(0)
     expect(proved).toBeLessThan(executable)
     expect(executable).toBeLessThan(launcher)
@@ -52,7 +52,7 @@ describe('an older version never takes the latest tag from a newer one', () => {
     version: string,
     registry: { readonly latest?: string; readonly broken?: boolean; readonly there?: boolean },
   ) => {
-    const folder = mkdtempSync(join(tmpdir(), 'grenier-release-'))
+    const folder = mkdtempSync(join(tmpdir(), 'hippocampe-release-'))
     try {
       writeFileSync(
         join(folder, 'npm'),

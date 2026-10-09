@@ -1,17 +1,17 @@
 {
-  "name": "@netsirk/grenier",
+  "name": "@netsirk/hippocampe",
   "version": "0.0.0",
-  "description": "Grenier, a personal knowledge system kept by AI agents: the server, its MCP tools and its command line.",
+  "description": "Hippocampe, a personal knowledge system kept by AI agents: the server, its MCP tools and its command line.",
   "license": "AGPL-3.0-only",
-  "repository": "github:KristenJestin/grenier",
+  "repository": "github:KristenJestin/hippocampe",
   "bin": {
-    "grenier": "bin/grenier.js"
+    "hippo": "bin/hippo.js"
   },
   "files": [
     "bin"
   ],
   "optionalDependencies": {
-    "@netsirk/grenier-linux-x64": "0.0.0"
+    "@netsirk/hippocampe-linux-x64": "0.0.0"
   },
   "engines": {
     "node": ">=20"

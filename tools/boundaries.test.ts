@@ -20,7 +20,7 @@ describe('Every access to the data goes through the core', () => {
   })
 
   test('build outputs and dependencies are not read as sources', () => {
-    const root = mkdtempSync(join(tmpdir(), 'grenier-boundaries-'))
+    const root = mkdtempSync(join(tmpdir(), 'hippocampe-boundaries-'))
     try {
       for (const folder of ['target', '.turbo', 'node_modules', 'dist']) {
         const path = join(root, 'apps', 'desktop', folder)

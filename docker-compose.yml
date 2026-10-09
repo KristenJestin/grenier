@@ -1,26 +1,30 @@
-# Grenier and its PostgreSQL: `docker compose up -d` starts both, once `.env.production` exists
+# Hippocampe and its PostgreSQL: `docker compose up -d` starts both, once `.env.production` exists
 # (copy `.env.production.example`, see its comments). The database alone, for development and the
 # test suites: `docker compose up -d postgres`. Tests create and drop their own databases on it
 # and never touch one that holds real data.
+# The project is named here, not by the folder this file is in: the volumes are `hippocampe_postgres`,
+# `hippocampe_media` and `hippocampe_export` wherever the repository is cloned.
+name: hippocampe
 services:
   postgres:
     image: postgres:18.0
     environment:
-      POSTGRES_USER: grenier
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grenier}
-      POSTGRES_DB: grenier
+      POSTGRES_USER: hippocampe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hippocampe}
+      POSTGRES_DB: hippocampe
     ports:
       - '127.0.0.1:${POSTGRES_PORT:-55432}:5432'
     volumes:
       - postgres:/var/lib/postgresql
     healthcheck:
-      test: ['CMD', 'pg_isready', '-U', 'grenier']
+      test: ['CMD', 'pg_isready', '-U', 'hippocampe']
       interval: 2s
       timeout: 5s
       retries: 30
     restart: unless-stopped
 
-  grenier:
+  hippocampe:
+    image: hippocampe
     build:
       context: .
       dockerfile: apps/server/Dockerfile

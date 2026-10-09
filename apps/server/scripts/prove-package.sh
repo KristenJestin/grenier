@@ -1,7 +1,7 @@
 #!/bin/sh
 # Proves the packed tarballs before anything is published: installs both into a scratch npm
-# prefix and a scratch HOME, checks that `grenier --version` prints the version, then starts the
-# installed `grenier serve` on a scratch database run by the PostgreSQL the package carries, and
+# prefix and a scratch HOME, checks that `hippo --version` prints the version, then starts the
+# installed `hippo serve` on a scratch database run by the PostgreSQL the package carries, and
 # checks that /health answers with that version. Any failure stops with its reason.
 #
 #   scripts/prove-package.sh <version> <folder of the tarballs>
@@ -19,11 +19,11 @@ cleanup() {
 trap cleanup EXIT
 
 npm install --global --prefix "$scratch/prefix" \
-  "$packed/netsirk-grenier-linux-x64-$version.tgz" "$packed/netsirk-grenier-$version.tgz" >/dev/null
-grenier="$scratch/prefix/bin/grenier"
-said=$(HOME="$scratch/home" "$grenier" --version)
-if [ "$said" != "grenier v$version" ]; then
-  echo "grenier --version says \"$said\", not \"grenier v$version\"." >&2
+  "$packed/netsirk-hippocampe-linux-x64-$version.tgz" "$packed/netsirk-hippocampe-$version.tgz" >/dev/null
+hippo="$scratch/prefix/bin/hippo"
+said=$(HOME="$scratch/home" "$hippo" --version)
+if [ "$said" != "hippo v$version" ]; then
+  echo "hippo --version says \"$said\", not \"hippo v$version\"." >&2
   exit 1
 fi
 
@@ -39,7 +39,7 @@ for (const { source, target } of JSON.parse(fs.readFileSync(path.join(root, "pg-
   if (!fs.existsSync(to)) fs.symlinkSync(path.relative(path.dirname(to), from), to)
 }' "$scratch/postgresql"
 printf 'proof\n' >"$scratch/password"
-"$scratch/postgresql/bin/initdb" -D "$scratch/database" -U grenier --pwfile="$scratch/password" \
+"$scratch/postgresql/bin/initdb" -D "$scratch/database" -U hippocampe --pwfile="$scratch/password" \
   -A scram-sha-256 -E UTF8 --locale=C >/dev/null
 port=$((40000 + $$ % 10000))
 "$scratch/postgresql/bin/postgres" -D "$scratch/database" -p "$port" -k "$scratch" \
@@ -48,23 +48,23 @@ database_pid=$!
 
 server_port=$((port + 1))
 HOME="$scratch/home" HIPPOCAMPE_INSTANCE=local PORT="$server_port" \
-  DATABASE_URL="postgres://grenier:proof@127.0.0.1:$port/postgres" \
+  DATABASE_URL="postgres://hippocampe:proof@127.0.0.1:$port/postgres" \
   BETTER_AUTH_SECRET="proof-of-the-package-0123456789abcdef0123" MEDIA_DIR="$scratch/media" \
-  "$grenier" serve >"$scratch/server.log" 2>&1 &
+  "$hippo" serve >"$scratch/server.log" 2>&1 &
 server_pid=$!
 
 tries=0
 until health=$(curl -sf "http://127.0.0.1:$server_port/health"); do
   tries=$((tries + 1))
   if [ "$tries" -gt 120 ]; then
-    echo "grenier serve did not answer /health:" >&2
+    echo "hippo serve did not answer /health:" >&2
     cat "$scratch/server.log" "$scratch/postgres.log" >&2
     exit 1
   fi
   sleep 0.5
 done
 case "$health" in
-  *"\"version\":\"$version\""*) echo "Proved: grenier v$version installs, and serves /health as $version." ;;
+  *"\"version\":\"$version\""*) echo "Proved: hippo v$version installs, and serves /health as $version." ;;
   *)
     echo "/health answers $health, not the version $version." >&2
     exit 1

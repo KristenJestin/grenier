@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# The Grenier server, run by Bun from its sources (no build step), as a non-root user. Built from
+# The Hippocampe server, run by Bun from its sources (no build step), as a non-root user. Built from
 # the root of the repository: `docker build -f apps/server/Dockerfile .`, with its version and
 # commit as build arguments (`--build-arg HIPPOCAMPE_VERSION=1.4.0 --build-arg HIPPOCAMPE_COMMIT=$(git
 # rev-parse --short HEAD)`); both are `unknown` when not given.
