@@ -117,10 +117,13 @@ describe('the instructions put what matters most first', () => {
 
   test('without any type, the instructions say so and what follows starts on its own line', () => {
     const told = instructionsFor([], { name: 'development', diagnostics: true })
-    expect(told).toContain('There is no type yet.\n\nDiagnostics are on')
+    expect(told).toContain(
+      'There is no type yet.\n\nWhen the user mentions something Grenier may hold',
+    )
+    expect(told).toContain('as far as they help.\n\nDiagnostics are on')
   })
 
-  test('the order is the instance, how to choose a type, the types, then diagnostics, the rules and the inbox standard', () => {
+  test('the order is the instance, how to choose a type, the types, how to recall, then diagnostics, the rules and the inbox standard', () => {
     const told = instructionsFor(
       types,
       { name: 'development', diagnostics: true },
@@ -131,6 +134,7 @@ describe('the instructions put what matters most first', () => {
       'shared DEVELOPMENT instance',
       'Choose the type whose description matches',
       'The types:',
+      'search it before answering',
       'Diagnostics are on',
       'The rules of this instance',
       'How an inbox item becomes entries',
@@ -149,7 +153,7 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
     const [first = ''] = paragraphs
     const at = paragraphs.findIndex((paragraph) => paragraph.startsWith('Diagnostics are on'))
     expect(first).toContain('REAL instance')
-    expect(paragraphs[at - 1]).toContain('`alpha`')
+    expect(paragraphs[at - 2]).toContain('`alpha`')
     for (const word of ['grenier_report', 'grenier_reports', 'slug', 'unless it blocks the work'])
       expect(paragraphs[at]).toContain(word)
   })
@@ -215,5 +219,24 @@ describe('diagnostics tell how a report joins an open finding', () => {
     const told = instructionsFor([], { name: 'development', diagnostics: true })
     expect(told).toContain('`same_as: <number>`')
     expect(told).toContain('`new: true`')
+  })
+})
+
+describe('agents recall without being asked', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+  const recalling = (reads: boolean) => instructionsFor(types, development, null, true, reads)
+
+  test('a key that reads is told to search what the user mentions before answering, and to follow the neighbors', () => {
+    const told = recalling(true)
+    expect(told).toContain('search it before answering, without being asked')
+    expect(told).toContain('follow its `neighbors`')
+  })
+
+  test('a key that cannot read is told nothing of it', () => {
+    expect(recalling(false)).not.toContain('before answering')
+  })
+
+  test('the types still come within the first 2,048 characters', () => {
+    expect(recalling(true).indexOf('- `alpha`')).toBeLessThan(2048)
   })
 })

@@ -87,6 +87,10 @@ even when they do not name it. Before creating an entry, search for an existing 
 it when it is the same thing. When no type fits, ask the user rather than forcing one; a new type
 is defined with a description that says when to use it.`
 
+/** How an agent recalls: said to the keys that read, after the types. */
+const RECALL =
+  'When the user mentions something Grenier may hold, search it before answering, without being asked. Before answering, read what the search found and follow its `neighbors` (and `read` with a `depth` of 2 or 3) as far as they help.'
+
 const listed = (types: ReadonlyArray<{ readonly name: string; readonly description: string }>) =>
   types.length === 0
     ? 'There is no type yet.'
@@ -110,11 +114,13 @@ export const instructionsFor = (
   instance: { readonly name: InstanceName; readonly diagnostics: boolean },
   rules: string | null = null,
   writes = false,
+  reads = true,
 ) =>
   [
     INSTANCE[instance.name],
     HOW,
     listed(types),
+    ...(reads ? [RECALL] : []),
     ...(instance.diagnostics ? [DIAGNOSTICS] : []),
     ...(rules === null ? [] : [rulesSaid(rules)]),
     ...(writes ? [INBOX_STANDARD] : []),
@@ -130,5 +136,6 @@ export const instructions = Effect.gen(function* () {
     yield* Instance,
     yield* instanceRulesText,
     (yield* Rights).includes('write'),
+    (yield* Rights).includes('read'),
   )
 })

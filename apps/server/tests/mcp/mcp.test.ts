@@ -211,7 +211,7 @@ describe('an agent works through MCP calls only', () => {
     })
     expect(written).toMatchObject({ result: { entry: { slug: 'long-page', title: 'Long page' } } })
     expect(JSON.stringify(written)).not.toContain('A line of text.')
-    expect(await mcp().call('read', { entry: 'long-page' })).toMatchObject({
+    expect(await mcp().call('read', { entry: 'long-page', parts: ['body'] })).toMatchObject({
       result: { entry: { body: 'A line of text.\n'.repeat(1000) } },
     })
   })
@@ -285,6 +285,47 @@ describe('an unknown key in a call is refused', () => {
     expect(await mcp().call('history', { entry: 'orchard-plan', limit: 1.5 })).toHaveProperty(
       'error',
     )
+  })
+})
+
+describe('an agent recalls through search and read', () => {
+  test('depth 4 is refused in one sentence, and so is a number of neighbors past 10', async () => {
+    expect(await mcp().call('read', { entry: 'orchard-plan', depth: 4 })).toEqual({
+      error: 'The field `depth` must be a value between 1 and 3.',
+    })
+    expect(await mcp().call('search', { query: 'orchard', neighbors: 11 })).toEqual({
+      error: 'The field `neighbors` must be a value between 0 and 10.',
+    })
+  })
+
+  test('a search brings the entry that cites a result, and read with depth 2 the graph around it', async () => {
+    const { result } = await mcp().call('search', { query: 'orchard plan' })
+    expect(result).toMatchObject({
+      results: expect.arrayContaining([
+        expect.objectContaining({
+          slug: 'orchard-plan',
+          neighbors: [expect.objectContaining({ slug: 'spring-tasks', via: 'mention' })],
+        }),
+      ]),
+    })
+    expect(await mcp().call('read', { entry: 'orchard-plan', depth: 2 })).toMatchObject({
+      result: {
+        graph: {
+          cut: false,
+          entries: [
+            { slug: 'orchard-plan', depth: 0 },
+            { slug: 'spring-tasks', depth: 1 },
+          ],
+          edges: [{ from: 'spring-tasks', to: 'orchard-plan', via: 'mention' }],
+        },
+      },
+    })
+  })
+
+  test('a search without a query lists what changed last, with the key that changed it', async () => {
+    expect(await mcp().call('search', { neighbors: 0, by: 'agent-test', limit: 1 })).toMatchObject({
+      result: { results: [{ by: 'agent-test', updated: expect.any(String) }] },
+    })
   })
 })
 
@@ -551,7 +592,7 @@ describe('an agent adds a part at the top of a body', () => {
     await mcp().call('write_many', {
       entries: [{ entry: 'frog-log', body: 'Frogs on the lawn.', prepend: true }],
     })
-    expect(await mcp().call('read', { entry: 'frog-log' })).toMatchObject({
+    expect(await mcp().call('read', { entry: 'frog-log', parts: ['body'] })).toMatchObject({
       result: { entry: { body: 'Frogs on the lawn.\n\nTadpoles.\n\nSpawn in the pond.\n' } },
     })
     expect(writeTool.description).toContain('`prepend: true`')

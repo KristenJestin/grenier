@@ -25,9 +25,9 @@ name is refused.
 | `pending_references` | read | Lists the `[[references]]` still waiting for their entry. |
 | `instance_rules` | read | The rules the owner set for every agent, whole. |
 | `write` | write | Creates an entry, or updates the one `entry` names; a long body in parts. |
-| `read` | read | Reads an entry, whole or by parts, with its place in the tree and its links. |
+| `read` | read | Reads an entry without its body unless asked, by parts, with its place in the tree, its links and, with `depth`, the graph around it. |
 | `archive` | write | Archives an entry, with a reason; nothing is deleted. |
-| `search` | read | Searches entries in full text. |
+| `search` | read | Searches entries in full text, or lists them by last change; each result comes with its neighbors. |
 | `link` | write | Links two entries with a relation, a note and the dates it held. |
 | `unlink` | write | Removes a link. |
 | `history` | read | Reads the history of an entry, a page at a time. |
@@ -52,6 +52,34 @@ name is refused.
 | `inbox_peek` | read | Reads an item without taking it. |
 | `grenier_report` | write | Reports a problem with Grenier itself (diagnostics). |
 | `grenier_reports` | read | Lists the findings recorded so far (diagnostics). |
+
+## Recall
+
+`search` and `read` hand related entries to the agent without being asked; the server follows fixed
+rules and runs no AI.
+
+- **`search`** gives each result its `neighbors` (3 by default, `neighbors` 0 to 10, 0 for none):
+  explicit links first, then the parent, then the entries its `entry` fields name (either way),
+  then the entries its body cites (`mentions`, either way); the most recently updated first among
+  equals. A neighbor is `slug`, `title`, `type`, `summary`, how it is joined (`via`: `link`,
+  `parent`, `field` or `mention`; `relation`: the link's relation, `parent`, the field's name or
+  `mentions`; `direction`: `to` when the result names it, `from` when it names the result), the
+  `note` and dates of a link when it has them, never a body. The children of a result are not its
+  neighbors: `read` lists them. All the neighbors of a page of results come from one query.
+- **Without a `query`**, `search` lists the entries by most recent change. `sort` is `relevance`
+  (the default with a `query`) or `updated` (the default without one); `since` and `until` (a date
+  or a date and time) bound the last change; `by` keeps the entries a key changed last. Each result
+  carries `updated` and `by`, read from the event log: the actor of the last write of the entry,
+  not counting a reference that resolved by itself when its target was created.
+- **`read`** answers without the body unless `parts` asks for `body`. It names the parent and the
+  successor by slug (`parent`, `superseded_by`), the id beside (`parent_id`, `superseded_by_id`),
+  and keys `titles` by slug, each with its `id`. `depth` 2 or 3 (1 by default; 4 is refused) adds
+  `graph`: `entries` (slug, title, type, summary, `depth`) within that many edges, nearest first,
+  and the `edges` between them (`from`, `to`, `via`, `relation`, a link's `note` and dates), from
+  one recursive query. At most 50 entries; `cut: true` says there were more.
+- A neighbor or a graph entry of a sensitive type does not exist for a key without `sensitive`,
+  and neither does one reached through a sensitive field; archived entries are left out, unless
+  `search` is asked for `archived`.
 
 ## Start it
 

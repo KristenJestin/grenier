@@ -260,9 +260,11 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
     expect(pending).toContain('"old-secret"')
     expect(pending).not.toContain('new-secret')
     // The owner's view: the body still says what its author wrote, and it waits for that slug.
-    expect(await answerOf(keys.trusted, 'read', { entry: pair[0] })).toMatchObject({
-      entry: { body: 'See [[old-secret]].' },
-    })
+    expect(await answerOf(keys.trusted, 'read', { entry: pair[0], parts: ['body'] })).toMatchObject(
+      {
+        entry: { body: 'See [[old-secret]].' },
+      },
+    )
     expect(JSON.stringify(await answerOf(keys.trusted, 'pending_references', {}))).toContain(
       '"old-secret"',
     )

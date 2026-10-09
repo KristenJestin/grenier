@@ -468,6 +468,20 @@ const answerOf = (answer: { result: Schema.Json } | { error: string }) => {
   return data
 }
 
+/** Every part a read may be asked for: with them, MCP answers with what the read API does. */
+const ALL_PARTS = ['fields', 'body', 'links', 'media', 'children', 'references', 'cited_by', 'path']
+
+/**
+ * A read over MCP as the read API tells it: MCP names the parent and the successor by slug with
+ * their id beside, and keys the titles by slug; the API keeps ids. For an entry that names none.
+ */
+const asTheApiTellsIt = (data: typeof Answer.Type) => {
+  const { entry, titles, ...rest } = data
+  expect(titles).toEqual({})
+  const { parent: _, superseded_by_id, ...kept } = Schema.decodeUnknownSync(Answer)(entry)
+  return { ...rest, entry: { ...kept, superseded_by: superseded_by_id }, titles: {} }
+}
+
 /** A typed client derived from the API definition, sending `secret` as its key when given. */
 const apiClient = (secret: string | undefined) =>
   HttpApiClient.make(GrenierApi, { baseUrl: base }).pipe(
@@ -490,10 +504,11 @@ describe('the read API', () => {
     const reader = await createKey('api-reader', ['read'])
     const overMcp = await connectStateless(`${base}/mcp`, bearer(reader)).call('read', {
       entry: 'over-the-wire',
+      parts: ALL_PARTS,
     })
     expect(await get('/api/entries/over-the-wire', bearer(reader))).toEqual({
       status: 200,
-      body: answerOf(overMcp),
+      body: asTheApiTellsIt(answerOf(overMcp)),
     })
   })
 
@@ -535,10 +550,25 @@ describe('the read API', () => {
       status: 200,
       body: answerOf(listed),
     })
+    // MCP also says when and by whom an entry changed, and its neighbors; the read API does not.
     const found = await agent.call('search', { query: 'wire', type: 'note', limit: 5 })
+    const { results } = Schema.decodeUnknownSync(
+      Schema.Struct({ results: Schema.Array(Schema.Json) }),
+    )(answerOf(found))
+    expect(results.length).toBeGreaterThan(0)
     expect(await get('/api/search?q=wire&type=note&limit=5')).toEqual({
       status: 200,
-      body: answerOf(found),
+      body: {
+        results: results.map((result) => {
+          const {
+            updated: _,
+            by: __,
+            neighbors: ___,
+            ...kept
+          } = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(result)
+          return kept
+        }),
+      },
     })
   })
 
@@ -582,13 +612,14 @@ describe('the read API', () => {
   test('through the typed client: the same entry, and Unauthorized without a key', async () => {
     const overMcp = await connectStateless(`${base}/mcp`, bearer(writer)).call('read', {
       entry: 'over-the-wire',
+      parts: ALL_PARTS,
     })
     const read = await Effect.runPromise(
       Effect.flatMap(apiClient(writer), (client) =>
         client.entries.read({ params: { entry: 'over-the-wire' } }),
       ),
     )
-    expect(read).toEqual(answerOf(overMcp))
+    expect(read).toEqual(asTheApiTellsIt(answerOf(overMcp)))
     const refused = await Effect.runPromise(
       Effect.flatMap(apiClient(undefined), (client) =>
         Effect.flip(client.entries.read({ params: { entry: 'over-the-wire' } })),

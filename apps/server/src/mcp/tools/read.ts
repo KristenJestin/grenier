@@ -1,4 +1,5 @@
-import { readEntry } from '../../core/entries/index.ts'
+import { readEntry, slugsOf } from '../../core/entries/index.ts'
+import { GRAPH_CAP, MAX_DEPTH, subgraphOf } from '../../core/graph/index.ts'
 import { Refused } from '../../core/refused.ts'
 import { Effect, Schema } from 'effect'
 import { headingsOf, sectionOf } from '../sections.ts'
@@ -16,8 +17,48 @@ const PARTS = [
   'path',
 ] as const
 
-type Read = Effect.Success<ReturnType<typeof readEntry>>
 type Part = (typeof PARTS)[number]
+
+/** The parts of a read without a `parts`: everything but the body, which is the long part. */
+const CONCISE = PARTS.filter((part) => part !== 'body')
+
+/**
+ * A read as an agent is given it: the entries it names by slug, the id kept beside. The parent
+ * and the successor of the entry (`parent` and `superseded_by` are slugs, `parent_id` and
+ * `superseded_by_id` their ids; a write takes either) and the titles of the entries its fields
+ * name (its children's too), which the core keys by id: here by slug, each with its id.
+ */
+const namedBySlug = Effect.fn('namedBySlug')(function* (
+  read: Effect.Success<ReturnType<typeof readEntry>>,
+) {
+  const { parent_id, superseded_by, ...entry } = read.entry
+  const slugs = yield* slugsOf([
+    ...(parent_id === null ? [] : [parent_id]),
+    ...(superseded_by === null ? [] : [superseded_by]),
+    ...Object.keys(read.titles),
+    ...read.children.flatMap(({ titles }) => Object.keys(titles ?? {})),
+  ])
+  const slugOfId = (id: string | null) => (id === null ? null : (slugs[id] ?? id))
+  const titled = (titles: { readonly [id: string]: string }) =>
+    Object.fromEntries(
+      Object.entries(titles).map(([id, title]) => [slugs[id] ?? id, { id, title }]),
+    )
+  return {
+    ...read,
+    entry: {
+      ...entry,
+      parent: slugOfId(parent_id),
+      parent_id,
+      superseded_by: slugOfId(superseded_by),
+      superseded_by_id: superseded_by,
+    },
+    titles: titled(read.titles),
+    children: read.children.map(({ titles, ...child }) =>
+      titles === undefined ? child : { ...child, titles: titled(titles) },
+    ),
+  }
+})
+type Read = Effect.Success<ReturnType<typeof namedBySlug>>
 
 /** What each part adds beside the entry. */
 const BESIDE: Record<Part, ReadonlyArray<Exclude<keyof Read, 'entry'>>> = {
@@ -51,8 +92,7 @@ const partsOf = (read: Read, parts: ReadonlyArray<Part>) => {
 
 export const readTool = defineTool({
   name: 'read',
-  description:
-    'Reads an entry with its place in the tree, its children and its links both ways, each link with its relation, its note and its dates (`valid_from`, `valid_until`). `titles` gives the titles of the entries its `entry` fields name, by id. A long entry is read in parts: `parts` to have only some of it (the entry then comes without its body unless `body` is asked), `headings` for the headings of its body, then `section` for the text under one of them.',
+  description: `Reads an entry with its place in the tree, its children and its links both ways, each link with its relation, its note and its dates (\`valid_from\`, \`valid_until\`), but without its body: ask for it with \`parts: ["body"]\`. The parent and the successor are given by slug (\`parent\`, \`superseded_by\`) with their id beside (\`parent_id\`, \`superseded_by_id\`); \`titles\` gives the titles of the entries its \`entry\` fields name, by slug with their id. A long entry is read in parts: \`parts\` to have only some of it, \`headings\` for the headings of its body, then \`section\` for the text under one of them. \`depth\` 2 or 3 adds a \`graph\`: the entries within that many edges (parent, links, \`entry\` fields) with the edges between them, at most ${GRAPH_CAP} entries, nearest first, \`cut: true\` when there were more. Follow it as far as it helps.`,
   input: Schema.Struct({
     entry: Reference,
     headings: Schema.optionalKey(Schema.Boolean).annotate({
@@ -63,11 +103,16 @@ export const readTool = defineTool({
     }),
     parts: Schema.optionalKey(Schema.Array(Schema.Literals(PARTS))).annotate({
       description:
-        'Only these parts, with the entry itself: `fields` (with its sources and the titles of the entries its fields name), `body`, `links` (both ways), `media`, `children`, `references`, `cited_by`, `path` (with its ancestors).',
+        'Only these parts, with the entry itself: `fields` (with its sources and the titles of the entries its fields name), `body`, `links` (both ways), `media`, `children`, `references`, `cited_by`, `path` (with its ancestors). Without `parts`, all of them but `body`.',
+    }),
+    depth: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_DEPTH })),
+    ).annotate({
+      description: `How far to follow the edges around the entry: 1 (the default) is the entry alone, 2 and 3 add a \`graph\` of the entries that far, with the edges between them. ${MAX_DEPTH} at most.`,
     }),
   }),
   right: 'read',
-  run: ({ entry, headings, section, parts }) =>
+  run: ({ entry, headings, section, parts, depth }) =>
     Effect.gen(function* () {
       const read = yield* readEntry(entry)
       if (section !== undefined) {
@@ -80,6 +125,9 @@ export const readTool = defineTool({
         return { section: found }
       }
       if (headings === true) return { headings: headingsOf(read.entry.body) }
-      return parts === undefined ? read : partsOf(read, parts)
+      const answer = partsOf(yield* namedBySlug(read), parts ?? CONCISE)
+      return depth === undefined || depth === 1
+        ? answer
+        : { ...answer, graph: yield* subgraphOf(entry, depth) }
     }),
 })

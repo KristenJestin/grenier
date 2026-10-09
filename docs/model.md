@@ -47,7 +47,7 @@ The values of the field kinds, as they are written and read: `date` as `2026-10-
 URL, and `entry` as the slug or id of an existing entry, kept as its id (of one of the field's
 `types`, when it names them). A field that is `many` takes a list of such values, kept in the
 order given: `["Welsh", "Basque"]`, or for an `entry` field, several entries by slug or id, each
-kept as its id; `read` gives the titles of the entries the fields name, by id, in `titles`. A
+kept as its id; `read` gives the titles of the entries the fields name, by id, in `titles` (over MCP by slug, each with its id). A
 write names the
 parent (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
@@ -387,6 +387,19 @@ an entry) and leaves archived entries out unless asked. Each result carries the 
 title, summary, the path of ancestors, an excerpt with the matched words in `<mark>` tags, and
 its rank; 20 results by default. The language comes from `SEARCH_LANGUAGE` (a PostgreSQL text
 search configuration, `simple` by default) and accents never matter.
+
+Without a query, a search lists the entries by most recent change (`sort` `updated`, the default
+then; with a query the default stays `relevance`), bounded by `since` and `until`, and by `by`,
+the key that changed an entry last. When and by whom come from the event log (the actor of the
+entry's last event, leaving aside a `[[reference]]` that resolved by itself when its target was
+created), not from a column of the entry. Over MCP each result also carries these two and its
+neighbors, the entries next to it, chosen by fixed rules: explicit links, then the parent, then
+the entries named by its `entry` fields, then the entries its body cites, the most recently
+updated first among equals, each with how it is joined and never its body. `read` over MCP leaves
+out the body unless asked, and with `depth` 2 or 3 returns the graph around the entry (capped at 50
+entries, `cut` when it was). What a key without the right `sensitive` may not see has no
+neighbor and no place in a graph, and archived entries are left out. The read API (`/api/search`)
+does not take or give any of this.
 
 ## MCP tools
 

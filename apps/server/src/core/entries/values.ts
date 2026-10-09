@@ -6,12 +6,12 @@ import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
 const textThat = (expected: string, isValid: (value: string) => boolean) =>
   Schema.String.annotate({ expected }).check(Schema.makeFilter(isValid, { expected }))
 
-const isDate = (value: string) =>
+export const isDate = (value: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
   new Date(`${value}T00:00:00Z`).toISOString().startsWith(value)
 
-const isDateTime = (value: string) =>
+export const isDateTime = (value: string) =>
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(value) &&
   !Number.isNaN(Date.parse(value))
 
