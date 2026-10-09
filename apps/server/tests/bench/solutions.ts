@@ -57,7 +57,12 @@ export const SOLUTIONS = {
         parent: 'kitchen',
         fields: { servings: 8, time_minutes: 90 },
         body: 'Ingredients: 250 g flour, 125 g butter, 100 g sugar, 4 lemons, 3 eggs.\n\nSteps: bake the shell blind for 15 minutes, fill with the lemon cream, bake 20 minutes more.',
-        provenance: { servings: 'inferred', time_minutes: 'inferred', body: 'inferred' },
+        provenance: {
+          parent: 'inferred',
+          servings: 'inferred',
+          time_minutes: 'inferred',
+          body: 'inferred',
+        },
       }),
     )
     return 'The lemon tart is in the Kitchen.'
@@ -69,7 +74,7 @@ export const SOLUTIONS = {
         title: 'Disk four',
         parent: 'pantry-nas',
         fields: { model: 'Stonewall 4 TB', serial: 'SW-1004' },
-        provenance: { model: 'inferred', serial: 'inferred' },
+        provenance: { parent: 'inferred', model: 'inferred', serial: 'inferred' },
       }),
     )
     await arrange(
@@ -124,7 +129,7 @@ export const SOLUTIONS = {
         title: 'Priya Nair',
         parent: 'people',
         summary: 'Accountant.',
-        provenance: { summary: 'inferred' },
+        provenance: { parent: 'inferred', summary: 'inferred' },
       }),
     )
     await arrange(
@@ -151,7 +156,7 @@ export const SOLUTIONS = {
         title: 'Replicate to a second NAS',
         parent: 'backup-plan',
         body: 'Replication to a second NAS replaces the snapshots: the monthly offsite trip is too much hassle.',
-        provenance: { body: 'inferred' },
+        provenance: { parent: 'inferred', body: 'inferred' },
       }),
     )
     await arrange(writeEntry({ entry: 'use-zfs-snapshots-for-backups', superseded_by: created.id }))
@@ -159,7 +164,13 @@ export const SOLUTIONS = {
   },
   'bookmark-already-kept': async () => 'That link is already kept, as ZFS basics.',
   'move-part': async ({ arrange }) => {
-    await arrange(writeEntry({ entry: 'network-card', parent: 'pantry-nas' }))
+    await arrange(
+      writeEntry({
+        entry: 'network-card',
+        parent: 'pantry-nas',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     return 'Moved.'
   },
   'note-with-quote': async ({ arrange }) => {
@@ -169,7 +180,7 @@ export const SOLUTIONS = {
         title: 'Worktop quote',
         parent: 'kitchen-renovation',
         body: '[[pine-street-hardware]] quoted 2400 EUR for the worktop, valid until 2026-11-30.',
-        provenance: { body: 'inferred' },
+        provenance: { parent: 'inferred', body: 'inferred' },
       }),
     )
     return 'Noted.'
@@ -219,7 +230,12 @@ export const SOLUTIONS = {
         parent: 'kitchen',
         fields: { servings: 4, time_minutes: 10 },
         body: 'Blend 400 g chickpeas, 2 tbsp tahini, lemon juice and garlic.',
-        provenance: { servings: 'inferred', time_minutes: 'inferred', body: 'inferred' },
+        provenance: {
+          parent: 'inferred',
+          servings: 'inferred',
+          time_minutes: 'inferred',
+          body: 'inferred',
+        },
       }),
     )
     await arrange(
@@ -235,7 +251,7 @@ export const SOLUTIONS = {
         title: 'ZFS snapshots deep dive',
         parent: 'reading',
         fields: { url: 'https://example.org/guides/zfs-snapshots-deep-dive' },
-        provenance: { url: 'inferred' },
+        provenance: { parent: 'inferred', url: 'inferred' },
       }),
     )
     await arrange(finishItem({ id: hummus.id, entries: ['hummus'] }))
@@ -255,7 +271,7 @@ export const SOLUTIONS = {
         parent: 'kitchen',
         fields: { servings: 4 },
         body: 'Crush basil, pine nuts, parmesan and olive oil.',
-        provenance: { servings: 'inferred', body: 'inferred' },
+        provenance: { parent: 'inferred', servings: 'inferred', body: 'inferred' },
       }),
     )
     await arrange(finishItem({ id: pesto.id, entries: ['pesto'] }))

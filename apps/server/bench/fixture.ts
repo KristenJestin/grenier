@@ -894,14 +894,15 @@ export const SUPPOSED = ['router-settings', 'cable-management-ideas', 'lemon-cur
 const NOTES = { identifier: 'owner-notes-2026', label: 'notes the owner handed over' } as const
 
 /**
- * An entry as the import agent writes it: every value, its body and its summary say whether they
- * are known (`extracted` from the owner's notes, which the entry then cites) or, for the entries
+ * An entry as the import agent writes it: every value, its body, its summary and the place it is
+ * part of say whether they are known (`extracted` from the owner's notes, which the entry then cites) or, for the entries
  * of `SUPPOSED`, supposed (`inferred`).
  */
 export const asImported = (spec: Spec): Spec => {
   const slug = spec.slug ?? slugOf(spec.title)
   const provenance = SUPPOSED.includes(slug) ? 'inferred' : 'extracted'
   const said = [
+    ...(spec.parent === undefined || spec.parent === null ? [] : ['parent']),
     ...Object.keys(spec.fields ?? {}),
     ...(spec.body === undefined || spec.body === '' ? [] : ['body']),
     ...(spec.summary === undefined || spec.summary === '' ? [] : ['summary']),
