@@ -102,6 +102,10 @@ describe('write with entries lists them per entry', () => {
       ],
     })
     expect(answer['entries']).toHaveLength(3)
+    // No body text anywhere in the answer; the provenance of a body is a key `body` of its own.
+    expect(JSON.stringify(answer)).not.toMatch(
+      /"body":"(?!inferred"|extracted"|ambiguous"|unstated")/,
+    )
     const listed = Array.isArray(answer['entries']) ? answer['entries'] : []
     for (const each of listed) expect(each).not.toHaveProperty('body')
     const [, second] = listed

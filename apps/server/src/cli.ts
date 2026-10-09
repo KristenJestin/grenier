@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
-import { confirmValue, supposedValues } from './core/entries/index.ts'
+import { confirmValue, countSupposed, supposedValues } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
 import {
   FindingFilter,
@@ -215,42 +215,43 @@ const supposedList = Command.make(
   {
     type: optionalText('type'),
     under: optionalText('under'),
-    by: optionalText('by'),
+    by: optionalText('by').pipe(Flag.withDescription('Only the values this key wrote.')),
     unstated: Flag.Boolean('unstated').pipe(
       Flag.withDefault(false),
       Flag.withDescription(
         'List what was written before writers said it, instead of the suppositions.',
       ),
     ),
+    limit: Flag.Int('limit').pipe(
+      Flag.withDefault(50),
+      Flag.withDescription('How many values at most.'),
+    ),
   },
-  ({ type, under, by, unstated }) =>
+  ({ type, under, by, unstated, limit }) =>
     onDatabase(
-      Effect.map(
-        asOwner(
-          supposedValues({
-            ...Object.fromEntries(
-              Object.entries({ type: given(type), under: given(under), by: given(by) }).filter(
-                (pair): pair is [string, string] => pair[1] !== undefined,
-              ),
+      Effect.gen(function* () {
+        const filter = {
+          ...Object.fromEntries(
+            Object.entries({ type: given(type), under: given(under), by: given(by) }).filter(
+              (pair): pair is [string, string] => pair[1] !== undefined,
             ),
-            unstated,
-          }),
-        ),
-        (waiting) =>
-          waiting.length === 0
-            ? unstated
-              ? 'No value is unstated.'
-              : 'Nothing is supposed.'
-            : waiting
-                .map(({ slug, what, by: writer, when, title }) =>
-                  [slug, what, writer ?? '', when ?? '', title].join('\t'),
-                )
-                .join('\n'),
-      ),
+          ),
+          unstated,
+        }
+        const waiting = yield* asOwner(supposedValues({ ...filter, limit }))
+        if (waiting.length === 0) return unstated ? 'No value is unstated.' : 'Nothing is supposed.'
+        const more = (yield* asOwner(countSupposed(filter))) - waiting.length
+        return [
+          ...waiting.map(({ slug, what, provenance, by: writer, when, title }) =>
+            [slug, what, provenance, writer ?? '', when ?? '', title].join('\t'),
+          ),
+          ...(more > 0 ? [`${more} more: raise --limit to list them.`] : []),
+        ].join('\n')
+      }),
     ),
 ).pipe(
   Command.withDescription(
-    'Lists the values and links that are supposed, not known, newest first: the entry, what, who wrote it and when.',
+    'Lists the values and links that are not known (supposed, or ambiguous), the most recently changed entries first: the entry, what, how it stands, who wrote it and when.',
   ),
 )
 
@@ -266,15 +267,30 @@ const supposedConfirm = Command.make(
     link: optionalText('link').pipe(
       Flag.withDescription('Confirm a link instead: its relation, such as `works_at`.'),
     ),
+    period: optionalText('period').pipe(
+      Flag.withDescription(
+        'With --link: the period of a link `fulfills`, when several are supposed.',
+      ),
+    ),
+    field: optionalText('field').pipe(
+      Flag.withDescription(
+        'With --link: the date field of a link `fulfills`, when several are supposed.',
+      ),
+    ),
     as: Flag.String('as').pipe(
       Flag.withDescription('The slug or id of the entry of the person confirming: you.'),
     ),
   },
-  ({ entry, value, link, as }) =>
+  ({ entry, value, link, period, field, as }) =>
     onDatabase(
       Option.isSome(link)
         ? Effect.as(
-            asOwner(confirmLink(entry, link.value, value, as)),
+            asOwner(
+              confirmLink(entry, link.value, value, as, {
+                period: given(period),
+                field: given(field),
+              }),
+            ),
             `Confirmed: the link ${link.value} from ${entry} to ${value} is known, said by ${as}.`,
           )
         : Effect.as(

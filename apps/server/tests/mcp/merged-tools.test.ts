@@ -455,6 +455,7 @@ describe('briefing gives the dates of any period, and what waits', () => {
               slug: 'dangling',
               title: 'Dangling',
               what: 'place',
+              provenance: 'inferred',
               by: 'agent-merged',
               when: expect.any(String),
             },

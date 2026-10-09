@@ -91,19 +91,26 @@ afterAll(() => database.dispose())
 describe('the owner sees what is supposed, and confirms it, from the command line', () => {
   test('supposed lists the values and links, newest first, with the entry, the writer and when', () => {
     const lines = cli('supposed').trimEnd().split('\n')
-    expect(lines.map((line) => line.split('\t').slice(0, 3))).toEqual([
-      ['plum-tart', 'link inspired_by leek-soup', 'agent-kitchen'],
-      ['plum-tart', 'body', 'agent-kitchen'],
-      ['plum-tart', 'summary', 'agent-kitchen'],
-      ['leek-soup', 'origin', 'agent-kitchen'],
+    expect(lines.map((line) => line.split('\t').slice(0, 4))).toEqual([
+      ['plum-tart', 'body', 'inferred', 'agent-kitchen'],
+      ['plum-tart', 'link inspired_by leek-soup', 'inferred', 'agent-kitchen'],
+      ['plum-tart', 'summary', 'inferred', 'agent-kitchen'],
+      ['leek-soup', 'origin', 'inferred', 'agent-kitchen'],
     ])
-    expect(lines[0]).toMatch(
-      /^plum-tart\tlink inspired_by leek-soup\tagent-kitchen\t\d{4}-\d\d-\d\dT/,
-    )
+    expect(lines[0]).toMatch(/^plum-tart\tbody\tinferred\tagent-kitchen\t\d{4}-\d\d-\d\dT/)
     expect(cli('supposed', '--by', 'someone-else')).toBe('Nothing is supposed.\n')
     expect(cli('supposed', '--under', 'leek-soup')).toBe('Nothing is supposed.\n')
     expect(cli('supposed', '--type', 'person')).toBe('Nothing is supposed.\n')
     expect(cli('supposed', '--unstated')).toBe('No value is unstated.\n')
+  })
+
+  test('supposed says how many more there are than its limit', () => {
+    expect(cli('supposed', '--limit', '2').trimEnd().split('\n')).toEqual([
+      expect.stringMatching(/^plum-tart\t/),
+      expect.stringMatching(/^plum-tart\t/),
+      '2 more: raise --limit to list them.',
+    ])
+    expect(cli('supposed', '--limit', '4')).not.toContain('more')
   })
 
   test('supposed:confirm makes a field known, said by the person, in one event of the owner', async () => {
@@ -146,7 +153,7 @@ describe('the owner sees what is supposed, and confirms it, from the command lin
     const history = await database.runPromise(entryHistory('plum-tart'))
     expect(history.at(-1)).toMatchObject({
       actor: 'owner',
-      action: 'link',
+      action: 'update',
       changes: [
         {
           field: 'links.inspired_by',
@@ -185,6 +192,38 @@ describe('the owner sees what is supposed, and confirms it, from the command lin
         'marie-lund',
       ).message,
     ).toBe('The link `inspired_by` from `plum-tart` to `leek-soup` is known already (`extracted`).')
+  })
+
+  test('a mention is not confirmed by itself, and a period and a field name one link', () => {
+    expect(
+      refused(
+        'supposed:confirm',
+        'plum-tart',
+        'leek-soup',
+        '--link',
+        'mentions',
+        '--as',
+        'marie-lund',
+      ),
+    ).toEqual({
+      status: 1,
+      message: 'A mention takes the provenance of its body: confirm the `body`.',
+    })
+    expect(
+      refused(
+        'supposed:confirm',
+        'plum-tart',
+        'leek-soup',
+        '--link',
+        'inspired_by',
+        '--period',
+        '2026',
+        '--as',
+        'marie-lund',
+      ).message,
+    ).toBe(
+      'There is no link `inspired_by` from `plum-tart` to `leek-soup` for that period and field.',
+    )
   })
 
   test('entry:verify, entry:unverify and entry:unverified are gone', () => {

@@ -173,3 +173,30 @@ describe('what was written before is unstated, and listed apart', () => {
     expect(await answerOf('search', { unstated: true, neighbors: 0 })).toEqual({ results: [] })
   })
 })
+
+describe('the briefing counts the suppositions and shows the first few', () => {
+  test('seven suppositions are counted, five are shown', async () => {
+    await Promise.all(
+      [1, 2, 3, 4, 5, 6, 7].map((index) =>
+        answerOf('write', {
+          type: 'visit',
+          title: `Briefed guess ${index}`,
+          summary: `Guess ${index}.`,
+          provenance: { summary: 'inferred' },
+        }),
+      ),
+    )
+    const answer = Schema.decodeUnknownSync(
+      Schema.Struct({
+        waiting: Schema.Struct({
+          supposed: Schema.Struct({
+            count: Schema.Number,
+            first: Schema.Array(Schema.Struct({ slug: Schema.String, provenance: Schema.String })),
+          }),
+        }),
+      }),
+    )(await answerOf('briefing', { period: 'today' }))
+    expect(answer.waiting.supposed.count).toBeGreaterThanOrEqual(7)
+    expect(answer.waiting.supposed.first).toHaveLength(5)
+  })
+})
