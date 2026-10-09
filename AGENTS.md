@@ -109,11 +109,12 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 ```
 
 `key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one.
-`supposed [--type <type>] [--under <slug>] [--by <key>] [--unstated]` lists the values and links an
-agent only supposed (written `inferred`), newest first, with the entry, the writer and when;
-`--unstated` lists instead what was written before writers were asked. `supposed:confirm <entry>
-<field|body|summary> --as <person>` and `supposed:confirm <entry> <target> --link <relation> --as
-<person>` make a supposition known, as the owner (no key with `owner` is ever given to an MCP
+`supposed [--type <type>] [--under <slug>] [--by <key>] [--unstated] [--limit <n>]` lists the values
+and links an agent only supposed (written `inferred` or `ambiguous`), the most recently changed
+entries first, with the entry, how it stands, the writer and when (50 at most, saying how many
+more); `--unstated` lists instead what was written before writers were asked. `supposed:confirm
+<entry> <field|body|summary> --as <person>` and `supposed:confirm <entry> <target> --link <relation>
+[--period <p>] [--field <f>] --as <person>` make a supposition known, as the owner (no key with `owner` is ever given to an MCP
 client): it becomes `extracted`, with the source "said by" the entry that stands for you, dated
 today, in one event. In the container: `docker compose exec grenier bun src/cli.ts supposed`.
 `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder

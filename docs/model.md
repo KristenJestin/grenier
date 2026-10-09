@@ -40,8 +40,13 @@ disagree.
   sentence naming the field. A value written again as it is stored needs none, and a value removed,
   or a text emptied, takes its provenance with it. `unstated` is never written. A body that mixes
   known facts and suppositions is `inferred`, and states its suppositions as such in its text
-  ("probably", "supposed from…"). A field is not named `body` or `summary`, which are the keys of
-  the provenance of those two texts.
+  ("probably", "supposed from…"). A part added to a body (`append`, `prepend`) or words edited in
+  it (`edits`) do not make the whole body known: the body stays `extracted` only if its old
+  provenance and the part's both are, becomes `ambiguous` if either is, and is `inferred`
+  otherwise. A body that was `unstated`, with an `extracted` part, is `inferred`: what the old part
+  was cannot be known. A body written whole again takes the provenance given. A field is not named
+  `body` or `summary`, which are the keys of the provenance of those two texts; a migration refuses
+  a database where a type has one, naming the type and the field, until it is renamed.
 - **A known value has a source.** An entry that holds an `extracted` value (a field, the body, the
   summary, a link) has at least one source, given by the same write or already there; without one,
   the value is written `inferred`. What a person said, the owner or anyone else, in a conversation
@@ -52,15 +57,21 @@ disagree.
   and read on links and backlinks; an `extracted` link needs a source on its entry. The `mentions`
   that come from a body take the provenance of the body.
 - **The owner confirms.** From the command line, `supposed:confirm` makes a value or a link known:
-  `extracted`, with the source "said by" the entry that stands for the owner (`--as`), dated the
-  day of confirmation, in one event. A correction is an ordinary write by the owner. Through MCP,
+  `extracted`, with the source "said by" the entry that stands for the owner (`--as`: Grenier knows
+  no entry for the owner itself), dated the day of confirmation, in one event of the entry. A link
+  `fulfills` supposed for several periods is confirmed with `--period` and `--field`, which the
+  refusal lists; a `mentions` link follows its body: confirm the `body`. A correction is an ordinary write by the owner. Through MCP,
   an agent records what the owner said ("yes, it was Marie") as the value again, `extracted`, with
   that source: no owner right is needed.
-- **Listing the suppositions.** `search` with `supposed: true` lists the entries that hold
-  `inferred` values, a body, a summary or links, newest first; each result lists what is supposed
-  (`supposed`: what, who wrote it, when), and says `summary_provenance: "inferred"` when the summary
-  is. The `briefing` counts them under `waiting`, and the command line lists the values and links
-  themselves (`supposed`, with `--type`, `--under`, `--by`). What was written before writers were
+- **Listing the suppositions.** What is `ambiguous` is not known either, and is listed with what
+  is `inferred`. `search` with `supposed: true` lists the entries that hold such values, a body, a
+  summary or links, the most recently changed first; with `by`, it is the key that wrote the value,
+  not the one that changed the entry last. Each result lists what is not known (`supposed`: what,
+  how it stands, who wrote it, when), and says `summary_provenance` when the summary is. The
+  `briefing` counts them under `waiting` (a count, counted apart, and the first few) and the command
+  line lists the values and links themselves (`supposed`, with `--type`, `--under`, `--by`, and
+  `--limit`, 50 by default, saying how many more there are). The writer and the time of a
+  value come from the event log, for the values listed only. What was written before writers were
   asked is `unstated`: a migration gave it to every value, link, body and summary without a
   provenance, `supposed` does not list it, so the owner is not asked to review the past at once, and
   `unstated: true` (`supposed --unstated`) does, for whoever wants to clean up. The event log keeps
