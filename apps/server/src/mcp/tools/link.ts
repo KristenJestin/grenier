@@ -1,9 +1,9 @@
-import { link } from '../../core/links/index.ts'
+import { link, unlink } from '../../core/links/index.ts'
 import { Effect, Schema } from 'effect'
-import { defineTool, Reference } from '../tool.ts'
+import { defineTool, Reference, refuseExtra } from '../tool.ts'
 
-/** A link between two entries: what `link` creates and `unlink` removes. */
-export const LinkInput = Schema.Struct({
+/** A link between two entries, as `link` makes it and, with `remove`, removes it. */
+const LinkInput = Schema.Struct({
   source: Reference,
   target: Reference,
   relation: Schema.String.annotate({ description: 'A snake_case relation such as `about`.' }),
@@ -32,27 +32,53 @@ const LinkWithAbout = Schema.Struct({
     description:
       'The last day the link held, such as `2025-06-30` (left then); not before `valid_from`. `null` removes it.',
   }),
+  remove: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Remove the link of this source, target and relation (and `period` for `fulfills`) instead of making it: it takes no note or dates.',
+  }),
 })
 
 export const linkTool = defineTool({
   name: 'link',
   description:
-    'Links two entries with a relation, such as a person `works_at` an organization. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date).',
+    'Links two entries with a relation, such as a person `works_at` an organization. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date). `remove: true` removes the link instead.',
   input: LinkWithAbout,
   right: 'write',
-  hints: { destructive: true, idempotent: true },
-  run: ({ source, target, relation, period = '', field = '', note, valid_from, valid_until }) =>
-    Effect.map(
-      link(source, target, relation, period, field, { note, valid_from, valid_until }),
-      (linked) => ({
-        source,
-        target,
-        relation,
-        period,
-        field: linked.field,
-        note: linked.note,
-        valid_from: linked.valid_from,
-        valid_until: linked.valid_until,
-      }),
-    ),
+  hints: { destructive: true, idempotent: false },
+  run: ({
+    source,
+    target,
+    relation,
+    period = '',
+    field = '',
+    note,
+    valid_from,
+    valid_until,
+    remove,
+  }) =>
+    remove === true
+      ? Effect.andThen(
+          refuseExtra('Removing a link', { note, valid_from, valid_until }),
+          Effect.as(unlink(source, target, relation, period, field), {
+            source,
+            target,
+            relation,
+            period,
+            field,
+            removed: true,
+          }),
+        )
+      : Effect.map(
+          link(source, target, relation, period, field, { note, valid_from, valid_until }),
+          (linked) => ({
+            source,
+            target,
+            relation,
+            period,
+            field: linked.field,
+            note: linked.note,
+            valid_from: linked.valid_from,
+            valid_until: linked.valid_until,
+          }),
+        ),
 })

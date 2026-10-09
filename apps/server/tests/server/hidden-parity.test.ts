@@ -118,17 +118,17 @@ let probes = 0
 /** Each call a tool takes with an entry named in it, as an agent would make it. */
 const CALLS: ReadonlyArray<readonly [string, (slug: string) => Schema.Json]> = [
   ['read', (slug) => ({ entry: slug })],
-  ['history', (slug) => ({ entry: slug })],
-  ['archive', (slug) => ({ entry: slug })],
+  ['read', (slug) => ({ entry: slug, parts: ['history'] })],
+  ['write', (slug) => ({ entry: slug, archive: {} })],
   ['write', (slug) => ({ entry: slug, summary: 'Changed.' })],
   ['write', (slug) => ({ type: 'folder', title: `Probe ${(probes += 1)}`, parent: slug })],
   ['write', (slug) => ({ type: 'folder', title: `Probe ${(probes += 1)}`, body: `[[${slug}]]` })],
-  ['write_many', (slug) => ({ entries: [{ entry: slug, summary: 'Changed.' }] })],
+  ['write', (slug) => ({ entries: [{ entry: slug, summary: 'Changed.' }] })],
   ['link', (slug) => ({ source: 'folder-one', target: slug, relation: 'about' })],
   ['link', (slug) => ({ source: slug, target: 'folder-one', relation: 'about' })],
-  ['unlink', (slug) => ({ source: 'folder-one', target: slug, relation: 'about' })],
+  ['link', (slug) => ({ source: 'folder-one', target: slug, relation: 'about', remove: true })],
   ['attach_media', (slug) => ({ entry: slug, data: PIXEL })],
-  ['unverified', (slug) => ({ under: slug })],
+  ['search', (slug) => ({ verified: false, under: slug })],
   ['search', (slug) => ({ q: slug })],
 ]
 
@@ -155,8 +155,8 @@ describe('to a key without the right sensitive, a hidden entry and a missing slu
         Object.keys(inputSchema.properties ?? {}).some((name) => NAMING.includes(name)),
       )
       .map(({ name }) => name)
-    // Every tool that names an entry is called below, but `inbox_done`, which needs taken items.
-    expect(naming.filter((name) => name !== 'inbox_done').toSorted()).toEqual(
+    // Every tool that names an entry is called below, but `inbox_finish`, which needs taken items.
+    expect(naming.filter((name) => name !== 'inbox_finish').toSorted()).toEqual(
       [...new Set(CALLS.map(([name]) => name))].filter((name) => naming.includes(name)).toSorted(),
     )
     // One after the other, as an agent calls them.
@@ -177,7 +177,7 @@ describe('to a key without the right sensitive, a hidden entry and a missing slu
     expect(await read('secret-page')).toBe(await read('no-such-page'))
   })
 
-  test('inbox_done, for an item taken and finished on each', async () => {
+  test('inbox_finish, for an item taken and finished on each', async () => {
     const plain = await connect(`${base}/mcp`, bearer(keys.plain))
     const done = async (slug: string) => {
       const added = await plain.call('inbox_add', { kind: 'text', text: `About ${slug}.` })
@@ -185,7 +185,10 @@ describe('to a key without the right sensitive, a hidden entry and a missing slu
         Schema.Struct({ result: Schema.Struct({ item: Schema.Struct({ id: Schema.String }) }) }),
       )(added).result.item.id
       await plain.call('inbox_take', { id })
-      return neutral(await plain.call('inbox_done', { id, entries: [slug] }), slug)
+      return neutral(
+        await plain.call('inbox_finish', { id, outcome: 'done', entries: [slug] }),
+        slug,
+      )
     }
     expect(await done('secret-page')).toBe(await done('no-such-page'))
   })
@@ -227,19 +230,15 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
   test('the history of an entry citing a hidden entry that came later, as one citing a missing slug', async () => {
     const pair = await citing('late-secret', 'late-missing')
     await answerOf(keys.trusted, 'write', { type: 'diary', title: 'Late secret' })
-    const [hidden, missing] = await both(
-      pair,
-      ['late-secret', 'late-missing'],
-      'history',
-      (slug) => ({
-        entry: slug,
-      }),
-    )
+    const [hidden, missing] = await both(pair, ['late-secret', 'late-missing'], 'read', (slug) => ({
+      entry: slug,
+      parts: ['history'],
+    }))
     expect(hidden).toBe(missing)
     // The owner's view: the link that came by itself is in the history.
-    expect(JSON.stringify(await answerOf(keys.trusted, 'history', { entry: pair[0] }))).toContain(
-      'links.mentions',
-    )
+    expect(
+      JSON.stringify(await answerOf(keys.trusted, 'read', { entry: pair[0], parts: ['history'] })),
+    ).toContain('links.mentions')
   })
 
   test('a hidden entry renamed rewrites no visible body: it reads, lists and waits as a missing slug', async () => {
@@ -249,14 +248,14 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
     const slugs = ['old-secret', 'old-missing'] as const
     const calls: ReadonlyArray<readonly [string, (slug: string) => Schema.Json]> = [
       ['read', (slug) => ({ entry: slug })],
-      ['history', (slug) => ({ entry: slug })],
-      ['unverified', () => ({})],
+      ['read', (slug) => ({ entry: slug, parts: ['history'] })],
+      ['search', () => ({ verified: false })],
     ]
     await inTurn(calls, async ([name, args]) => {
       const [hidden, missing] = await both(pair, slugs, name, args)
       expect({ name, answer: hidden }).toEqual({ name, answer: missing })
     })
-    const pending = JSON.stringify(await answerOf(keys.plain, 'pending_references', {}))
+    const pending = JSON.stringify(await answerOf(keys.plain, 'briefing', {}))
     expect(pending).toContain('"old-secret"')
     expect(pending).not.toContain('new-secret')
     // The owner's view: the body still says what its author wrote, and it waits for that slug.
@@ -265,9 +264,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
         entry: { body: 'See [[old-secret]].' },
       },
     )
-    expect(JSON.stringify(await answerOf(keys.trusted, 'pending_references', {}))).toContain(
-      '"old-secret"',
-    )
+    expect(JSON.stringify(await answerOf(keys.trusted, 'briefing', {}))).toContain('"old-secret"')
   })
 
   test('a part read in its parent shows no hidden id, over MCP and the read API; the owner sees it', async () => {

@@ -2,7 +2,6 @@ import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
-import { writeManyTool } from '../../src/mcp/tools/write-many.ts'
 import { writeTool } from '../../src/mcp/tools/write.ts'
 import { useScratchDatabase } from '../core/scratch-database.ts'
 
@@ -58,10 +57,10 @@ describe('write lists the unlinked mentions of what it wrote', () => {
   })
 })
 
-describe('write_many lists them per entry', () => {
+describe('write with entries lists them per entry', () => {
   test('a batch answers `unlinked` on each entry that has some, and on no other', async () => {
     const answer = await run(
-      writeManyTool.run({
+      writeTool.run({
         entries: [
           { type: 'thing', title: 'Batch one', body: 'Looks at the garden shed.' },
           { type: 'thing', title: 'Batch two', body: 'Cites the [[garden-shed]].' },
@@ -84,7 +83,7 @@ describe('write_many lists them per entry', () => {
 
   test('an entry of the batch naming another entry of the same batch without citing it is listed', async () => {
     const answer = await run(
-      writeManyTool.run({
+      writeTool.run({
         entries: [
           { type: 'thing', title: 'Tool rack', body: 'Hangs by the cold frame.' },
           { type: 'thing', title: 'Cold frame', body: 'Next to the tool rack.' },

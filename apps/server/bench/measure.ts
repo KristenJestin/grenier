@@ -1,4 +1,4 @@
-import { LOOKING, roleOf } from './roles.ts'
+import { LOOKING, rolesOf } from './roles.ts'
 import type { Task } from './tasks.ts'
 import type { Call, Transcript } from './transcript.ts'
 
@@ -37,8 +37,11 @@ export interface RunRecord {
 const wrongOf = (task: Task, calls: ReadonlyArray<Call>) =>
   calls
     .filter(({ tool }) => {
-      const role = roleOf(tool)
-      return role === undefined || !(task.expects.includes(role) || LOOKING.includes(role))
+      const roles = rolesOf(tool)
+      return (
+        roles.length === 0 ||
+        !roles.some((role) => task.expects.includes(role) || LOOKING.includes(role))
+      )
     })
     .map(({ tool }) => tool)
 
@@ -58,7 +61,7 @@ export const measure = (
   verdict: { readonly failures: ReadonlyArray<string>; readonly invalid: string | undefined },
 ): RunRecord => {
   const { calls, tokens } = transcript
-  const used = new Set(calls.map(({ tool }) => roleOf(tool)))
+  const used = new Set(calls.flatMap(({ tool }) => rolesOf(tool)))
   const failures = verdict.invalid === undefined ? verdict.failures : [verdict.invalid]
   return {
     task: task.id,

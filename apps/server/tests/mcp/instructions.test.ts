@@ -33,7 +33,7 @@ describe('agents learn how to choose a type from the instructions', () => {
     expect(instructions).toContain('- `beta`: Use it when the user records a beta.')
   })
 
-  test('beyond 50 types, only their names, and a pointer to list_types', () => {
+  test('beyond 50 types, only their names, and a pointer to types', () => {
     const instructions = instructionsFor(
       Array.from({ length: 60 }, (_, index) => typeNamed(index)),
       development,
@@ -41,7 +41,7 @@ describe('agents learn how to choose a type from the instructions', () => {
     expect(instructions).toContain('`kind-0`')
     expect(instructions).toContain('`kind-59`')
     expect(instructions).not.toContain('Kind number')
-    expect(instructions).toContain('list_types')
+    expect(instructions).toContain('call `types` for their descriptions')
   })
 
   test('no domain word appears in the code of the instructions', () => {
@@ -344,7 +344,7 @@ describe('long rules give a part of their first paragraph when it alone is too l
     const first = 'Ask before writing anything private about someone. '.repeat(100)
     const told = instructionsFor([], development, `${first}\n\n## Style\n\nShort.`, false)
     const [, opening = ''] = told.split(
-      'read them whole with `instance_rules`, and follow them in every session.\n\n',
+      'read them whole by calling `types` with `rules: true`, and follow them in every session.\n\n',
     )
     const cut = opening.split('\n\nGrenier keeps entries')[0] ?? ''
     expect(cut.length).toBeGreaterThan(3000)

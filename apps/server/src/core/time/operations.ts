@@ -248,13 +248,20 @@ const rangeOf = (period: BriefingPeriod, today: string): readonly [string, strin
 }
 
 /**
- * What matters for a period: the occurrences in it, the deadlines past and unfulfilled, and a year
+ * What matters for a period, or for the days between two dates (`to` thirty days after `from` when
+ * left out, `from` today): the occurrences in it, the deadlines past and unfulfilled, and a year
  * ago (the entries created, and the occurrences, on the same days one year earlier).
  */
-export const briefing = Effect.fn('briefing')(function* (period: BriefingPeriod) {
+export const briefing = Effect.fn('briefing')(function* (
+  covering:
+    | BriefingPeriod
+    | { readonly from?: string | undefined; readonly to?: string | undefined },
+) {
   const sql = yield* SqlClient.SqlClient
   const today = (yield* Today)()
-  const [from, to] = rangeOf(period, today)
+  const [from, to] = Predicate.isString(covering)
+    ? rangeOf(covering, today)
+    : [covering.from ?? today, covering.to ?? addDays(covering.from ?? today, 30)]
   const { dates, closed } = yield* datesAndClosures
   const allowed = yield* visible
   const overdue = allowed

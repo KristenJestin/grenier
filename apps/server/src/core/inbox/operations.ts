@@ -339,7 +339,7 @@ export const listInbox = Effect.fn('listInbox')(function* (filter: InboxFilter) 
   }
 })
 
-/** How much of a text an answer gives at once; `inbox_read` gives the rest. */
+/** How much of a text an answer gives at once; `inbox_list` with an `offset` gives the rest. */
 const PART = 16_000
 
 /**

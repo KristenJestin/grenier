@@ -179,8 +179,8 @@ describe('an unexpected error of a tool becomes a finding when diagnostics are o
       ),
     )
     try {
-      expect(await started(on).call('list_proposals', {})).toHaveProperty('error')
-      expect(await started(off).call('list_proposals', {})).toHaveProperty('error')
+      expect(await started(on).call('types', { proposals: true })).toHaveProperty('error')
+      expect(await started(off).call('types', { proposals: true })).toHaveProperty('error')
     } finally {
       await Promise.all(
         [withDiagnostics, withoutDiagnostics].map((runtime) =>
@@ -188,13 +188,11 @@ describe('an unexpected error of a tool becomes a finding when diagnostics are o
         ),
       )
     }
-    const [recorded] = await withDiagnostics.runPromise(
-      findingsWithOccurrences({ place: 'list_proposals' }),
-    )
-    expect(recorded?.finding).toMatchObject({ kind: 'bug', place: 'list_proposals' })
+    const [recorded] = await withDiagnostics.runPromise(findingsWithOccurrences({ place: 'types' }))
+    expect(recorded?.finding).toMatchObject({ kind: 'bug', place: 'types' })
     expect(recorded?.finding.title).toMatch(/^Unexpected error: /)
     expect(recorded?.occurrences).toMatchObject([
-      { origin: 'server', call_tool: 'list_proposals', key_name: 'agent-tester' },
+      { origin: 'server', call_tool: 'types', key_name: 'agent-tester' },
     ])
     expect(
       (await withoutDiagnostics.runPromise(listFindings({ limit: 10, offset: 0 }))).total,

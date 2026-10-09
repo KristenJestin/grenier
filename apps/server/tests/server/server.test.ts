@@ -7,7 +7,9 @@ import { createServer, connect as connectTcp } from 'node:net'
 import type { Server, Socket } from 'node:net'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { TOOL_NAMES } from '../../src/mcp/tools.ts'
-import { Auth } from '../../src/core/auth/index.ts'
+import { Auth, Rights } from '../../src/core/auth/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
+import { confirmProposal } from '../../src/core/types/index.ts'
 import { HIDDEN, TreeEntry } from '@grenier/api/model'
 import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
 import { Validator } from '@seriousme/openapi-schema-validator'
@@ -157,10 +159,8 @@ describe('the MCP tools over HTTP', () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
     const { result } = await client.request('tools/list', {})
     const { tools } = Schema.decodeUnknownSync(Tools)(result)
-    // In the fixed order, without the tool of the owner, which this key lacks the right for.
-    expect(tools.map(({ name }) => name)).toEqual(
-      TOOL_NAMES.filter((name) => name !== 'confirm_proposal'),
-    )
+    // In the fixed order.
+    expect(tools.map(({ name }) => name)).toEqual(TOOL_NAMES)
   })
 
   test('each key lists the tools of its rights, on a session and without one', async () => {
@@ -193,9 +193,11 @@ describe('the MCP tools over HTTP', () => {
     expect(await client.call('read', { entry: 'over-the-wire' })).toMatchObject({
       result: { entry: { title: 'Over the wire' }, path: [] },
     })
-    expect(await client.call('history', { entry: 'over-the-wire' })).toMatchObject({
-      result: { events: [{ actor: 'agent-laptop', action: 'create' }] },
-    })
+    expect(await client.call('read', { entry: 'over-the-wire', parts: ['history'] })).toMatchObject(
+      {
+        result: { history: { events: [{ actor: 'agent-laptop', action: 'create' }] } },
+      },
+    )
     expect(
       await client.call('write', { type: 'note', title: 'Odd', fields: { colour: 'red' } }),
     ).toEqual({
@@ -333,17 +335,21 @@ describe('each key writes under its own name', () => {
     )
     await laptop.call('write', { type: 'note', title: 'From the laptop' })
     await phone.call('write', { type: 'note', title: 'From the phone' })
-    expect(await phone.call('history', { entry: 'from-the-laptop' })).toMatchObject({
-      result: { events: [{ actor: 'agent-laptop' }] },
+    expect(
+      await phone.call('read', { entry: 'from-the-laptop', parts: ['history'] }),
+    ).toMatchObject({
+      result: { history: { events: [{ actor: 'agent-laptop' }] } },
     })
-    expect(await laptop.call('history', { entry: 'from-the-phone' })).toMatchObject({
-      result: { events: [{ actor: 'agent-phone' }] },
+    expect(
+      await laptop.call('read', { entry: 'from-the-phone', parts: ['history'] }),
+    ).toMatchObject({
+      result: { history: { events: [{ actor: 'agent-phone' }] } },
     })
   })
 })
 
 describe('changing types through keys', () => {
-  test('an agent key proposes a merge but cannot confirm it; an owner key confirms it', async () => {
+  test('an agent key proposes a merge, no key confirms it over MCP, and the owner confirms it from the command line', async () => {
     const agent = await connect(`${base}/mcp`, bearer(writer))
     await agent.call('define_type', {
       name: 'film',
@@ -358,27 +364,33 @@ describe('changing types through keys', () => {
       fields: [],
     })
     await agent.call('write', { type: 'film', title: 'Old reel' })
-    const proposed = await agent.call('propose_type_change', {
-      action: 'merge',
+    const proposed = await agent.call('change_type', {
       type: 'film',
-      into: 'movie',
+      propose: { action: 'merge', into: 'movie' },
     })
     const { id } = Schema.decodeUnknownSync(
       Schema.Struct({ proposal: Schema.Struct({ id: Schema.String }) }),
     )('result' in proposed ? proposed.result : null).proposal
-    // Not listed to a key without the right `owner`, so refused as a tool that does not exist.
-    expect(
-      await agent.request('tools/call', { name: 'confirm_proposal', arguments: { id } }),
-    ).toMatchObject({
-      error: { message: "Tool 'confirm_proposal' not found" },
-    })
+    // No key lists `confirm_proposal`, the owner's included: it is refused as an unknown tool.
     const owner = await connect(
       `${base}/mcp`,
       bearer(await createKey('owner-desk', ['read', 'write', 'owner'])),
     )
-    expect(await owner.call('confirm_proposal', { id })).toMatchObject({
-      result: { proposal: { status: 'confirmed' } },
-    })
+    const refusals = await Promise.all(
+      [agent, owner].map((client) =>
+        client.request('tools/call', { name: 'confirm_proposal', arguments: { id } }),
+      ),
+    )
+    for (const refusal of refusals) {
+      expect(refusal).toMatchObject({ error: { message: "Tool 'confirm_proposal' not found" } })
+    }
+    // `proposal:confirm` of the command line does what the core does for the owner.
+    await database.runPromise(
+      confirmProposal(id).pipe(
+        Effect.provideService(Actor, 'owner'),
+        Effect.provideService(Rights, ['read', 'write', 'sensitive', 'owner']),
+      ),
+    )
     expect(await agent.call('read', { entry: 'old-reel' })).toMatchObject({
       result: { entry: { type: 'movie' } },
     })
@@ -411,7 +423,7 @@ describe('media over HTTP', () => {
 
 describe('MCP protocol versions', () => {
   test('a client on 2026-07-28 and one on 2025-11-25 both list the tools and call one', async () => {
-    const expected = TOOL_NAMES.filter((name) => name !== 'confirm_proposal').toSorted()
+    const expected = TOOL_NAMES.toSorted()
     const stateless = connectStateless(`${base}/mcp`, bearer(writer))
     const { result } = await stateless.request('tools/list', {})
     expect(
@@ -543,9 +555,9 @@ describe('the read API', () => {
     )
   })
 
-  test('types and search answer as list_types and search do over MCP', async () => {
+  test('types and search answer as the types tool and search do over MCP', async () => {
     const agent = connectStateless(`${base}/mcp`, bearer(writer))
-    const listed = await agent.call('list_types', {})
+    const listed = await agent.call('types', {})
     expect(await get('/api/types')).toEqual({
       status: 200,
       body: answerOf(listed),
@@ -835,7 +847,7 @@ describe('each MCP session starts with the types of the instance', () => {
     expect(second.instructions).toContain(
       '- `widget`: Use it when the user speaks of a part of an interface.',
     )
-    expect(await first.call('get_type', { name: 'widget' })).toMatchObject({
+    expect(await first.call('types', { name: 'widget' })).toMatchObject({
       result: { type: { name: 'widget' } },
     })
   })

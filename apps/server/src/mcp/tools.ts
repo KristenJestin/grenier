@@ -7,79 +7,35 @@ import { headsUp } from '../core/time/index.ts'
 import { Context, Effect, Layer, Schema } from 'effect'
 import { McpSchema, McpServer, Toolkit } from 'effect/ai'
 import type { Tool } from 'effect/ai'
-import { toToolInputSchema } from '@grenier/api/schema'
 import { RecentCalls } from './calls.ts'
 import { takenContent } from './tools/inbox-take.ts'
 import { grenierReportTool } from './tools/grenier-report.ts'
 import { grenierReportsTool } from './tools/grenier-reports.ts'
 import type { Database, defineTool } from './tool.ts'
-import { addFieldTool } from './tools/add-field.ts'
-import { archiveTool } from './tools/archive.ts'
 import { attachMediaTool } from './tools/attach-media.ts'
 import { briefingTool } from './tools/briefing.ts'
-import { changeFieldTool } from './tools/change-field.ts'
 import { changeTypeTool } from './tools/change-type.ts'
-import { unverifiedTool } from './tools/unverified.ts'
-import { writeManyTool } from './tools/write-many.ts'
-import {
-  inboxAddTool,
-  inboxDismissTool,
-  inboxDoneTool,
-  inboxListTool,
-  inboxPeekTool,
-  inboxReadTool,
-  inboxReleaseTool,
-  inboxTakeTool,
-} from './tools/inbox.ts'
-import { confirmProposalTool } from './tools/confirm-proposal.ts'
 import { defineTypeTool } from './tools/define-type.ts'
-import { describeMediaTool } from './tools/describe-media.ts'
-import { getTypeTool } from './tools/get-type.ts'
-import { historyTool } from './tools/history.ts'
+import { inboxAddTool, inboxFinishTool, inboxListTool, inboxTakeTool } from './tools/inbox.ts'
 import { linkTool } from './tools/link.ts'
-import { listProposalsTool } from './tools/list-proposals.ts'
-import { instanceRulesTool } from './tools/instance-rules.ts'
-import { listTypesTool } from './tools/list-types.ts'
-import { pendingReferencesTool } from './tools/pending-references.ts'
-import { proposeTypeChangeTool } from './tools/propose-type-change.ts'
 import { readTool } from './tools/read.ts'
 import { searchTool } from './tools/search.ts'
-import { unlinkTool } from './tools/unlink.ts'
-import { upcomingTool } from './tools/upcoming.ts'
+import { typesTool } from './tools/types.ts'
 import { writeTool } from './tools/write.ts'
 
 /** Every tool Grenier serves over MCP, each in its own module under `tools/`. */
 export const GrenierTools = Toolkit.make(
-  defineTypeTool.tool,
-  addFieldTool.tool,
-  getTypeTool.tool,
-  listTypesTool.tool,
-  pendingReferencesTool.tool,
-  instanceRulesTool.tool,
-  writeTool.tool,
-  readTool.tool,
-  archiveTool.tool,
   searchTool.tool,
-  linkTool.tool,
-  unlinkTool.tool,
-  historyTool.tool,
-  changeFieldTool.tool,
-  changeTypeTool.tool,
-  proposeTypeChangeTool.tool,
-  listProposalsTool.tool,
-  confirmProposalTool.tool,
-  attachMediaTool.tool,
-  describeMediaTool.tool,
-  upcomingTool.tool,
+  readTool.tool,
   briefingTool.tool,
-  unverifiedTool.tool,
-  writeManyTool.tool,
+  typesTool.tool,
+  writeTool.tool,
+  linkTool.tool,
+  attachMediaTool.tool,
+  defineTypeTool.tool,
+  changeTypeTool.tool,
   inboxAddTool.tool,
-  inboxListTool.tool,
-  inboxReadTool.tool,
-  inboxReleaseTool.tool,
-  inboxDoneTool.tool,
-  inboxDismissTool.tool,
+  inboxFinishTool.tool,
 )
 
 /** The tools of diagnostics, served only when they are on. */
@@ -172,36 +128,17 @@ export const GrenierHandlers = GrenierTools.toLayer(
     const handlerOf = handlerFor(yield* Effect.context<Database>(), yield* Rights)
 
     return {
-      define_type: handlerOf(defineTypeTool),
-      add_field: handlerOf(addFieldTool),
-      get_type: handlerOf(getTypeTool),
-      list_types: handlerOf(listTypesTool),
-      pending_references: handlerOf(pendingReferencesTool),
-      instance_rules: handlerOf(instanceRulesTool),
-      write: handlerOf(writeTool),
-      read: handlerOf(readTool),
-      archive: handlerOf(archiveTool),
       search: handlerOf(searchTool),
-      link: handlerOf(linkTool),
-      unlink: handlerOf(unlinkTool),
-      history: handlerOf(historyTool),
-      change_field: handlerOf(changeFieldTool),
-      change_type: handlerOf(changeTypeTool),
-      propose_type_change: handlerOf(proposeTypeChangeTool),
-      list_proposals: handlerOf(listProposalsTool),
-      confirm_proposal: handlerOf(confirmProposalTool),
-      attach_media: handlerOf(attachMediaTool),
-      describe_media: handlerOf(describeMediaTool),
-      upcoming: handlerOf(upcomingTool),
+      read: handlerOf(readTool),
       briefing: handlerOf(briefingTool),
-      unverified: handlerOf(unverifiedTool),
-      write_many: handlerOf(writeManyTool),
+      types: handlerOf(typesTool),
+      write: handlerOf(writeTool),
+      link: handlerOf(linkTool),
+      attach_media: handlerOf(attachMediaTool),
+      define_type: handlerOf(defineTypeTool),
+      change_type: handlerOf(changeTypeTool),
       inbox_add: handlerOf(inboxAddTool),
-      inbox_list: handlerOf(inboxListTool),
-      inbox_read: handlerOf(inboxReadTool),
-      inbox_release: handlerOf(inboxReleaseTool),
-      inbox_done: handlerOf(inboxDoneTool),
-      inbox_dismiss: handlerOf(inboxDismissTool),
+      inbox_finish: handlerOf(inboxFinishTool),
     }
   }),
 )
@@ -224,20 +161,20 @@ const listedTo = (rights: ReadonlyArray<Right>) => (tool: { readonly right: Righ
   rights.includes(tool.right)
 
 /**
- * `inbox_take` and `inbox_peek`, beside the toolkit: their answer may hold an image the agent
- * sees, which a tool of the toolkit, answered as JSON, cannot give.
+ * `inbox_list` and `inbox_take`, beside the toolkit: their answer may hold an image the agent
+ * sees (one item read or taken), which a tool of the toolkit, answered as JSON, cannot give.
  */
 const registerByHand = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>) =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer
     const services = yield* Effect.context<Database>()
     const handle = handlerFor(services, yield* Rights)(tool)
-    const { name, description, input, annotations } = tool
+    const { name, description, inputSchema, annotations } = tool
     return yield* server.addTool({
       tool: new McpSchema.Tool({
         name,
         description,
-        inputSchema: toToolInputSchema(input),
+        inputSchema,
         annotations,
       }),
       annotations: Context.empty(),
@@ -257,6 +194,31 @@ const registerByHand = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>)
     })
   })
 
+/** The tools of the toolkit that come before `inbox_list`, in the order an agent lists them. */
+const BEFORE_INBOX = [
+  searchTool,
+  readTool,
+  briefingTool,
+  typesTool,
+  writeTool,
+  linkTool,
+  attachMediaTool,
+  defineTypeTool,
+  changeTypeTool,
+  inboxAddTool,
+]
+
+/** The tools of the toolkit that come after `inbox_take`. */
+const AFTER_INBOX = [inboxFinishTool]
+
+/** The tools of the toolkit among `tools` that the key lists, registered together. */
+const registerListed = (tools: ReadonlyArray<{ readonly tool: Tool.Any; readonly right: Right }>) =>
+  Effect.gen(function* () {
+    const listed = listedTo(yield* Rights)
+    const kept = tools.filter(listed)
+    if (kept.length > 0) yield* McpServer.registerToolkit(Toolkit.make(...kept.map(toolOf)))
+  })
+
 /**
  * Every Grenier tool on an MCP server, only those the key may call, and in the order of `TOOLS`
  * (then the tools of diagnostics, when they are on; otherwise they do not exist). A tool the key
@@ -267,59 +229,19 @@ export const GrenierServer = Layer.effectDiscard(
   Effect.gen(function* () {
     const listed = listedTo(yield* Rights)
     const diagnostics = (yield* Instance).diagnostics
-    yield* McpServer.registerToolkit(Toolkit.make(...TOOLKIT_TOOLS.filter(listed).map(toolOf)))
+    yield* registerListed(BEFORE_INBOX)
+    if (listed(inboxListTool)) yield* registerByHand(inboxListTool)
     if (listed(inboxTakeTool)) yield* registerByHand(inboxTakeTool)
-    if (listed(inboxPeekTool)) yield* registerByHand(inboxPeekTool)
-    if (diagnostics) {
-      yield* McpServer.registerToolkit(
-        Toolkit.make(...DIAGNOSTICS_TOOLS.filter(listed).map(toolOf)),
-      )
-    }
+    yield* registerListed(AFTER_INBOX)
+    if (diagnostics) yield* registerListed(DIAGNOSTICS_TOOLS)
   }),
 ).pipe(
   Layer.provide(Layer.merge(GrenierHandlers, DiagnosticsHandlers)),
   Layer.provide(Layer.succeed(RecentCalls, new Map())),
 )
 
-/** The tools of the toolkit, in the fixed order an agent lists them. */
-const TOOLKIT_TOOLS = [
-  defineTypeTool,
-  addFieldTool,
-  getTypeTool,
-  listTypesTool,
-  pendingReferencesTool,
-  instanceRulesTool,
-  writeTool,
-  readTool,
-  archiveTool,
-  searchTool,
-  linkTool,
-  unlinkTool,
-  historyTool,
-  changeFieldTool,
-  changeTypeTool,
-  proposeTypeChangeTool,
-  listProposalsTool,
-  confirmProposalTool,
-  attachMediaTool,
-  describeMediaTool,
-  upcomingTool,
-  briefingTool,
-  unverifiedTool,
-  writeManyTool,
-  inboxAddTool,
-  inboxListTool,
-  inboxReadTool,
-  inboxReleaseTool,
-  inboxDoneTool,
-  inboxDismissTool,
-]
-
-/** The tools registered by hand, listed after the toolkit's. */
-const BY_HAND = [inboxTakeTool, inboxPeekTool]
-
 /** Every tool of Grenier, in the fixed order an agent lists them. */
-export const TOOLS = [...TOOLKIT_TOOLS, ...BY_HAND]
+export const TOOLS = [...BEFORE_INBOX, inboxListTool, inboxTakeTool, ...AFTER_INBOX]
 
 /** The tools of diagnostics, listed after the others when they are on. */
 export const DIAGNOSTICS_TOOLS = [grenierReportTool, grenierReportsTool]

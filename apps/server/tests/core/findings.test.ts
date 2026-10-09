@@ -88,7 +88,7 @@ describe('a report becomes a finding, or one more occurrence of it', () => {
 
   test('the same title at another place, or of another kind once the reporter says so, is another finding', async () => {
     const elsewhere = await run(
-      reportFinding(report('The write tool refuses a valid date', { place: 'write_many' })),
+      reportFinding(report('The write tool refuses a valid date', { place: 'batch' })),
     )
     expect(elsewhere).toMatchObject({ new: true, finding: { number: 2 } })
     const slowly = report('The write tool refuses a valid date', { kind: 'slow' })
@@ -284,7 +284,7 @@ describe('an unexpected error keeps nothing of the data in production', () => {
     class Jammed {
       readonly part = 'gearbox'
     }
-    const [classed] = await defect('production', Cause.die(new Jammed()), 'upcoming')
+    const [classed] = await defect('production', Cause.die(new Jammed()), 'calendar')
     expect(classed?.finding.title).toBe('Unexpected error: Jammed')
     const [plain] = await defect('production', Cause.die('the 7-3-9 of the safe'), 'briefing')
     expect(plain?.finding.title).toBe('Unexpected error: a string')
@@ -299,7 +299,7 @@ describe('an unexpected error keeps nothing of the data in production', () => {
   })
 
   test('elsewhere, the message and the stack, cut short', async () => {
-    const [local] = await defect('local', Cause.die(new TypeError('cannot read x')), 'history')
+    const [local] = await defect('local', Cause.die(new TypeError('cannot read x')), 'journal')
     expect(local?.finding.title).toBe('Unexpected error: cannot read x')
     expect(local?.occurrences[0]?.happened).toContain('TypeError')
   })
@@ -496,19 +496,19 @@ describe('reports and merges keep findings apart where they differ', () => {
   test('a merge into itself, of a merged finding, or into one is refused', async () => {
     const one = recordedOf(
       await run(
-        reportFinding(at('upcoming', 'Upcoming takes seconds'), undefined, 'agent', { new: true }),
+        reportFinding(at('calendar', 'Upcoming takes seconds'), undefined, 'agent', { new: true }),
       ),
     )
     const two = recordedOf(
       await run(
-        reportFinding(at('upcoming', 'The window of dates is slow'), undefined, 'agent', {
+        reportFinding(at('calendar', 'The window of dates is slow'), undefined, 'agent', {
           new: true,
         }),
       ),
     )
     const three = recordedOf(
       await run(
-        reportFinding(at('upcoming', 'Deadlines come late'), undefined, 'agent', { new: true }),
+        reportFinding(at('calendar', 'Deadlines come late'), undefined, 'agent', { new: true }),
       ),
     )
     const [a, b, c] = [one.finding.number, two.finding.number, three.finding.number]

@@ -114,13 +114,15 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
 entry:verify <slug>`. `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
 into the inbox, one item per file, sub-folders included (hidden files and links are skipped), for
-agents to process (`inbox_take`, then `inbox_done`); `--dry-run` says what it would add, and a file
+agents to process (`inbox_take`, then `inbox_finish`); `--dry-run` says what it would add, and a file
 already in the inbox (same path, origin and content) is added again only with `--again`.
 `type:sensitive <type> --off` and `field:sensitive <type> <field> --off` make a type or a field
 no longer sensitive, which only the owner may do.
 `findings:list [--kind <kind>] [--place <place>] [--severity <severity>]`, `findings:show <number>`
 and `findings:export` (Markdown on stdout) read what diagnostics found, occurrences included: the
 owner's only way to read them in full; `findings:merge <into> <from>` makes one finding of two.
+`proposal:list` and `proposal:confirm <id>` show and confirm the proposals of agents to delete or merge a
+type (no MCP tool confirms one).
 `rules:set <file>` sets the rules every agent is given in its instructions (`rules:show` prints
 them); only the owner sets them.
 `export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]` writes

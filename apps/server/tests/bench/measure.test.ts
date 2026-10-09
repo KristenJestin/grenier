@@ -38,11 +38,11 @@ describe('measuring a run', () => {
     const record = measure(
       task,
       1,
-      session([call('search'), call('read'), call('list_types'), call('write'), call('upcoming')]),
+      session([call('search'), call('read'), call('types'), call('write'), call('briefing')]),
       0,
       passed,
     )
-    expect(record.wrongTools).toEqual(['upcoming'])
+    expect(record.wrongTools).toEqual(['briefing'])
     expect(record.toolCalls).toBe(5)
   })
 
@@ -50,6 +50,21 @@ describe('measuring a run', () => {
     expect(
       measure(task, 1, session([call('write'), call('mystery')]), 0, passed).wrongTools,
     ).toEqual(['mystery'])
+  })
+
+  test('a tool that serves several roles is right for a task that needs one of them, and counts as using it', () => {
+    const record = measure(
+      { ...task, expects: ['archive', 'history'] },
+      1,
+      session([call('write'), call('read')]),
+      0,
+      passed,
+    )
+    expect(record.wrongTools).toEqual([])
+    expect(record.unusedRoles).toEqual([])
+    expect(
+      measure({ ...task, expects: ['link'] }, 1, session([call('write')]), 0, passed).wrongTools,
+    ).toEqual(['write'])
   })
 
   test('a role the task expects and the run never used is listed', () => {

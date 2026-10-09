@@ -18,40 +18,26 @@ name is refused.
 
 | Tool | Right | What it does |
 | --- | --- | --- |
-| `define_type` | write | Defines a type of entry and its fields. |
-| `add_field` | write | Adds an optional field to an existing type. |
-| `get_type` | read | Reads a type and its fields. |
-| `list_types` | read | Lists every type. |
-| `pending_references` | read | Lists the `[[references]]` still waiting for their entry. |
-| `instance_rules` | read | The rules the owner set for every agent, whole. |
-| `write` | write | Creates an entry, or updates the one `entry` names; a long body in parts. Answers with the entries it names without linking (`unlinked`). |
-| `read` | read | Reads an entry without its body unless asked, by parts, with its place in the tree, its links and, with `depth`, the graph around it. |
-| `archive` | write | Archives an entry, with a reason; nothing is deleted. |
-| `search` | read | Searches entries in full text, or lists them by last change; each result comes with its neighbors. |
-| `link` | write | Links two entries with a relation, a note and the dates it held. |
-| `unlink` | write | Removes a link. |
-| `history` | read | Reads the history of an entry, a page at a time. |
-| `change_field` | write | Changes a field of a type: required, kind, name, values. |
-| `change_type` | write | Changes the label, the description or the flags of a type. |
-| `propose_type_change` | write | Proposes to delete a type or merge it into another. |
-| `list_proposals` | read | Lists the proposed deletions and merges of types. |
-| `confirm_proposal` | owner | Confirms a proposal; no key given to an agent has the right. |
-| `attach_media` | write | Attaches an image, a video, a sound or a PDF to an entry. |
-| `describe_media` | write | Describes a medium in words, which is searched. |
-| `upcoming` | read | Lists the dates coming in a period, with the days left. |
-| `briefing` | read | Gathers what matters for today, the week or the weekend. |
-| `unverified` | read | Lists the entries the owner has not verified yet. |
-| `write_many` | write | Writes up to 100 entries in one transaction. |
+| `search` | read | Searches entries in full text, or lists them by last change; each result comes with its neighbors. `verified: false` lists what waits for the owner's review. |
+| `read` | read | Reads an entry without its body unless asked, by parts (`history` among them, paged), with its place in the tree, its links and, with `depth`, the graph around it. |
+| `briefing` | read | Gathers what matters for a period (`today`, `week`, `weekend`) or for any days (`from`, `to`): coming dates, overdue deadlines, a year ago, and what waits (entries to review, references without an entry). |
+| `types` | read | Reads every type, one type (`name`), the proposed deletions and merges of types (`proposals`), or the rules of the instance whole (`rules`). |
+| `write` | write | Creates or updates an entry, or up to 100 in one transaction (`entries`), or archives one (`archive`); a long body in parts. Answers with the entries it names without linking (`unlinked`). |
+| `link` | write | Links two entries with a relation, a note and the dates it held; `remove` removes the link. |
+| `attach_media` | write | Attaches an image, a video, a sound or a PDF to an entry; with `media` and `alt`, describes a medium already attached. |
+| `define_type` | write | Defines a type of entry and its fields, or adds fields to an existing type. |
+| `change_type` | write | Changes the label, the description or the flags of a type, or one of its fields (`field`); `propose` proposes to delete it or merge it into another. |
 | `inbox_add` | write | Puts a text, a URL or a file in the inbox. |
-| `inbox_list` | read | Lists the items of the inbox, a page at a time. |
-| `inbox_read` | read | Reads a part of the text of an item. |
-| `inbox_release` | write | Gives back an item that was taken. |
-| `inbox_done` | write | Marks an item processed, with the entries it produced. |
-| `inbox_dismiss` | write | Sets an item aside with a reason. |
+| `inbox_list` | read | Lists the items of the inbox, a page at a time; with an `id`, reads one item without taking it, and with `offset` the rest of its text. |
 | `inbox_take` | write | Takes an item to process (a file that is an image comes with its picture). |
-| `inbox_peek` | read | Reads an item without taking it. |
+| `inbox_finish` | write | Closes an item taken: `done` with the entries it produced, `dismissed` with a reason, or `released` to wait again. |
 | `grenier_report` | write | Reports a problem with Grenier itself (diagnostics). |
 | `grenier_reports` | read | Lists the findings recorded so far (diagnostics). |
+
+A key with `read` lists 5 tools, one with `read,write` 13, and 15 with diagnostics. The owner confirms
+a proposal of a type change from the command line (`proposal:list`, `proposal:confirm`), not through
+a tool: no MCP key has the right. A tool that does several things takes the keys of one at a time,
+and a call that mixes them is refused in a sentence that names what to leave out.
 
 ## Recall
 
@@ -99,7 +85,8 @@ GRENIER_ACTOR=agent-laptop GRENIER_INSTANCE=local bun --env-file=.env apps/serve
   for each session), with how to find what the owner refers to without naming it, then how to recall (for a key that
   reads).
   `GRENIER_DIAGNOSTICS=on` adds the report tools (see `docs/model.md`) and a paragraph on
-  reporting; then the rules the owner set (`rules:set`); and, for a key that may write, how to
+  reporting; then the rules the owner set (`rules:set`; past 4,000 characters, only their opening,
+  and `types` with `rules: true` gives them whole); and, for a key that may write, how to
   write an entry and how an inbox item becomes entries.
 - `DATABASE_URL` names the database; `SEARCH_LANGUAGE` the search language (`simple` by
   default).

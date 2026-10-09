@@ -52,7 +52,7 @@ describe('the instance gives its rules to every agent', () => {
   test('without rules, nothing is added', async () => {
     const server = await session()
     expect(server.instructions).not.toContain('rules of this instance')
-    expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: null } })
+    expect(await server.call('types', { rules: true })).toMatchObject({ result: { rules: null } })
     server.close()
     expect(cli('rules:show').stdout).toBe('This instance has no rules.\n')
   })
@@ -78,7 +78,9 @@ describe('the instance gives its rules to every agent', () => {
     expect(paragraphs[at + 3]).toMatch(/^How to write an entry/)
     expect(paragraphs[at + 4]).toMatch(/^How an inbox item becomes entries/)
     expect(server.instructions).toContain(RULES.trim())
-    expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: RULES } })
+    expect(await server.call('types', { rules: true })).toMatchObject({
+      result: { rules: RULES },
+    })
     server.close()
   })
 
@@ -94,7 +96,7 @@ describe('the instance gives its rules to every agent', () => {
     expect(cli('rules:show').stdout).toBe(RULES)
   })
 
-  test('long rules: the instructions give their opening and point to instance_rules', async () => {
+  test('long rules: the instructions give their opening and say how to read them whole, in `types`', async () => {
     const file = join(scratch, 'long.md')
     const long = `Ask before writing anything private.\n\n${'## Style\n\nShort sentences.\n\n'.repeat(400)}`
     writeFileSync(file, long)
@@ -102,8 +104,9 @@ describe('the instance gives its rules to every agent', () => {
     const server = await session()
     expect(server.instructions).toContain('Ask before writing anything private.')
     expect(server.instructions).not.toContain('## Style')
-    expect(server.instructions).toContain('`instance_rules`')
-    expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: long } })
+    expect(server.instructions).toContain('calling `types` with `rules: true`')
+    expect(server.instructions).not.toContain('instance_rules')
+    expect(await server.call('types', { rules: true })).toMatchObject({ result: { rules: long } })
     server.close()
   })
 })

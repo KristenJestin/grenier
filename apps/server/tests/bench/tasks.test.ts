@@ -4,6 +4,7 @@ import { entriesFor, LINKS, seedInstance, TYPES, UNVERIFIED } from '../../bench/
 import { migrated, runtimeOn } from '../../bench/runtime.ts'
 import { TASKS } from '../../bench/tasks.ts'
 import { worldOf } from '../../bench/world.ts'
+import { TOOL_NAMES } from '../../src/mcp/tools.ts'
 import {
   createScratchDatabase,
   dropScratchDatabase,
@@ -94,8 +95,8 @@ describe('every task has a check that asks for something and a reference solutio
     expect(new Set(TASKS.map(({ id }) => id)).size).toBe(TASKS.length)
     expect(TASKS.filter(({ id }) => !solutions.has(id)).map(({ id }) => id)).toEqual([])
     expect([...solutions.keys()].filter((id) => !TASKS.some((task) => task.id === id))).toEqual([])
-    const tools =
-      /\b(inbox_\w+|list_types|get_type|define_type|add_field|write_many|change_\w+|\w+_proposal\w*)\b/
+    // The names that are words of their own (`search`, `read`, `types`) cannot be told in a prompt.
+    const tools = new RegExp(`\\b(${TOOL_NAMES.filter((name) => name.includes('_')).join('|')})\\b`)
     expect(TASKS.filter(({ prompt }) => tools.test(prompt)).map(({ id }) => id)).toEqual([])
   })
 

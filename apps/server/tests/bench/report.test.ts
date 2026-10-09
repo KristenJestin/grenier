@@ -113,14 +113,14 @@ describe('the table of a bench run', () => {
         record({
           success: false,
           failures: ['no entry', 'wrong parent'],
-          wrongTools: ['upcoming', 'upcoming'],
+          wrongTools: ['briefing', 'briefing'],
         }),
         record({ task: 'other', repeat: 1 }),
       ],
       about,
     )
     expect(markdown).toContain('- `recall-a-kettle` (run 1): no entry; wrong parent')
-    expect(markdown).toContain('- `recall-a-kettle` (run 1): upcoming, upcoming')
+    expect(markdown).toContain('- `recall-a-kettle` (run 1): briefing, briefing')
   })
 
   test('a run without failure says so', () => {
