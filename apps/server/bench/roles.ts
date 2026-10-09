@@ -1,5 +1,5 @@
 /**
- * What an agent does with Grenier, by role, and the tools that do it today. A task says which roles
+ * What an agent does with Hippocampe, by role, and the tools that do it today. A task says which roles
  * it needs, never a tool: when the tools are merged or renamed, this table is the one place to
  * change, and the same tasks measure the new surface. Since #169 part 4 a tool may serve several
  * roles (`write` writes and archives, `read` reads and gives the history).

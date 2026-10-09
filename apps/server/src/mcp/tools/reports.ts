@@ -2,10 +2,10 @@ import { FINDING_KINDS, listFindings } from '../../core/findings/index.ts'
 import { Schema } from 'effect'
 import { defineTool } from '../tool.ts'
 
-export const grenierReportsTool = defineTool({
-  name: 'grenier_reports',
+export const reportsTool = defineTool({
+  name: 'reports',
   description:
-    'Lists the findings of diagnostics recorded so far, by number, a page at a time: title, kind, place, worst severity, number of occurrences, first and last seen. Read it before `grenier_report`, so the same problem adds an occurrence.',
+    'Lists the findings of diagnostics recorded so far, by number, a page at a time: title, kind, place, worst severity, number of occurrences, first and last seen. Read it before `report`, so the same problem adds an occurrence.',
   input: Schema.Struct({
     limit: Schema.optionalKey(
       Schema.Int.check(

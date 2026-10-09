@@ -35,7 +35,7 @@ Effect is written: in `apps/server` (`src/core`, `src/mcp`, `src/export`, the HT
 - The `anti-slop-effect` lint rules (root `AGENTS.md`, code style) hold the shape of errors,
   tags, services and branches.
 
-## The conventions of `@grenier/api/schema`
+## The conventions of `@hippocampe/api/schema`
 
 Each is proven by a test:
 

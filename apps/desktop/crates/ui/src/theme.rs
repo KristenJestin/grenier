@@ -1,4 +1,4 @@
-//! The theme of the viewer, defined once. Colours come from Grenier's theme, `theme.json`, which
+//! The theme of the viewer, defined once. Colours come from Hippocampe's theme, `theme.json`, which
 //! GPUI Kit loads as its light and dark themes: every screen reads them from `cx.theme()`.
 //! Spacing, the type scale, the widths and the fonts come from here, so no screen writes a literal
 //! size or names a font.
@@ -37,14 +37,14 @@ pub fn load_fonts(cx: &mut App) {
         .expect("the embedded fonts are valid");
 }
 
-/// Light or dark, for the whole application, in Grenier's colours.
+/// Light or dark, for the whole application, in Hippocampe's colours.
 pub fn set_dark(dark: bool, cx: &mut App) {
     ThemeRegistry::global_mut(cx)
         .load_themes_from_str(THEMES)
         .expect("theme.json is a valid theme set");
     let themes = ThemeRegistry::global(cx).themes();
-    let light = themes["Grenier Light"].clone();
-    let dark_theme = themes["Grenier Dark"].clone();
+    let light = themes["Hippocampe Light"].clone();
+    let dark_theme = themes["Hippocampe Dark"].clone();
     let theme = Theme::global_mut(cx);
     theme.light_theme = light;
     theme.dark_theme = dark_theme;

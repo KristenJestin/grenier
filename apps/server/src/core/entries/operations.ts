@@ -25,12 +25,12 @@ import {
 } from '../links/places.ts'
 import { incoming, MENTIONS, outgoing, PART_OF } from '../links/store.ts'
 import { keepReferences, lockReferences, referencesOf, resolvePending } from '../links/pending.ts'
-import { formatSchemaError } from '@grenier/api/schema'
+import { formatSchemaError } from '@hippocampe/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
-import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@grenier/api/model'
-import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
+import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@hippocampe/api/model'
+import type { Source, TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { refusingContention } from './contention.ts'
 import { holding, wantedOf } from './certainty.ts'
@@ -768,11 +768,11 @@ const retypeRefusal = Effect.fn('retypeRefusal')(function* (
   const { allowed } = yield* sensitivity
   const sensitiveFields = from.fields.filter(({ sensitive }) => sensitive === true)
   if (!allowed && sensitiveFields.some(({ name }) => Object.hasOwn(existing.fields, name))) {
-    return `The entry \`${existing.slug}\` holds sensitive values: this key may not change its type; ask the owner of Grenier for a key with the right \`sensitive\`.`
+    return `The entry \`${existing.slug}\` holds sensitive values: this key may not change its type; ask the owner of Hippocampe for a key with the right \`sensitive\`.`
   }
   if (byOwner || type.sensitive === true) return undefined
   if (from.sensitive === true) {
-    return `The type \`${from.name}\` is sensitive and \`${type.name}\` is not: only the owner of Grenier may move this entry out of it.`
+    return `The type \`${from.name}\` is sensitive and \`${type.name}\` is not: only the owner of Hippocampe may move this entry out of it.`
   }
   const exposed = sensitiveFields.filter(
     ({ name }) =>
@@ -783,7 +783,7 @@ const retypeRefusal = Effect.fn('retypeRefusal')(function* (
   return exposed
     .map(
       ({ name }) =>
-        `The field \`fields.${name}\` is sensitive in \`${from.name}\` and would not be in \`${type.name}\`: only the owner of Grenier may change the type of this entry to it.`,
+        `The field \`fields.${name}\` is sensitive in \`${from.name}\` and would not be in \`${type.name}\`: only the owner of Hippocampe may change the type of this entry to it.`,
     )
     .join(' ')
 })
@@ -935,7 +935,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         const hidden = yield* sensitivity
         if (type !== undefined && hidden.hidesType(type.name)) {
           return yield* new Refused({
-            message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+            message: `The type \`${type.name}\` is sensitive: this key may not write its entries; ask the owner of Hippocampe for a key with the right \`sensitive\`.`,
           })
         }
         const byOwner = (yield* Rights).includes('owner')
@@ -952,7 +952,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             message: forbidden
               .map(
                 (name) =>
-                  `The field \`fields.${name}\` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+                  `The field \`fields.${name}\` is sensitive: this key may not write it; ask the owner of Hippocampe for a key with the right \`sensitive\`.`,
               )
               .join(' '),
           })
@@ -1383,7 +1383,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
                   .values({
                     ...values,
                     created: sql`coalesce(${instantOf(created)}::timestamptz, now())`,
-                    // When Grenier wrote it, unless an import gives when the note last changed.
+                    // When Hippocampe wrote it, unless an import gives when the note last changed.
                     updated: sql`coalesce(${instantOf(updated)}::timestamptz, now())`,
                   })
                   .returning({ id: table.id }),

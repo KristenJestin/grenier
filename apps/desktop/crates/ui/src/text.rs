@@ -4,7 +4,7 @@
 //! types and fields, the sentences of a refusal) is shown as it was written, never through here.
 
 /// The name of the application.
-pub const GRENIER: &str = "Grenier";
+pub const HIPPOCAMPE: &str = "Hippocampe";
 
 // The sidebar.
 pub const SEARCH_PLACEHOLDER: &str = "Search";
@@ -220,10 +220,10 @@ pub fn nothing_for(query: &str) -> String {
 pub const RETRY: &str = "Retry";
 pub const UNREACHABLE: &str = "The server does not answer";
 pub const UNREACHABLE_DETAIL: &str =
-    "Check that Grenier is running and that this computer reaches it, then retry.";
+    "Check that Hippocampe is running and that this computer reaches it, then retry.";
 pub const KEY_REFUSED: &str = "The key was refused";
 pub const SERVER_REFUSED: &str = "The server refused";
-pub const UNCONFIGURED: &str = "Grenier is not set up";
+pub const UNCONFIGURED: &str = "Hippocampe is not set up";
 
 // The messages of the application, before and around a read.
 pub const NO_CONFIGURATION_FOLDER: &str = "This system has no configuration folder.";
@@ -232,7 +232,7 @@ pub const NO_CONFIGURATION_FOLDER: &str = "This system has no configuration fold
 pub fn create_configuration(path: &str) -> String {
     format!(
         "Create {path} with the address of the server and the file of the key: \
-         {{ \"server\": \"http://127.0.0.1:3000\", \"key_file\": \"~/.config/grenier/key\" }}"
+         {{ \"server\": \"http://127.0.0.1:3000\", \"key_file\": \"~/.config/hippocampe/key\" }}"
     )
 }
 

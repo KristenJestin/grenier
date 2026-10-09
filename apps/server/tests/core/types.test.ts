@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { addField, defineType, getType, listTypes } from '../../src/core/types/index.ts'
-import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import type { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()

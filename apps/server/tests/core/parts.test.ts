@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'

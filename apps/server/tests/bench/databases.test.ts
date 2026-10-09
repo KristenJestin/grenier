@@ -6,7 +6,7 @@ import {
   scratchDatabaseExists,
 } from '../../src/core/testing.ts'
 
-const named = () => `grenier_bench_test_${crypto.randomUUID().replaceAll('-', '')}`
+const named = () => `hippocampe_bench_test_${crypto.randomUUID().replaceAll('-', '')}`
 
 describe('the databases the bench keeps apart from a suite', () => {
   test('a copy of a template starts as the template was, and each is dropped on its own', async () => {

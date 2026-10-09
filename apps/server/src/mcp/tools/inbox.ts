@@ -24,7 +24,7 @@ const PAGE_LIMIT = 200
 export const inboxAddTool = defineTool({
   name: 'inbox_add',
   description:
-    'Puts something in the inbox for an agent to turn into entries: a `text`, a `url`, or a `file` (base64 `data` with its `name`), with where it came from (`origin`). Nothing enters Grenier as a raw copy.',
+    'Puts something in the inbox for an agent to turn into entries: a `text`, a `url`, or a `file` (base64 `data` with its `name`), with where it came from (`origin`). Nothing enters Hippocampe as a raw copy.',
   input: InboxInput,
   right: 'write',
   hints: { destructive: false, idempotent: false },

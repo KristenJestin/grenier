@@ -8,7 +8,7 @@ import { migrate } from './database/migrate.ts'
 export class ScratchDatabase extends Context.Service<
   ScratchDatabase,
   { readonly name: string; readonly url: string }
->()('@grenier/core/testing/ScratchDatabase') {}
+>()('@hippocampe/core/testing/ScratchDatabase') {}
 
 /** Runs a statement on the server of `DATABASE_URL`, through a connection of its own. */
 const onServer = <A, E>(statement: Effect.Effect<A, E, SqlClient.SqlClient>) =>
@@ -63,7 +63,7 @@ export const dropScratchDatabase = (name: string) =>
 export const emptyScratchDatabase = Layer.unwrap(
   Effect.gen(function* () {
     const server = new URL(Redacted.value(yield* databaseUrl))
-    const name = `grenier_test_${crypto.randomUUID().replaceAll('-', '')}`
+    const name = `hippocampe_test_${crypto.randomUUID().replaceAll('-', '')}`
     yield* Effect.acquireRelease(
       onServer(Effect.flatMap(SqlClient.SqlClient, (sql) => sql`CREATE DATABASE ${sql(name)}`)),
       () =>

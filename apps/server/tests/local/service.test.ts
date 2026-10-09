@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { homeOf } from '../../src/local/home.ts'
 import * as service from '../../src/local/service.ts'
 
-const scratch = mkdtempSync(join(tmpdir(), 'grenier-service-'))
+const scratch = mkdtempSync(join(tmpdir(), 'hippocampe-service-'))
 const home = homeOf({ HOME: join(scratch, 'home') })
 const binaries = join(scratch, 'native')
 
@@ -68,52 +68,54 @@ beforeAll(() => {
       { source: 'native/lib/libicuuc.so.60.2', target: 'native/lib/libicuuc.so.60' },
     ]),
   )
-  process.env['GRENIER_POSTGRES_BINARIES'] = binaries
-  process.env['GRENIER_EXECUTABLE'] = '/opt/grenier/bin/grenier'
+  process.env['HIPPOCAMPE_POSTGRES_BINARIES'] = binaries
+  process.env['HIPPOCAMPE_EXECUTABLE'] = '/opt/hippocampe/bin/hippo'
 })
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
-describe('grenier service install', () => {
+describe('hippo service install', () => {
   test('folders, a private environment, the database, two units started, an owner and a key', async () => {
     const said = await run(service.install(home, options))
     const environment = readFileSync(home.environment, 'utf8')
-    expect(environment).toMatch(/^GRENIER_INSTANCE=production$/m)
-    expect(environment).toMatch(/^GRENIER_HOST=127\.0\.0\.1$/m)
+    expect(environment).toMatch(/^HIPPOCAMPE_INSTANCE=production$/m)
+    expect(environment).toMatch(/^HIPPOCAMPE_HOST=127\.0\.0\.1$/m)
     expect(environment).toMatch(
-      /^DATABASE_URL=postgres:\/\/grenier:[\w-]+@127\.0\.0\.1:7469\/postgres$/m,
+      /^DATABASE_URL=postgres:\/\/hippocampe:[\w-]+@127\.0\.0\.1:7469\/postgres$/m,
     )
     expect(environment).toMatch(/^BETTER_AUTH_SECRET=[\w-]{40,}$/m)
     // The export and the backups are kept apart from what `--purge` deletes.
-    expect(home.export).toBe(join(scratch, 'home', 'Grenier', 'export'))
-    expect(home.backups).toBe(join(scratch, 'home', 'Grenier', 'backups'))
+    expect(home.export).toBe(join(scratch, 'home', 'Hippocampe', 'export'))
+    expect(home.backups).toBe(join(scratch, 'home', 'Hippocampe', 'backups'))
     expect(environment).toContain(`EXPORT_DIR=${home.export}`)
     expect(statSync(home.environment).mode & 0o777).toBe(0o600)
     for (const folder of [home.data, home.config, home.kept, home.export, home.backups, home.media])
       expect({ folder, mode: statSync(folder).mode & 0o777 }).toEqual({ folder, mode: 0o700 })
     expect(existsSync(join(home.binaries, 'lib', 'libicuuc.so.60'))).toBe(true)
-    const server = readFileSync(join(home.units, 'grenier.service'), 'utf8')
-    expect(server).toContain('ExecStart="/opt/grenier/bin/grenier" serve')
+    const server = readFileSync(join(home.units, 'hippocampe.service'), 'utf8')
+    expect(server).toContain('ExecStart="/opt/hippocampe/bin/hippo" serve')
     expect(server).toContain(`EnvironmentFile=${home.environment}`)
     expect(server).toContain('Restart=on-failure')
     expect(server).toContain('WantedBy=default.target')
-    const database = readFileSync(join(home.units, 'grenier-postgres.service'), 'utf8')
+    const database = readFileSync(join(home.units, 'hippocampe-postgres.service'), 'utf8')
     expect(database).toContain('listen_addresses=127.0.0.1')
     expect(database).toContain(
       `ExecStart="${join(home.binaries, 'bin', 'postgres')}" -D "${home.database}"`,
     )
     expect(ran).toEqual([
-      expect.stringMatching(/initdb -D .* -U grenier --pwfile=.* -A scram-sha-256/),
+      expect.stringMatching(/initdb -D .* -U hippocampe --pwfile=.* -A scram-sha-256/),
       'systemctl --user daemon-reload',
-      'systemctl --user enable grenier-postgres.service grenier.service',
-      'systemctl --user restart grenier-postgres.service grenier.service',
-      '/opt/grenier/bin/grenier key:create --name local --rights read,write,sensitive --owner owner@example.org',
+      'systemctl --user enable hippocampe-postgres.service hippocampe.service',
+      'systemctl --user restart hippocampe-postgres.service hippocampe.service',
+      '/opt/hippocampe/bin/hippo key:create --name local --rights read,write,sensitive --owner owner@example.org',
     ])
     expect(readFileSync(home.key, 'utf8')).toBe('secret-of-the-tests\n')
     expect(statSync(home.key).mode & 0o777).toBe(0o600)
     expect(existsSync(join(home.config, '.database-password'))).toBe(false)
     expect(said).toContain('MCP is at http://127.0.0.1:7468/mcp')
     expect(said).not.toContain('secret-of-the-tests')
+    // A machine with nothing under the old names has nothing to move.
+    expect(said).not.toMatch(/Moved|Renamed|Stopped/)
   })
 
   test('installed again, it keeps the database, the secret, the key, and says it keeps its ports', async () => {
@@ -136,10 +138,10 @@ describe('the service is driven by systemd', () => {
     await run(service.status)
     await run(service.logs)
     expect(ran).toEqual([
-      'systemctl --user start grenier.service',
-      'systemctl --user stop grenier.service grenier-postgres.service',
-      'systemctl --user status --no-pager grenier.service grenier-postgres.service',
-      'journalctl --user -u grenier.service -n 200 --no-pager',
+      'systemctl --user start hippocampe.service',
+      'systemctl --user stop hippocampe.service hippocampe-postgres.service',
+      'systemctl --user status --no-pager hippocampe.service hippocampe-postgres.service',
+      'journalctl --user -u hippocampe.service -n 200 --no-pager',
     ])
   })
 
@@ -148,9 +150,9 @@ describe('the service is driven by systemd', () => {
     const file = join(scratch, 'copy.tar.gz')
     const said = await run(service.backup(home, file))
     expect(ran).toEqual([
-      'systemctl --user stop grenier.service grenier-postgres.service',
+      'systemctl --user stop hippocampe.service hippocampe-postgres.service',
       `tar -czf ${file} -C ${home.data} postgres media`,
-      'systemctl --user start grenier.service',
+      'systemctl --user start hippocampe.service',
     ])
     expect(said).toBe(`The database and the media are saved in ${file}.`)
     expect(statSync(file).mode & 0o777).toBe(0o600)
@@ -172,9 +174,11 @@ describe('the service is driven by systemd', () => {
   test('uninstall keeps the data; with purge, nothing is left', async () => {
     ran.length = 0
     expect(await run(service.uninstall(home, false))).toContain('give --purge to delete them')
-    expect(existsSync(join(home.units, 'grenier.service'))).toBe(false)
+    expect(existsSync(join(home.units, 'hippocampe.service'))).toBe(false)
     expect(existsSync(home.environment)).toBe(true)
-    expect(ran[0]).toBe('systemctl --user disable --now grenier.service grenier-postgres.service')
+    expect(ran[0]).toBe(
+      'systemctl --user disable --now hippocampe.service hippocampe-postgres.service',
+    )
     const purged = await run(service.uninstall(home, true))
     expect(purged).toContain(`Deleted: ${home.data} and ${home.config}.`)
     expect(purged).toContain(`Kept: ${home.kept} (the backups and the export).`)

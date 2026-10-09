@@ -585,7 +585,7 @@ impl Viewer {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(words::GRENIER),
+                            .child(words::HIPPOCAMPE),
                     )
                     .child(toggle),
             )
@@ -926,7 +926,7 @@ impl Viewer {
             ))
             .child(div().flex_1());
         if let Some(slug) = self.opened_entry().map(|data| data.read.entry.slug.clone()) {
-            let link = format!("grenier://{slug}");
+            let link = format!("hippocampe://{slug}");
             bar = bar.child(ghost(
                 "copy-link",
                 IconName::Link,

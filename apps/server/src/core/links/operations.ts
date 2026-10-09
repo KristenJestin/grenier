@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { asc, eq } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { Effect, Predicate, Schema } from 'effect'
@@ -362,7 +362,7 @@ export const confirmLink = Effect.fn('confirmLink')(function* (
   const actor = yield* currentActor
   if (!(yield* Rights).includes('owner')) {
     return yield* new Refused({
-      message: 'Only the owner of Grenier may confirm a supposition, from the command line.',
+      message: 'Only the owner of Hippocampe may confirm a supposition, from the command line.',
     })
   }
   if (relation === MENTIONS) {

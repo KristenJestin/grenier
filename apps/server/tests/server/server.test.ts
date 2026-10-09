@@ -10,8 +10,14 @@ import { TOOL_NAMES } from '../../src/mcp/tools.ts'
 import { Auth, Rights } from '../../src/core/auth/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import { confirmProposal } from '../../src/core/types/index.ts'
-import { HIDDEN, TreeEntry } from '@grenier/api/model'
-import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
+import { HIDDEN, TreeEntry } from '@hippocampe/api/model'
+import {
+  Authorization,
+  Forbidden,
+  HippocampeApi,
+  NotFound,
+  Unauthorized,
+} from '@hippocampe/api/http'
 import { Validator } from '@seriousme/openapi-schema-validator'
 import { ConfigProvider, Effect, Layer, ManagedRuntime, Predicate, Schema } from 'effect'
 import { FetchHttpClient, HttpClientRequest } from 'effect/http'
@@ -42,7 +48,7 @@ const createKey = (name: string, rights: ReadonlyArray<string>) =>
 
 const bearer = (secret: string) => ({ authorization: `Bearer ${secret}` })
 let writer = ''
-const mediaDirectory = mkdtempSync(join(tmpdir(), 'grenier-server-media-'))
+const mediaDirectory = mkdtempSync(join(tmpdir(), 'hippocampe-server-media-'))
 
 /** A TCP proxy to the database, which the test can cut to take the database down. */
 function proxyTo(target: URL) {
@@ -121,10 +127,10 @@ beforeAll(async () => {
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
       MEDIA_DIR: mediaDirectory,
-      GRENIER_INSTANCE: 'development',
-      GRENIER_INSTANCE_LABEL: 'Test bench',
-      GRENIER_VERSION: '1.2.3-test',
-      GRENIER_COMMIT: 'abc1234',
+      HIPPOCAMPE_INSTANCE: 'development',
+      HIPPOCAMPE_INSTANCE_LABEL: 'Test bench',
+      HIPPOCAMPE_VERSION: '1.2.3-test',
+      HIPPOCAMPE_COMMIT: 'abc1234',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -238,9 +244,9 @@ describe('only known agents use the server', () => {
       status: 401,
       body: { error: 'A key is required: send it as `Authorization: Bearer <key>`.' },
     })
-    expect(await statusOf(bearer('grenier_wrong'))).toEqual({
+    expect(await statusOf(bearer('hippocampe_wrong'))).toEqual({
       status: 401,
-      body: { error: 'This key is not known to Grenier: check it, or ask the owner for one.' },
+      body: { error: 'This key is not known to Hippocampe: check it, or ask the owner for one.' },
     })
     const revoked = await createKey('agent-revoked', ['read'])
     await database.runPromise(
@@ -250,7 +256,7 @@ describe('only known agents use the server', () => {
     )
     expect(await statusOf(bearer(revoked))).toEqual({
       status: 401,
-      body: { error: 'This key was revoked: ask the owner of Grenier for a new one.' },
+      body: { error: 'This key was revoked: ask the owner of Hippocampe for a new one.' },
     })
   })
 
@@ -260,13 +266,13 @@ describe('only known agents use the server', () => {
         response.headers.get('www-authenticate'),
       )
     expect(await challengeOf({})).toBe(
-      'Bearer realm="grenier", error_description="A key is required: send it as `Authorization: Bearer <key>`."',
+      'Bearer realm="hippocampe", error_description="A key is required: send it as `Authorization: Bearer <key>`."',
     )
-    expect(await challengeOf(bearer('grenier_wrong'))).toBe(
-      'Bearer realm="grenier", error="invalid_token", error_description="This key is not known to Grenier: check it, or ask the owner for one."',
+    expect(await challengeOf(bearer('hippocampe_wrong'))).toBe(
+      'Bearer realm="hippocampe", error="invalid_token", error_description="This key is not known to Hippocampe: check it, or ask the owner for one."',
     )
     expect(await challengeOf(bearer(await revokedKey('agent-revoked-challenge')))).toBe(
-      'Bearer realm="grenier", error="invalid_token", error_description="This key was revoked: ask the owner of Grenier for a new one."',
+      'Bearer realm="hippocampe", error="invalid_token", error_description="This key was revoked: ask the owner of Hippocampe for a new one."',
     )
   })
 
@@ -420,7 +426,7 @@ describe('media over HTTP', () => {
     const refused = await fetch(`${base}${media.url}`, { headers: bearer(writeOnly) })
     expect(refused.status).toBe(403)
     expect(await refused.json()).toEqual({
-      error: 'This key may not read: ask the owner of Grenier for a key with the right `read`.',
+      error: 'This key may not read: ask the owner of Hippocampe for a key with the right `read`.',
     })
   })
 })
@@ -462,7 +468,7 @@ describe('MCP protocol versions', () => {
   })
 
   test('a missing resource answers JSON-RPC -32602', async () => {
-    const uri = 'grenier://nothing-here'
+    const uri = 'hippocampe://nothing-here'
     const { error } = await connectStateless(`${base}/mcp`, bearer(writer)).request(
       'resources/read',
       { uri },
@@ -510,7 +516,7 @@ const asTheApiTellsIt = (data: typeof Answer.Type) => {
 
 /** A typed client derived from the API definition, sending `secret` as its key when given. */
 const apiClient = (secret: string | undefined) =>
-  HttpApiClient.make(GrenierApi, { baseUrl: base }).pipe(
+  HttpApiClient.make(HippocampeApi, { baseUrl: base }).pipe(
     Effect.provide(
       HttpApiMiddleware.layerClient(Authorization, ({ next, request }) =>
         next(secret === undefined ? request : HttpClientRequest.bearerToken(request, secret)),
@@ -548,7 +554,7 @@ describe('the read API', () => {
     const forbidden = await get('/api/entries/over-the-wire', bearer(writeOnly))
     expect(forbidden.status).toBe(403)
     expect(Schema.decodeUnknownSync(Forbidden)(forbidden.body).message).toBe(
-      'This key may not read: ask the owner of Grenier for a key with the right `read`.',
+      'This key may not read: ask the owner of Hippocampe for a key with the right `read`.',
     )
     const unknown = await get('/api/entries/nowhere-at-all')
     expect(unknown.status).toBe(404)
@@ -1003,7 +1009,7 @@ describe('each MCP session starts with its working memory', () => {
 })
 
 describe('what the server takes and gives back safely', () => {
-  test('an HTML file is served sandboxed, so it runs nothing in the origin of Grenier', async () => {
+  test('an HTML file is served sandboxed, so it runs nothing in the origin of Hippocampe', async () => {
     const agent = await connect(`${base}/mcp`, bearer(writer))
     await agent.call('write', { type: 'note', title: 'Saved page' })
     const page = Buffer.from('<!doctype html><title>Saved</title><script>1</script>').toString(
@@ -1069,24 +1075,24 @@ describe('the server knows which instance it is', () => {
       started.on('exit', (code) => resolve({ code, stderr }))
     })
 
-  test('without GRENIER_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
+  test('without HIPPOCAMPE_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
     const missing = await startAndExit({})
     expect(missing.code).toBe(1)
     expect(missing.stderr.trim()).toBe(
-      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
+      'The environment variable HIPPOCAMPE_INSTANCE is missing: set it to `production`, `development` or `local`.',
     )
-    const unknown = await startAndExit({ GRENIER_INSTANCE: 'Production' })
+    const unknown = await startAndExit({ HIPPOCAMPE_INSTANCE: 'Production' })
     expect(unknown.code).toBe(1)
     expect(unknown.stderr.trim()).toBe(
-      'GRENIER_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
+      'HIPPOCAMPE_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
     )
   })
 
-  test('over MCP, the development instance announces itself as grenier-dev with its version', async () => {
+  test('over MCP, the development instance announces itself as hippocampe-dev with its version', async () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
-    expect(client.serverInfo).toEqual({ name: 'grenier-dev', version: '1.2.3-test' })
+    expect(client.serverInfo).toEqual({ name: 'hippocampe-dev', version: '1.2.3-test' })
     expect(
-      client.instructions?.startsWith('This is the shared DEVELOPMENT instance of Grenier'),
+      client.instructions?.startsWith('This is the shared DEVELOPMENT instance of Hippocampe'),
     ).toBe(true)
   })
 })

@@ -1,9 +1,9 @@
 {
-  "name": "@netsirk/grenier-linux-x64",
+  "name": "@netsirk/hippocampe-linux-x64",
   "version": "0.0.0",
-  "description": "The executable of Grenier for Linux x64, with its migrations and its PostgreSQL.",
+  "description": "The executable of Hippocampe for Linux x64, with its migrations and its PostgreSQL.",
   "license": "AGPL-3.0-only",
-  "repository": "github:KristenJestin/grenier",
+  "repository": "github:KristenJestin/hippocampe",
   "files": [
     "bin"
   ],

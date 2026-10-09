@@ -2,7 +2,7 @@
 //! file holding the key. The key itself is never in the configuration.
 //!
 //! ```json
-//! { "server": "http://127.0.0.1:3000", "key_file": "~/.config/grenier/key" }
+//! { "server": "http://127.0.0.1:3000", "key_file": "~/.config/hippocampe/key" }
 //! ```
 //!
 //! The viewer keeps its preferences there too, beside them: `sidebar_width` and `theme`
@@ -16,7 +16,7 @@ use crate::client::{Client, Key};
 use ui::text as words;
 
 /// The environment variable that names another configuration file.
-pub const CONFIG_VARIABLE: &str = "GRENIER_DESKTOP_CONFIG";
+pub const CONFIG_VARIABLE: &str = "HIPPOCAMPE_DESKTOP_CONFIG";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,12 +79,47 @@ fn remember_in(path: &Path, name: &str, value: serde_json::Value) {
     }
 }
 
-/// The configuration file: the one `GRENIER_DESKTOP_CONFIG` names, else `grenier/desktop.json`
+/// The configuration file: the one `HIPPOCAMPE_DESKTOP_CONFIG` names, else `hippocampe/desktop.json`
 /// in the system's configuration folder.
 pub fn path() -> Option<PathBuf> {
     std::env::var_os(CONFIG_VARIABLE)
         .map(PathBuf::from)
-        .or_else(|| dirs::config_dir().map(|folder| folder.join("grenier").join("desktop.json")))
+        .or_else(|| dirs::config_dir().map(|folder| folder.join("hippocampe").join("desktop.json")))
+}
+
+/// Moves the configuration folder the viewer had while Hippocampe was named Grenier to the one it
+/// has now, the first time the viewer starts after the rename: the folder as it is (the key stays
+/// beside the configuration), and the key file the configuration names follows it. Nothing when
+/// `HIPPOCAMPE_DESKTOP_CONFIG` names the file, or when there is no old folder.
+pub fn move_legacy_configuration() {
+    if std::env::var_os(CONFIG_VARIABLE).is_none()
+        && let Some(folder) = dirs::config_dir()
+    {
+        move_legacy_configuration_in(&folder);
+    }
+}
+
+/// Whether it moved the old folder of `config_dir`. Two folders, the old and the new, are never
+/// merged: the new one is read, the old one is left to its owner.
+fn move_legacy_configuration_in(config_dir: &Path) -> bool {
+    let (old, new) = (config_dir.join("grenier"), config_dir.join("hippocampe"));
+    if !old.is_dir() || new.exists() || std::fs::rename(&old, &new).is_err() {
+        return false;
+    }
+    let file = new.join("desktop.json");
+    if let Ok(text) = std::fs::read_to_string(&file) {
+        // The key file as the configuration writes it, from the home folder or in full.
+        let moved = text
+            .replace("~/.config/grenier/", "~/.config/hippocampe/")
+            .replace(
+                &format!("{}/", old.display()),
+                &format!("{}/", new.display()),
+            );
+        if moved != text {
+            let _ = std::fs::write(&file, moved);
+        }
+    }
+    true
 }
 
 /// The client the configuration describes, or a sentence that says what to fix.
@@ -114,11 +149,13 @@ fn client_from(path: &Path, home: Option<&Path>) -> Result<Client, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Preferences, client_from, preferences_from, remember_in};
+    use super::{
+        Preferences, client_from, move_legacy_configuration_in, preferences_from, remember_in,
+    };
 
     fn folder(name: &str) -> std::path::PathBuf {
         let folder =
-            std::env::temp_dir().join(format!("grenier-config-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("hippocampe-config-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&folder).expect("a scratch folder");
         folder
     }
@@ -195,5 +232,54 @@ mod tests {
             before
         );
         std::fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn a_configuration_folder_of_the_old_name_is_moved_with_its_key_on_the_first_start() {
+        let config_dir = folder("legacy");
+        let old = config_dir.join("grenier");
+        std::fs::create_dir_all(&old).expect("the old folder");
+        std::fs::write(old.join("key"), "secret-of-test\n").expect("the key is written");
+        std::fs::write(
+            old.join("desktop.json"),
+            r#"{ "server": "http://127.0.0.1:3000", "key_file": "~/.config/grenier/key", "theme": "dark" }"#,
+        )
+        .expect("the configuration is written");
+        assert!(move_legacy_configuration_in(&config_dir));
+        let new = config_dir.join("hippocampe");
+        assert!(!old.exists());
+        assert_eq!(
+            std::fs::read_to_string(new.join("key")).expect("the key moved"),
+            "secret-of-test\n"
+        );
+        let moved = std::fs::read_to_string(new.join("desktop.json")).expect("the file moved");
+        assert!(moved.contains("\"key_file\": \"~/.config/hippocampe/key\""));
+        assert!(moved.contains("\"theme\": \"dark\""));
+        // Started again: nothing to move.
+        assert!(!move_legacy_configuration_in(&config_dir));
+        assert_eq!(
+            std::fs::read_to_string(new.join("desktop.json")).expect("still there"),
+            moved
+        );
+        std::fs::remove_dir_all(config_dir).ok();
+    }
+
+    #[test]
+    fn two_configuration_folders_are_never_merged() {
+        let config_dir = folder("both");
+        for name in ["grenier", "hippocampe"] {
+            std::fs::create_dir_all(config_dir.join(name)).expect("a folder");
+            std::fs::write(config_dir.join(name).join("desktop.json"), name).expect("a file");
+        }
+        assert!(!move_legacy_configuration_in(&config_dir));
+        assert_eq!(
+            std::fs::read_to_string(config_dir.join("grenier/desktop.json")).expect("kept"),
+            "grenier"
+        );
+        assert_eq!(
+            std::fs::read_to_string(config_dir.join("hippocampe/desktop.json")).expect("kept"),
+            "hippocampe"
+        );
+        std::fs::remove_dir_all(config_dir).ok();
     }
 }

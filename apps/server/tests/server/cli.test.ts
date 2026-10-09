@@ -233,7 +233,7 @@ describe('the owner sees what is supposed, and confirms it, from the command lin
 })
 
 describe('a folder dropped into the inbox', () => {
-  const folder = mkdtempSync(join(tmpdir(), 'grenier-drop-'))
+  const folder = mkdtempSync(join(tmpdir(), 'hippocampe-drop-'))
   afterAll(() => rmSync(folder, { recursive: true, force: true }))
 
   beforeAll(() => {
@@ -414,7 +414,7 @@ describe('the owner reads the findings of diagnostics from the command line', ()
 
   test('findings:export writes every finding as Markdown, one section each with its occurrences', () => {
     const exported = cli('findings:export')
-    expect(exported.startsWith('# Findings of Grenier')).toBe(true)
+    expect(exported.startsWith('# Findings of Hippocampe')).toBe(true)
     expect(exported.match(/^## /gm)).toHaveLength(2)
     expect(exported.match(/^### Occurrence/gm)).toHaveLength(3)
     expect(exported).toContain('## 2. Briefing is slow')
@@ -434,7 +434,7 @@ describe('the lead agent merges two findings of one problem', () => {
 })
 
 describe('two drops of one folder at the same moment', () => {
-  const folder = mkdtempSync(join(tmpdir(), 'grenier-twice-'))
+  const folder = mkdtempSync(join(tmpdir(), 'hippocampe-twice-'))
   afterAll(() => rmSync(folder, { recursive: true, force: true }))
 
   test('add each file once', async () => {

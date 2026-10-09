@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * The bench of Grenier's MCP tools: `bun run bench` (see `bench/README.md`). Runs an agent on
- * invented tasks against a Grenier of its own and writes a table of what it cost.
+ * The bench of Hippocampe's MCP tools: `bun run bench` (see `bench/README.md`). Runs an agent on
+ * invented tasks against a Hippocampe of its own and writes a table of what it cost.
  */
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,7 +16,7 @@ const USAGE = `Usage: bun run bench [options]
   --held-out <mode>     include (default), exclude or only: the held-out tasks
   --model <name>        The model of the agent (default: sonnet)
   --repeat <n>          Runs per task (default: 1)
-  --out <file>          Markdown table (default: under ${tmpdir()}/grenier-bench/); the raw runs go beside it as .json
+  --out <file>          Markdown table (default: under ${tmpdir()}/hippocampe-bench/); the raw runs go beside it as .json
   --database-url <url>  A PostgreSQL server to create the bench databases on
                         (default: DATABASE_URL, else the local one of docker-compose.yml)
   --max-cost <usd>      The most one run may cost (default: 2)
@@ -24,7 +24,7 @@ const USAGE = `Usage: bun run bench [options]
   --list                List the task ids and exit
 `
 
-const LOCAL_POSTGRES = 'postgres://grenier:grenier@127.0.0.1:55432/grenier'
+const LOCAL_POSTGRES = 'postgres://hippocampe:hippocampe@127.0.0.1:55432/hippocampe'
 
 const { values } = parseArgs({
   options: {
@@ -74,7 +74,7 @@ const repeat = Number(values.repeat)
 if (!Number.isInteger(repeat) || repeat < 1) refuse('--repeat is a whole number, at least 1.')
 const model = values.model
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-const out = values.out ?? join(tmpdir(), 'grenier-bench', `${stamp}-${model}.md`)
+const out = values.out ?? join(tmpdir(), 'hippocampe-bench', `${stamp}-${model}.md`)
 
 process.env['DATABASE_URL'] =
   values['database-url'] ?? process.env['DATABASE_URL'] ?? LOCAL_POSTGRES

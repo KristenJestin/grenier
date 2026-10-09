@@ -15,7 +15,7 @@ import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
 import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts";
 
 /**
- * Vendored from dmmulroy/anti-slop (MIT, see LICENSE), at the rules Grenier keeps: the ones
+ * Vendored from dmmulroy/anti-slop (MIT, see LICENSE), at the rules Hippocampe keeps: the ones
  * that reject a type assertion without evidence, an `unknown` or `object` at a boundary that
  * has a schema, a `typeof` where a parser belongs, a mocked module where a port belongs.
  * Left out on purpose: no-array-filter-map, no-shape-in-symbol-names, require-readable-spacing,

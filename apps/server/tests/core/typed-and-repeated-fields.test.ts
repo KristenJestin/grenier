@@ -1,5 +1,5 @@
-import { HIDDEN } from '@grenier/api/model'
-import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
+import type { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'

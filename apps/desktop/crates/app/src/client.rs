@@ -1,4 +1,4 @@
-//! The read API of a Grenier server, as the viewer uses it: each call gives the data, or the
+//! The read API of a Hippocampe server, as the viewer uses it: each call gives the data, or the
 //! problem in the terms the screens show. Calls block: run them on the background executor.
 
 use std::fmt;

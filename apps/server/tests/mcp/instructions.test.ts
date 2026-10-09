@@ -79,7 +79,9 @@ describe('the instructions start with what the instance is', () => {
 
   test('the development instance says it is shared, holds test data only, and when to use it', () => {
     const instructions = instructionsFor(types, development)
-    expect(instructions.startsWith('This is the shared DEVELOPMENT instance of Grenier')).toBe(true)
+    expect(instructions.startsWith('This is the shared DEVELOPMENT instance of Hippocampe')).toBe(
+      true,
+    )
     const [first = ''] = instructions.split('\n\n')
     expect(first).toContain('on the server')
     expect(first).toContain('test data only')
@@ -91,7 +93,7 @@ describe('the instructions start with what the instance is', () => {
 
   test('the production instance says it is real, and sends tests to the development instance', () => {
     const instructions = instructionsFor(types, production)
-    expect(instructions.startsWith("This is the user's REAL instance of Grenier")).toBe(true)
+    expect(instructions.startsWith("This is the user's REAL instance of Hippocampe")).toBe(true)
     const [first = ''] = instructions.split('\n\n')
     expect(first).toContain('Never write test, sample or invented data here')
     expect(first).toContain('use the development instance instead')
@@ -99,7 +101,7 @@ describe('the instructions start with what the instance is', () => {
 
   test('a local instance says it runs on this machine and holds throwaway data', () => {
     const instructions = instructionsFor(types, { name: 'local', diagnostics: false })
-    expect(instructions.startsWith('This is a LOCAL instance of Grenier')).toBe(true)
+    expect(instructions.startsWith('This is a LOCAL instance of Hippocampe')).toBe(true)
     const [first = ''] = instructions.split('\n\n')
     expect(first).toContain('running on this machine')
     expect(first).toContain('throwaway data')
@@ -152,7 +154,7 @@ describe('the instructions put what matters most first', () => {
   test('without any type, the instructions say so and what follows starts on its own line', () => {
     const told = instructionsFor([], { name: 'development', diagnostics: true })
     expect(told).toContain(
-      'There is no type yet.\n\nWhen the user mentions something Grenier may hold',
+      'There is no type yet.\n\nWhen the user mentions something Hippocampe may hold',
     )
     expect(told).toContain('as far as they help.\n\nDiagnostics are on')
   })
@@ -193,14 +195,14 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
     const at = paragraphs.findIndex((paragraph) => paragraph.startsWith('Diagnostics are on'))
     expect(first).toContain('REAL instance')
     expect(paragraphs[at - 2]).toContain('`alpha`')
-    for (const word of ['grenier_report', 'grenier_reports', 'slug', 'unless it blocks the work'])
+    for (const word of ['report', 'reports', 'slug', 'unless it blocks the work'])
       expect(paragraphs[at]).toContain(word)
   })
 
   test('without diagnostics, the instructions say nothing of them', () => {
     const instructions = instructionsFor(types, development)
     expect(instructions).not.toContain('Diagnostics')
-    expect(instructions).not.toContain('grenier_report')
+    expect(instructions).not.toContain('report')
   })
 })
 
@@ -227,7 +229,7 @@ describe('agents that may write learn how to write an entry', () => {
     expect(WRITING_STANDARD).toContain('Search before creating, and update the existing entry')
   })
 
-  test('it says that unlinked mentions are for the agent to judge, not links Grenier made', () => {
+  test('it says that unlinked mentions are for the agent to judge, not links Hippocampe made', () => {
     expect(WRITING_STANDARD).toContain('`unlinked`')
     expect(WRITING_STANDARD).toContain('read them and link those that are really meant')
   })
@@ -360,7 +362,7 @@ describe('long rules give a part of their first paragraph when it alone is too l
     const [, opening = ''] = told.split(
       'read them whole by calling `types` with `rules: true`, and follow them in every session.\n\n',
     )
-    const cut = opening.split('\n\nGrenier keeps entries')[0] ?? ''
+    const cut = opening.split('\n\nHippocampe keeps entries')[0] ?? ''
     expect(cut.length).toBeGreaterThan(3000)
     expect(cut.length).toBeLessThanOrEqual(4000)
     expect(cut.endsWith('…')).toBe(true)

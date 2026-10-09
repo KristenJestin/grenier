@@ -1,6 +1,6 @@
-# The MCP tools of Grenier
+# The MCP tools of Hippocampe
 
-The Grenier MCP server, over stdio or HTTP: the operations of the core as MCP tools (the table
+The Hippocampe MCP server, over stdio or HTTP: the operations of the core as MCP tools (the table
 below). Each tool declares its input with `toToolInputSchema`, decodes it with the same Effect
 schema, and answers a refusal with the sentences of the core.
 
@@ -11,7 +11,7 @@ It is built on Effect's own MCP server (`McpServer.layerStdio` and `McpServer.la
 
 A key lists only the tools its rights allow, in the order below (the same on every call); a tool it
 does not list is refused as unknown. The tools of diagnostics exist only with
-`GRENIER_DIAGNOSTICS=on`, and come last. Every tool says in its annotations whether it only reads,
+`HIPPOCAMPE_DIAGNOSTICS=on`, and come last. Every tool says in its annotations whether it only reads,
 whether it may overwrite, and whether repeating it is harmless; all are closed-world but
 `attach_media`, which may fetch a `url`. Every parameter is described, and a key a tool does not
 name is refused.
@@ -31,8 +31,8 @@ name is refused.
 | `inbox_list` | read | Lists the items of the inbox, a page at a time; with an `id`, reads one item without taking it, and with `offset` the rest of its text. |
 | `inbox_take` | write | Takes an item to process (a file that is an image comes with its picture). |
 | `inbox_finish` | write | Closes an item taken: `done` with the entries it produced, `dismissed` with a reason, or `released` to wait again. |
-| `grenier_report` | write | Reports a problem with Grenier itself (diagnostics). |
-| `grenier_reports` | read | Lists the findings recorded so far (diagnostics). |
+| `report` | write | Reports a problem with Hippocampe itself (diagnostics). |
+| `reports` | read | Lists the findings recorded so far (diagnostics). |
 
 A key with `read` lists 5 tools, one with `read,write` 13, and 15 with diagnostics. The owner confirms
 a proposal of a type change from the command line (`proposal:list`, `proposal:confirm`), not through
@@ -79,18 +79,18 @@ rules and runs no AI.
 With the local PostgreSQL up (`docker compose up -d`) and `.env` in place:
 
 ```
-GRENIER_ACTOR=agent-laptop GRENIER_INSTANCE=local bun --env-file=.env apps/server/src/mcp/main.ts
+HIPPOCAMPE_ACTOR=agent-laptop HIPPOCAMPE_INSTANCE=local bun --env-file=.env apps/server/src/mcp/main.ts
 ```
 
-- `GRENIER_ACTOR` (required) names the agent every write is recorded under; the server refuses
+- `HIPPOCAMPE_ACTOR` (required) names the agent every write is recorded under; the server refuses
   to start without it.
-- `GRENIER_INSTANCE` (required): `local`, `development` or `production`. The server announces
-  itself as `grenier-local`, `grenier-dev` or `grenier`, and its instructions start by saying
+- `HIPPOCAMPE_INSTANCE` (required): `local`, `development` or `production`. The server announces
+  itself as `hippocampe-local`, `hippocampe-dev` or `hippocampe`, and its instructions start by saying
   what the instance holds. Then how to choose a type, and the types; then the key the session
   works as and the 10 entries changed most recently that it may see (its working memory, built
   for each session), with how to find what the owner refers to without naming it, then how to recall (for a key that
   reads).
-  `GRENIER_DIAGNOSTICS=on` adds the report tools (see `docs/model.md`) and a paragraph on
+  `HIPPOCAMPE_DIAGNOSTICS=on` adds the report tools (see `docs/model.md`) and a paragraph on
   reporting; then the rules the owner set (`rules:set`; past 4,000 characters, only their opening,
   and `types` with `rules: true` gives them whole); and, for a key that may write, how to
   write an entry and how an inbox item becomes entries.
@@ -106,10 +106,10 @@ and a script runner may write its own lines there.
 Claude Code, from the root of the clone:
 
 ```
-claude mcp add grenier-local \
-  --env GRENIER_ACTOR=agent-laptop \
-  --env GRENIER_INSTANCE=local \
-  --env DATABASE_URL=postgres://grenier:grenier@127.0.0.1:55432/grenier \
+claude mcp add hippocampe-local \
+  --env HIPPOCAMPE_ACTOR=agent-laptop \
+  --env HIPPOCAMPE_INSTANCE=local \
+  --env DATABASE_URL=postgres://hippocampe:hippocampe@127.0.0.1:55432/hippocampe \
   -- bun "$PWD/apps/server/src/mcp/main.ts"
 ```
 
@@ -118,13 +118,13 @@ Any client that reads a JSON configuration:
 ```json
 {
   "mcpServers": {
-    "grenier-local": {
+    "hippocampe-local": {
       "command": "bun",
-      "args": ["/absolute/path/to/grenier/apps/server/src/mcp/main.ts"],
+      "args": ["/absolute/path/to/hippocampe/apps/server/src/mcp/main.ts"],
       "env": {
-        "GRENIER_ACTOR": "agent-laptop",
-        "GRENIER_INSTANCE": "local",
-        "DATABASE_URL": "postgres://grenier:grenier@127.0.0.1:55432/grenier"
+        "HIPPOCAMPE_ACTOR": "agent-laptop",
+        "HIPPOCAMPE_INSTANCE": "local",
+        "DATABASE_URL": "postgres://hippocampe:hippocampe@127.0.0.1:55432/hippocampe"
       }
     }
   }

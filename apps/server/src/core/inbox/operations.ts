@@ -175,7 +175,7 @@ export const addFileOnce = Effect.fn('addFileOnce')(function* (
   const client = yield* SqlClient.SqlClient
   return yield* client.withTransaction(
     Effect.gen(function* () {
-      yield* client`SELECT pg_advisory_xact_lock(hashtext(${`grenier.inbox ${input.origin} ${input.name}`}))`
+      yield* client`SELECT pg_advisory_xact_lock(hashtext(${`hippocampe.inbox ${input.origin} ${input.name}`}))`
       if (yield* fileInInbox({ name: input.name, origin: input.origin, bytes })) return null
       return yield* addToInbox(input)
     }),

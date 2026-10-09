@@ -190,7 +190,7 @@ describe('a link fulfills names a period of the form its date comes back by', ()
 
 describe('references and renames at the same moment', () => {
   const holdingSlug = (slug: string) =>
-    execute(`SELECT pg_advisory_xact_lock(hashtext('grenier.reference ' || $1))`, slug)
+    execute(`SELECT pg_advisory_xact_lock(hashtext('hippocampe.reference ' || $1))`, slug)
 
   test('an entry created while another one cites it is linked, never left pending', async () => {
     const ended = await run(
@@ -315,7 +315,7 @@ describe('a batch takes every slug lock before any row lock', () => {
   // The new slug held: the single write waits for it before any row, the batch, without the
   // fix, only after the row of the entry it edits.
   const holdingSlug = execute(
-    `SELECT pg_advisory_xact_lock(hashtext('grenier.reference wisteria'))`,
+    `SELECT pg_advisory_xact_lock(hashtext('hippocampe.reference wisteria'))`,
   )
 
   test('a batch that edits an entry and creates one, while a write of that entry cites the new one', async () => {
@@ -450,7 +450,7 @@ describe('a body sent as it is changes nothing it names', () => {
         // Another transaction holds the slug the body cites, until the batch is done.
         const holder = yield* Effect.forkChild(
           sql.withTransaction(
-            execute(`SELECT pg_advisory_xact_lock(hashtext('grenier.reference sundial'))`).pipe(
+            execute(`SELECT pg_advisory_xact_lock(hashtext('hippocampe.reference sundial'))`).pipe(
               Effect.andThen(Deferred.succeed(held, undefined)),
               Effect.andThen(Deferred.await(release)),
             ),

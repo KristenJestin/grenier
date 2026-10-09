@@ -33,7 +33,7 @@ const listeningOf = async (env: Readonly<Record<string, string>>) => {
       DATABASE_URL: url,
       PORT: String(port),
       BETTER_AUTH_SECRET: 'a-secret-for-the-tests-only-0123456789abcdef',
-      GRENIER_INSTANCE: 'local',
+      HIPPOCAMPE_INSTANCE: 'local',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -61,13 +61,13 @@ describe('the server listens on localhost by default', () => {
     expect(said).toBe(`http://127.0.0.1:${port}`)
   }, 30_000)
 
-  test('GRENIER_HOST opens it to the network when asked', async () => {
-    const { port, said } = await listeningOf({ GRENIER_HOST: '0.0.0.0' })
+  test('HIPPOCAMPE_HOST opens it to the network when asked', async () => {
+    const { port, said } = await listeningOf({ HIPPOCAMPE_HOST: '0.0.0.0' })
     expect(said).toBe(`http://0.0.0.0:${port}`)
   }, 30_000)
 
-  test('an empty GRENIER_HOST, or the HOST some shells set to the machine name, changes nothing', async () => {
-    const { port, said } = await listeningOf({ GRENIER_HOST: '', HOST: 'workstation' })
+  test('an empty HIPPOCAMPE_HOST, or the HOST some shells set to the machine name, changes nothing', async () => {
+    const { port, said } = await listeningOf({ HIPPOCAMPE_HOST: '', HOST: 'workstation' })
     expect(said).toBe(`http://127.0.0.1:${port}`)
   }, 30_000)
 })

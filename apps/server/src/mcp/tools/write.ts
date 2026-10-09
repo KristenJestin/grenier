@@ -1,4 +1,4 @@
-import { WriteEntryInput } from '@grenier/api/model'
+import { WriteEntryInput } from '@hippocampe/api/model'
 import { archiveEntry, identityOf, writeEntries, writeEntry } from '../../core/entries/index.ts'
 import { Refused } from '../../core/refused.ts'
 import { referencesOf, unlinkedMentions } from '../../core/links/index.ts'

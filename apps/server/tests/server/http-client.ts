@@ -70,7 +70,7 @@ export async function connect(
   const { result: initialized } = await request('initialize', {
     protocolVersion: protocol,
     capabilities: {},
-    clientInfo: { name: 'grenier-tests', version: '0.0.0' },
+    clientInfo: { name: 'hippocampe-tests', version: '0.0.0' },
   })
   await post({ jsonrpc: '2.0', method: 'notifications/initialized' })
   return {

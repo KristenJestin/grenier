@@ -26,7 +26,9 @@ describe('zod is forbidden', () => {
           `bunx oxlint -c .oxlintrc.json --format json ${folder}/deliberate-zod-import.ts`,
           { cwd: repository, encoding: 'utf8', shell: true },
         )
-        expect(report.stdout).toContain('"help": "No zod in Grenier: validate with Effect `Schema`')
+        expect(report.stdout).toContain(
+          '"help": "No zod in Hippocampe: validate with Effect `Schema`',
+        )
       } finally {
         rmSync(path, { force: true })
       }

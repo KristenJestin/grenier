@@ -22,7 +22,7 @@ import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
-const directory = mkdtempSync(join(tmpdir(), 'grenier-inbox-'))
+const directory = mkdtempSync(join(tmpdir(), 'hippocampe-inbox-'))
 
 const as =
   (actor: string) =>

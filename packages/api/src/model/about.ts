@@ -1,12 +1,12 @@
 import { Schema } from 'effect'
 
 /**
- * What a Grenier server is: the owner's real data (`production`), the shared test server
+ * What a Hippocampe server is: the owner's real data (`production`), the shared test server
  * (`development`), or a stack on a developer's machine (`local`).
  */
 export const INSTANCES = ['production', 'development', 'local'] as const
 
-/** Which Grenier a client talks to: its instance, the label shown for it, its version and commit. */
+/** Which Hippocampe a client talks to: its instance, the label shown for it, its version and commit. */
 export const About = Schema.Struct({
   instance: Schema.Literals(INSTANCES).annotate({
     description:

@@ -1,11 +1,11 @@
 # The nightly Markdown export
 
-Nothing depends on Grenier alone: every night, the server writes everything it holds as plain
+Nothing depends on Hippocampe alone: every night, the server writes everything it holds as plain
 Markdown into a git repository, commits what changed, and pushes it. A backup anyone can read
 without the application, and a history of what changed day by day.
 
 ```
-bun run grenier export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]
+bun run hippo export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]
 ```
 
 ## When it runs
@@ -71,16 +71,18 @@ in a folder that has a remote, and in the folder of the nightly export (`EXPORT_
 holds one kind of export for good (a mark in its `.git`, never committed): the other kind is
 refused there, so a nightly export never commits on top of a sensitive one and pushes it. A folder
 with commits but no mark (an export made before folders were marked) is refused until the owner
-marks it: `echo plain > <folder>/.git/grenier-export` when it holds no sensitive data. The folder
+marks it: `echo plain > <folder>/.git/hippocampe-export` when it holds no sensitive data. The folder
 of the nightly export is recognised through any link to it. A field
 made sensitive later stays as it was in the commits already made, and pushed: rewriting that
-history is the owner's call, outside Grenier.
+history is the owner's call, outside Hippocampe. A folder marked under the name the mark had
+before Hippocampe was renamed (`.git/grenier-export`) keeps its mark: it is renamed on the next
+export, and the history and the remote of the folder stay as they are.
 
 ## The git side
 
 The folder is the export's: a file it did not write is removed. A folder that holds files but is
-not a git repository is refused. A commit is made only when something changed, by `Grenier
-<grenier@localhost>`, with a summary: `Export of 2026-10-07: 3 created, 2 updated, 1 archived`
+not a git repository is refused. A commit is made only when something changed, by `Hippocampe
+<hippocampe@localhost>`, with a summary: `Export of 2026-10-07: 3 created, 2 updated, 1 archived`
 (then, when there are some, the entries no longer exported and the types changed), counted
 against the last commit, whatever a run stopped in the middle left in the folder. The push never
 forces; when it fails, the commit stays and the next export pushes it with its own, and the

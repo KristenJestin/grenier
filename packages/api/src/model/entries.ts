@@ -14,7 +14,7 @@ export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
 /**
  * What is kept and read: the three a writer may say, and `unstated` for what was written before
- * Grenier asked every writer to say it. No new write says `unstated`.
+ * Hippocampe asked every writer to say it. No new write says `unstated`.
  */
 export const STORED_PROVENANCES = [...PROVENANCES, 'unstated'] as const
 
@@ -32,7 +32,7 @@ const Elsewhere = [
   }).annotate({ identifier: 'SourceUrl' }),
   Schema.Struct({
     identifier: Schema.String.annotate({
-      description: 'An identifier outside Grenier, such as a ticket number or an ISBN.',
+      description: 'An identifier outside Hippocampe, such as a ticket number or an ISBN.',
     }),
     label: Schema.optionalKey(Schema.String).annotate({
       description: 'What the identifier names, such as `ticket`.',

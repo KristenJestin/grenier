@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Grenier
-Comment=Read what Grenier keeps
-Exec=grenier-desktop
-Icon=grenier
-Categories=Office;
-StartupWMClass=grenier

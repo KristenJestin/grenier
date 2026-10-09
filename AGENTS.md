@@ -1,4 +1,4 @@
-# AGENTS.md — Grenier
+# AGENTS.md — Hippocampe
 
 Instructions for any coding agent working in this repository. `CLAUDE.md` is a symbolic link
 to this file: there is one contract, not two that drift apart. This file holds what applies
@@ -10,10 +10,10 @@ this one:
 
 ## Project overview
 
-Grenier is a self-hosted personal knowledge system: one person's belongings, contracts, people,
+Hippocampe is a self-hosted personal knowledge system: one person's belongings, contracts, people,
 projects, notes, recipes, bookmarks and decisions, kept in PostgreSQL, written almost entirely by
 AI agents through an MCP server, and read by that person in a small web interface. A Markdown
-export runs every night into a git repository, so nothing depends on Grenier alone.
+export runs every night into a git repository, so nothing depends on Hippocampe alone.
 
 Three rules shape everything:
 
@@ -37,12 +37,12 @@ pull requests. The interfaces are in English; the content of an instance is in w
 it was written.
 
 ```
-packages/api      @grenier/api     The contract between the server and its clients: the HTTP
-                                   API (`@grenier/api/http`, an Effect `HttpApi`), the schemas
-                                   of what they exchange (`@grenier/api/model`), and their
-                                   conventions (`@grenier/api/schema`). No database, no Node
+packages/api      @hippocampe/api     The contract between the server and its clients: the HTTP
+                                   API (`@hippocampe/api/http`, an Effect `HttpApi`), the schemas
+                                   of what they exchange (`@hippocampe/api/model`), and their
+                                   conventions (`@hippocampe/api/schema`). No database, no Node
                                    or Bun API: a browser application may import it.
-apps/server       @grenier/server  Everything else, one program and its folders:
+apps/server       @hippocampe/server  Everything else, one program and its folders:
                                    `src/core`     the model, the database (Drizzle on Effect
                                                   SQL, migrations), validation, search, the event
                                                   log, authentication: the only folder that
@@ -50,11 +50,11 @@ apps/server       @grenier/server  Everything else, one program and its folders:
                                    `src/mcp`      the MCP tools, over stdio and over HTTP;
                                    the HTTP server, Effect's on Bun (no web framework), and
                                    the command lines.
-apps/desktop      @grenier/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
+apps/desktop      @hippocampe/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
                                    `crates/api` (types generated from the OpenAPI document),
                                    `crates/ui` (screens), `crates/story` (their gallery),
                                    `crates/app` (the application). See its `AGENTS.md`.
-tools/            @grenier/tools   commit-message, branch-guard, install-hooks, boundaries, and
+tools/            @hippocampe/tools   commit-message, branch-guard, install-hooks, boundaries, and
                                    the vendored lint rules. TypeScript run by Bun, tested by
                                    Vitest.
 ```
@@ -95,16 +95,16 @@ The server, in development, on `PORT` (3000 by default): `/mcp` (MCP, protocol 2
 the older revisions), `/health`, `/media/<hash>`, and the read API (`GET /api/about`,
 `/api/types`, `/api/entries/{slug or id}`, `/api/search?q=…`), its OpenAPI document at
 `/api/openapi.json` and its documentation page at `/api/docs`. It needs `BETTER_AUTH_SECRET` and
-`GRENIER_INSTANCE` in `.env`; every request to
+`HIPPOCAMPE_INSTANCE` in `.env`; every request to
 `/mcp` and to the API carries a key, whose name is the actor of its writes (the API needs the
 right `read`). A refused key is answered 401 with its reason, in the body and in
-`WWW-Authenticate`; Grenier offers no OAuth. From `apps/server`:
+`WWW-Authenticate`; Hippocampe offers no OAuth. From `apps/server`:
 
 ```
-bun run grenier owner:create --email owner@example.org
-bun run grenier key:create --name agent-laptop --rights read,write
+bun run hippo owner:create --email owner@example.org
+bun run hippo key:create --name agent-laptop --rights read,write
 bun run dev                                       # restarts on change; or: bun run start
-claude mcp add --transport http grenier http://localhost:3000/mcp \
+claude mcp add --transport http hippocampe http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```
 
@@ -116,7 +116,7 @@ more); `--unstated` lists instead what was written before writers were asked. `s
 <entry> <field|body|summary> --as <person>` and `supposed:confirm <entry> <target> --link <relation>
 [--period <p>] [--field <f>] --as <person>` make a supposition known, as the owner (no key with `owner` is ever given to an MCP
 client): it becomes `extracted`, with the source "said by" the entry that stands for you, dated
-today, in one event. In the container: `docker compose exec grenier bun src/cli.ts supposed`.
+today, in one event. In the container: `docker compose exec hippocampe bun src/cli.ts supposed`.
 `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
 into the inbox, one item per file, sub-folders included (hidden files and links are skipped), for
 agents to process (`inbox_take`, then `inbox_finish`); `--dry-run` says what it would add, and a file
@@ -134,50 +134,57 @@ them); only the owner sets them.
 everything as Markdown into a git repository and commits what changed; the server runs it every
 night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
 entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`).
-The command line is built with `effect/cli` (`bun run grenier --help`); `grenier serve` runs the
-server, and `grenier service install|uninstall|start|stop|status|logs` and `grenier backup` run
-Grenier as a systemd user service with its own PostgreSQL (see `docs/install.md`, and
+The command line is built with `effect/cli` (`bun run hippo --help`); `hippo serve` runs the
+server, and `hippo service install|uninstall|start|stop|status|logs` and `hippo backup` run
+Hippocampe as a systemd user service with its own PostgreSQL (see `docs/install.md`, and
 `scripts/pack.ts` for the npm packages).
 
-Grenier with Docker, server and database in one command (the image is built from
+Hippocampe with Docker, server and database in one command (the image is built from
 `apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database
 before it listens, and keeps data in the `postgres` and `media` volumes):
 
 ```
 cp .env.production.example .env.production        # then set BETTER_AUTH_SECRET in it
-docker compose up -d                              # a local instance; GRENIER_INSTANCE=production
+docker compose up -d                              # a local instance; HIPPOCAMPE_INSTANCE=production
                                                   # docker compose up -d for the real one
-docker compose exec grenier bun src/cli.ts key:create --name local --rights read,write \
+docker compose exec hippocampe bun src/cli.ts key:create --name local --rights read,write \
   --owner owner@example.org                       # prints the key, once
-claude mcp add --transport http grenier http://localhost:3000/mcp \
+claude mcp add --transport http hippocampe http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```
 
-`GRENIER_PORT` and `POSTGRES_PORT` change the published ports; `GRENIER_BIND=0.0.0.0` publishes
+`HIPPOCAMPE_PORT` and `POSTGRES_PORT` change the published ports; `HIPPOCAMPE_BIND=0.0.0.0` publishes
 the server to the network.
 
-Each Grenier knows which instance it is, from three variables read at start-up by the server and
+Each Hippocampe knows which instance it is, from three variables read at start-up by the server and
 by the stdio MCP server:
 
-- `GRENIER_INSTANCE`, required: `local` (a stack on a developer's machine, throwaway data; the
+- `HIPPOCAMPE_INSTANCE`, required: `local` (a stack on a developer's machine, throwaway data; the
   default of `.env.example` and of `docker-compose.yml`), `development` (the shared test server)
   or `production` (the owner's real data). Missing or unknown, the server refuses to start in one
-  sentence. The MCP server is announced as `grenier-local`, `grenier-dev` or `grenier`, and its
-  instructions start with what the instance holds. `GRENIER_INSTANCE_LABEL`, optional, names it
+  sentence. The MCP server is announced as `hippocampe-local`, `hippocampe-dev` or `hippocampe`, and its
+  instructions start with what the instance holds. `HIPPOCAMPE_INSTANCE_LABEL`, optional, names it
   for display (`GET /api/about`).
-- `GRENIER_DIAGNOSTICS`: `on` or `off` (the default). On, agents also test Grenier and report
-  with `grenier_report`, and unexpected server errors are recorded (see `docs/model.md`).
-- `GRENIER_VERSION` and `GRENIER_COMMIT`, `unknown` when not set; the image takes them as build
-  arguments: `docker build -f apps/server/Dockerfile --build-arg GRENIER_VERSION=1.4.0
-  --build-arg GRENIER_COMMIT=$(git rev-parse --short HEAD) .` (compose passes them from its own
+- `HIPPOCAMPE_DIAGNOSTICS`: `on` or `off` (the default). On, agents also test Hippocampe and report
+  with `report`, and unexpected server errors are recorded (see `docs/model.md`).
+- `HIPPOCAMPE_VERSION` and `HIPPOCAMPE_COMMIT`, `unknown` when not set; the image takes them as build
+  arguments: `docker build -f apps/server/Dockerfile --build-arg HIPPOCAMPE_VERSION=1.4.0
+  --build-arg HIPPOCAMPE_COMMIT=$(git rev-parse --short HEAD) .` (compose passes them from its own
   environment). `/health` answers `{ status, instance, version, commit }`, `GET /api/about` the
   same with the label.
+
+Hippocampe was named Grenier before 1.0. A `GRENIER_*` variable still set is refused by the server,
+the command line and the stdio MCP server, at start-up, in one sentence naming the `HIPPOCAMPE_*`
+variable to use; it is never read silently. `docs/install.md` says how to move an installation made
+under the old name (`hippo service install` does it for the service, and the page gives the steps for
+Docker); the old name is written nowhere else in the repository but in the code and the tests that
+do that moving, in the migrations and in the history.
 
 The server speaks plain HTTP: published on a network, every key crosses it in clear, in the
 `Authorization` header of each request. Reach it from other machines only through an encrypted
 path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
-By default it listens on `127.0.0.1` only; `GRENIER_HOST` changes that (the image sets `GRENIER_HOST=0.0.0.0`
-inside the container, and compose publishes the port on `GRENIER_BIND`).
+By default it listens on `127.0.0.1` only; `HIPPOCAMPE_HOST` changes that (the image sets `HIPPOCAMPE_HOST=0.0.0.0`
+inside the container, and compose publishes the port on `HIPPOCAMPE_BIND`).
 
 The clients never hand-write what they exchange with the server: `bun run generate` writes the
 OpenAPI document of the read API from the schemas (`packages/api/openapi.json`, no server needed),

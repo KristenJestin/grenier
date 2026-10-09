@@ -1,4 +1,4 @@
-import { Link } from '@grenier/api/model'
+import { Link } from '@hippocampe/api/model'
 import { and, asc, eq, ne, notInArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'

@@ -1,4 +1,4 @@
-import { GrenierApi } from '@grenier/api/http'
+import { HippocampeApi } from '@hippocampe/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
 import { Auth, Rights } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'
@@ -33,7 +33,7 @@ const unauthorized = (request: HttpServerRequest.HttpServerRequest, message: str
       status: 401,
       headers: {
         'www-authenticate': [
-          'Bearer realm="grenier"',
+          'Bearer realm="hippocampe"',
           ...(bearerOf(request) === undefined ? [] : ['error="invalid_token"']),
           `error_description="${message}"`,
         ].join(', '),
@@ -181,7 +181,7 @@ const media = HttpRouter.add('GET', '/media/:hash', (request) =>
         'cache-control': 'private, max-age=31536000, immutable',
         etag: `"${hash}"`,
         'x-content-type-options': 'nosniff',
-        // A page kept as HTML is shown as a document, never run in the origin of Grenier; an SVG,
+        // A page kept as HTML is shown as a document, never run in the origin of Hippocampe; an SVG,
         // which may carry script too, loads nothing either but its own styles.
         'content-security-policy':
           found.success.mime === 'image/svg+xml'
@@ -206,11 +206,11 @@ const auth = HttpRouter.add('*', '/api/auth/*', (request) =>
  * `/api/auth`, the read API under `/api` with its OpenAPI document and its documentation page at
  * `/api/docs`. They run on the authentication and the database the server provides once.
  */
-export const GrenierRoutes = Layer.mergeAll(
+export const HippocampeRoutes = Layer.mergeAll(
   health,
   mcp,
   media,
   auth,
   ApiRoutes,
-  HttpApiScalar.layer(GrenierApi, { path: '/api/docs' }),
+  HttpApiScalar.layer(HippocampeApi, { path: '/api/docs' }),
 )

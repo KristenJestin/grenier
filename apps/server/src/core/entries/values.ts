@@ -1,6 +1,6 @@
 import { Schema } from 'effect'
-import { ISO_DURATION, STORED_PROVENANCES } from '@grenier/api/model'
-import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import { ISO_DURATION, STORED_PROVENANCES } from '@hippocampe/api/model'
+import type { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 
 /** Text with what it must be, said both when it is not text and when its content is wrong. */
 const textThat = (expected: string, isValid: (value: string) => boolean) =>

@@ -30,7 +30,7 @@ const Text = (description: string) =>
     Schema.isMaxLength(4000, { expected: 'text of 4000 characters at most' }),
   ).annotate({ description })
 
-/** What an agent reports of a problem with Grenier itself. */
+/** What an agent reports of a problem with Hippocampe itself. */
 export const FindingReport = Schema.Struct({
   title: Schema.String.check(
     Schema.isNonEmpty({ expected: 'text that is not empty' }),
@@ -163,7 +163,7 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
     call === undefined || call.arguments === null ? null : yield* maskedCall(call.arguments)
   return yield* client.withTransaction(
     Effect.gen(function* () {
-      yield* client`SELECT pg_advisory_xact_lock(hashtext('grenier.findings'))`
+      yield* client`SELECT pg_advisory_xact_lock(hashtext('hippocampe.findings'))`
       const candidates = yield* listed(
         db
           .select(FINDING)
@@ -182,7 +182,7 @@ export const reportFinding = Effect.fn('reportFinding')(function* (
             ))[0]
       if (choice.same_as !== undefined && named === undefined)
         return yield* new Refused({
-          message: `There is no open finding ${choice.same_as}: read \`grenier_reports\`.`,
+          message: `There is no open finding ${choice.same_as}: read \`reports\`.`,
         })
       // One problem may be seen as slow by one agent and as a bug by another: a place, not a
       // kind, is what a report joins.
@@ -258,7 +258,7 @@ export const mergeFindings = Effect.fn('mergeFindings')(function* (into: number,
   const db = yield* drizzle
   return yield* client.withTransaction(
     Effect.gen(function* () {
-      yield* client`SELECT pg_advisory_xact_lock(hashtext('grenier.findings'))`
+      yield* client`SELECT pg_advisory_xact_lock(hashtext('hippocampe.findings'))`
       if (into === from)
         return yield* new Refused({ message: `A finding cannot be merged into itself: ${into}.` })
       const [target] = yield* placed(into)

@@ -41,7 +41,7 @@ const Certainty = {
   }),
   unstated: Schema.optionalKey(Schema.Boolean).annotate({
     description:
-      'true: only the entries that hold values written before Grenier asked whether they were known or supposed (`unstated`), listed in `supposed` too; for whoever cleans up the past.',
+      'true: only the entries that hold values written before Hippocampe asked whether they were known or supposed (`unstated`), listed in `supposed` too; for whoever cleans up the past.',
   }),
 }
 

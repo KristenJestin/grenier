@@ -3,10 +3,10 @@ import { Effect, Schema } from 'effect'
 import { RecentCalls } from '../calls.ts'
 import { defineTool } from '../tool.ts'
 
-export const grenierReportTool = defineTool({
-  name: 'grenier_report',
+export const reportTool = defineTool({
+  name: 'report',
   description:
-    'Reports a problem with Grenier itself (diagnostics): a tool that fails or answers badly, an unclear refusal, a missing capability, a wrong state, slowness, or friction with the data model. Read `grenier_reports` first (filtered by `place` and `kind`): the same kind and place with a similar title adds an occurrence to that finding. When findings are open at the same place, of any kind, but none has the same kind and a similar title, nothing is recorded: the answer names them, and you report again with `same_as: <number>` if yours is one of them, or `new: true` if it is another problem. Name entries by slug; never copy the content of an entry or a value. `call` names the tool whose last call in this session the report is about: the server attaches it, its arguments masked.',
+    'Reports a problem with Hippocampe itself (diagnostics): a tool that fails or answers badly, an unclear refusal, a missing capability, a wrong state, slowness, or friction with the data model. Read `reports` first (filtered by `place` and `kind`): the same kind and place with a similar title adds an occurrence to that finding. When findings are open at the same place, of any kind, but none has the same kind and a similar title, nothing is recorded: the answer names them, and you report again with `same_as: <number>` if yours is one of them, or `new: true` if it is another problem. Name entries by slug; never copy the content of an entry or a value. `call` names the tool whose last call in this session the report is about: the server attaches it, its arguments masked.',
   input: Schema.Struct({
     ...FindingReport.fields,
     same_as: Schema.optionalKey(

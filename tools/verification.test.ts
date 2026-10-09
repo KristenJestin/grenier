@@ -31,7 +31,7 @@ describe('Vérification unique', () => {
       })
       const output = `${result.stdout}${result.stderr}`
       expect(result.status).not.toBe(0)
-      expect(output).toContain('@grenier/server')
+      expect(output).toContain('@hippocampe/server')
       expect(output).toContain('deliberate-type-error.ts')
     } finally {
       rmSync(path, { force: true })

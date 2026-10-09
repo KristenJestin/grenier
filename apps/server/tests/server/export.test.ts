@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -27,7 +28,7 @@ import { defineType } from '../../src/core/types/index.ts'
 import { exportOnce } from '../../src/export/nightly.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
-const scratch = mkdtempSync(join(tmpdir(), 'grenier-export-'))
+const scratch = mkdtempSync(join(tmpdir(), 'hippocampe-export-'))
 const media = join(scratch, 'media')
 const database = ManagedRuntime.make(
   Layer.mergeAll(
@@ -238,7 +239,7 @@ describe('the nightly export into a git repository', () => {
       body: 'A dish, with what it takes.\n',
     })
     expect(git(folder, 'log', '--format=%an <%ae>%n%s')).toMatch(
-      /^Grenier <grenier@localhost>\nExport of \d{4}-\d{2}-\d{2}: 5 created, 0 updated, 0 archived, 3 types changed\n$/,
+      /^Hippocampe <hippocampe@localhost>\nExport of \d{4}-\d{2}-\d{2}: 5 created, 0 updated, 0 archived, 3 types changed\n$/,
     )
   })
 
@@ -464,14 +465,38 @@ describe('the export never pushes a sensitive value, and holds everything', () =
     const unmarked = join(scratch, 'unmarked')
     expect(cli('export:markdown', unmarked).status).toBe(0)
     // As an export made before folders said what they hold.
-    rmSync(join(unmarked, '.git', 'grenier-export'))
+    rmSync(join(unmarked, '.git', 'hippocampe-export'))
     const refused = cli('export:markdown', unmarked)
     expect(refused.status).toBe(1)
     expect(refused.stderr).toBe(
-      `The folder ${unmarked} holds an earlier export that does not say whether it has sensitive data: if it has none, mark it with \`echo plain > ${join(unmarked, '.git', 'grenier-export')}\`, then start again.\n`,
+      `The folder ${unmarked} holds an earlier export that does not say whether it has sensitive data: if it has none, mark it with \`echo plain > ${join(unmarked, '.git', 'hippocampe-export')}\`, then start again.\n`,
     )
-    writeFileSync(join(unmarked, '.git', 'grenier-export'), 'plain\n')
+    writeFileSync(join(unmarked, '.git', 'hippocampe-export'), 'plain\n')
     expect(cli('export:markdown', unmarked).status).toBe(0)
+  })
+
+  test('an export folder marked under the old name keeps its mark, its history and its remote', () => {
+    const earlier = join(scratch, 'marked-grenier')
+    expect(cli('export:markdown', earlier).status).toBe(0)
+    git(earlier, 'remote', 'add', 'origin', 'https://example.org/notes.git')
+    // As a folder exported before the rename: its mark under the old name.
+    renameSync(join(earlier, '.git', 'hippocampe-export'), join(earlier, '.git', 'grenier-export'))
+    const before = git(earlier, 'rev-list', '--all').trim().split('\n')
+    const exported = cli('export:markdown', earlier)
+    expect(exported.status).toBe(0)
+    expect(existsSync(join(earlier, '.git', 'grenier-export'))).toBe(false)
+    expect(readFileSync(join(earlier, '.git', 'hippocampe-export'), 'utf8')).toBe('plain\n')
+    expect(git(earlier, 'rev-list', '--all').trim().split('\n')).toEqual(before)
+    expect(git(earlier, 'remote', 'get-url', 'origin')).toBe('https://example.org/notes.git\n')
+  })
+
+  test('a sensitive export marked under the old name stays sensitive', () => {
+    const earlier = join(scratch, 'marked-grenier-sensitive')
+    expect(cli('export:markdown', earlier, '--include-sensitive').status).toBe(0)
+    renameSync(join(earlier, '.git', 'hippocampe-export'), join(earlier, '.git', 'grenier-export'))
+    const refused = cli('export:markdown', earlier)
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toContain('holds an export with sensitive data')
   })
 
   test('the folder of the nightly export is known through a link to it too', () => {

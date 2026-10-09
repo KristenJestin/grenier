@@ -6,6 +6,6 @@ import type { Schema } from 'effect'
  * given; kept only while diagnostics are on, so a report can name the call it is about.
  */
 export const RecentCalls = Context.Reference<Map<string, Schema.Json | null>>(
-  '@grenier/mcp/RecentCalls',
+  '@hippocampe/mcp/RecentCalls',
   { defaultValue: () => new Map() },
 )

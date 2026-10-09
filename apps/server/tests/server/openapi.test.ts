@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { GrenierApi } from '@grenier/api/http'
+import { HippocampeApi } from '@hippocampe/api/http'
 import { OpenApi } from 'effect/http-api'
 import { describe, expect, test } from 'vitest'
 import { openApiDocument } from '../../src/openapi.ts'
@@ -9,7 +9,7 @@ const COMMITTED = new URL('../../../../packages/api/openapi.json', import.meta.u
 describe('the clients are generated from the OpenAPI document of the schemas', () => {
   test('the committed document is the one the API defines: regenerate it when a schema changes', () => {
     expect(readFileSync(COMMITTED, 'utf8')).toBe(openApiDocument())
-    expect(JSON.parse(openApiDocument())).toEqual(OpenApi.fromApi(GrenierApi))
+    expect(JSON.parse(openApiDocument())).toEqual(OpenApi.fromApi(HippocampeApi))
   })
 
   test('what the API returns has names, for the generated types', () => {

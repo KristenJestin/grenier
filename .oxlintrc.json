@@ -27,13 +27,13 @@
         "paths": [
           {
             "name": "zod",
-            "message": "No zod in Grenier: validate with Effect `Schema` (`import { Schema } from \"effect\"`)."
+            "message": "No zod in Hippocampe: validate with Effect `Schema` (`import { Schema } from \"effect\"`)."
           }
         ],
         "patterns": [
           {
             "group": ["zod/*"],
-            "message": "No zod in Grenier: validate with Effect `Schema` (`import { Schema } from \"effect\"`)."
+            "message": "No zod in Hippocampe: validate with Effect `Schema` (`import { Schema } from \"effect\"`)."
           }
         ]
       }

@@ -16,15 +16,15 @@ const found = (name, from) => {
     return undefined
   }
 }
-const own = found(`@netsirk/grenier-${platform}`)
+const own = found(`@netsirk/hippocampe-${platform}`)
 if (own === undefined) {
-  console.error(`Grenier has no build for ${platform} yet: Linux x64 only, for now.`)
+  console.error(`Hippocampe has no build for ${platform} yet: Linux x64 only, for now.`)
   process.exit(1)
 }
 // A dependency of the package of the platform: looked for from there.
 const postgres = found(`@embedded-postgres/${platform}`, own)
-const executable = join(own, 'bin', 'grenier')
-const env = { ...process.env, GRENIER_EXECUTABLE: executable }
-if (postgres !== undefined) env.GRENIER_POSTGRES_BINARIES = join(postgres, 'native')
+const executable = join(own, 'bin', 'hippo')
+const env = { ...process.env, HIPPOCAMPE_EXECUTABLE: executable }
+if (postgres !== undefined) env.HIPPOCAMPE_POSTGRES_BINARIES = join(postgres, 'native')
 const ran = spawnSync(executable, process.argv.slice(2), { stdio: 'inherit', env })
 process.exit(ran.status ?? 1)

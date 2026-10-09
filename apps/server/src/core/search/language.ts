@@ -18,7 +18,7 @@ const configurations = rowsOf(Schema.Struct({ name: Schema.String }))
 const WORDS = ['word', 'hword', 'hword_part', 'asciiword', 'asciihword', 'hword_asciipart']
 
 /**
- * The text search configuration entries are indexed and searched with: `grenier_<language>`, a
+ * The text search configuration entries are indexed and searched with: `hippocampe_<language>`, a
  * copy of the configuration `SEARCH_LANGUAGE` names (`simple` by default) that removes accents
  * before its own dictionaries, created the first time it is needed. Highlighting with it keeps
  * the accents of the text.
@@ -26,7 +26,7 @@ const WORDS = ['word', 'hword', 'hword_part', 'asciiword', 'asciihword', 'hword_
 export const searchConfiguration = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const language = yield* Config.String('SEARCH_LANGUAGE').pipe(Config.withDefault('simple'))
-  const name = `grenier_${language}`
+  const name = `hippocampe_${language}`
   const known = yield* configurations(
     sql`SELECT cfgname AS name FROM pg_ts_config WHERE cfgname IN (${language}, ${name})`,
   )

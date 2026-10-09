@@ -17,8 +17,8 @@ let diagnosedReader: Started | undefined
 const start = async (url: string, rights: string, extra: Readonly<Record<string, string>> = {}) => {
   const started = await startServer({
     DATABASE_URL: url,
-    GRENIER_ACTOR: `agent-${rights.replaceAll(',', '-')}`,
-    GRENIER_RIGHTS: rights,
+    HIPPOCAMPE_ACTOR: `agent-${rights.replaceAll(',', '-')}`,
+    HIPPOCAMPE_RIGHTS: rights,
     ...extra,
   })
   servers.push(started)
@@ -33,9 +33,9 @@ beforeAll(async () => {
   )
   reader = await start(url, 'read')
   writer = await start(url, 'read,write')
-  diagnosed = await start(url, 'read,write', { GRENIER_DIAGNOSTICS: 'on' })
+  diagnosed = await start(url, 'read,write', { HIPPOCAMPE_DIAGNOSTICS: 'on' })
   owner = await start(url, 'read,write,owner')
-  diagnosedReader = await start(url, 'read', { GRENIER_DIAGNOSTICS: 'on' })
+  diagnosedReader = await start(url, 'read', { HIPPOCAMPE_DIAGNOSTICS: 'on' })
 }, 60_000)
 
 afterAll(async () => {
@@ -67,7 +67,7 @@ const namesOf = async (server: Started | undefined) =>
 /** The tools that read, as the rights say. */
 const READS = ['search', 'read', 'briefing', 'types', 'inbox_list']
 
-/** Every tool of Grenier, in the order an agent receives them. */
+/** Every tool of Hippocampe, in the order an agent receives them. */
 const ALL = [
   'search',
   'read',
@@ -111,8 +111,8 @@ describe('a key lists the tools its rights allow, in a fixed order', () => {
   })
 
   test('the tools of diagnostics follow the others, as their rights allow', async () => {
-    expect((await namesOf(diagnosed)).slice(-2)).toEqual(['grenier_report', 'grenier_reports'])
-    expect((await namesOf(diagnosedReader)).slice(-1)).toEqual(['grenier_reports'])
+    expect((await namesOf(diagnosed)).slice(-2)).toEqual(['report', 'reports'])
+    expect((await namesOf(diagnosedReader)).slice(-1)).toEqual(['reports'])
   })
 
   test('a tool the key does not list is refused, and does nothing', async () => {

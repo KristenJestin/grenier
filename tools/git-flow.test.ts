@@ -20,7 +20,7 @@ function git(cwd: string, ...args: string[]): CommandResult {
 
 /** A throwaway repository carrying this repository's hooks and their validators. */
 function repositoryWithHooks(): string {
-  const path = mkdtempSync(join(tmpdir(), 'grenier-flow-'))
+  const path = mkdtempSync(join(tmpdir(), 'hippocampe-flow-'))
   cpSync(join(repository, '.githooks'), join(path, '.githooks'), { recursive: true })
   mkdirSync(join(path, 'tools'), { recursive: true })
   // The validators are modules: without a manifest saying so, Node has to guess the goal of

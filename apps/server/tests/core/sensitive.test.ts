@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import type { PgClient } from '@effect/sql-pg'
 import { Effect } from 'effect'
 import type { SqlClient } from 'effect/sql'
@@ -179,7 +179,7 @@ describe('sensitive fields are shown only to keys that may see them', () => {
       }),
     )
     expect(refused.message).toBe(
-      'The field `fields.number` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right `sensitive`.',
+      'The field `fields.number` is sensitive: this key may not write it; ask the owner of Hippocampe for a key with the right `sensitive`.',
     )
     const written = await plain(
       writeEntry({
@@ -210,7 +210,7 @@ describe('a whole type can be sensitive', () => {
     const account = await plain(readEntry('current-account'))
     expect(account.backlinks).toEqual([])
     expect((await refusalOf(writeEntry({ type: 'diary', title: 'Another page' }))).message).toBe(
-      'The type `diary` is sensitive: this key may not write its entries; ask the owner of Grenier for a key with the right `sensitive`.',
+      'The type `diary` is sensitive: this key may not write its entries; ask the owner of Hippocampe for a key with the right `sensitive`.',
     )
   })
 
@@ -239,7 +239,7 @@ describe('a whole type can be sensitive', () => {
     expect(
       (await trusted(Effect.flip(changeType({ type: 'memo', sensitive: false })))).message,
     ).toBe(
-      'Only the owner of Grenier may make the type `memo` no longer sensitive: they do it from the command line, with `type:sensitive memo --off`.',
+      'Only the owner of Hippocampe may make the type `memo` no longer sensitive: they do it from the command line, with `type:sensitive memo --off`.',
     )
     await owner(changeType({ type: 'memo', sensitive: false }))
     expect(await plain(getType('memo'))).not.toHaveProperty('sensitive')
@@ -278,7 +278,7 @@ describe('a field becomes sensitive after its definition', () => {
       (await trusted(Effect.flip(changeField({ type: 'badge', field: 'code', sensitive: false }))))
         .message,
     ).toBe(
-      'Only the owner of Grenier may make the field `code` of `badge` no longer sensitive: they do it from the command line, with `field:sensitive badge code --off`.',
+      'Only the owner of Hippocampe may make the field `code` of `badge` no longer sensitive: they do it from the command line, with `field:sensitive badge code --off`.',
     )
     await owner(changeField({ type: 'badge', field: 'code', sensitive: false }))
     expect((await plain(readEntry('office-badge'))).entry.fields).toEqual({ code: 'K-77' })
@@ -304,7 +304,7 @@ describe('changing the type of an entry keeps its sensitive values protected', (
   test('a key without the right may not change the type of an entry that holds sensitive values', async () => {
     const refused = await refusalOf(writeEntry({ entry: 'current-account', type: 'clone' }))
     expect(refused.message).toBe(
-      'The entry `current-account` holds sensitive values: this key may not change its type; ask the owner of Grenier for a key with the right `sensitive`.',
+      'The entry `current-account` holds sensitive values: this key may not change its type; ask the owner of Hippocampe for a key with the right `sensitive`.',
     )
     expect(refused.message).not.toContain('zebracode')
     const kept = await trusted(readEntry('current-account'))
@@ -320,8 +320,8 @@ describe('changing the type of an entry keeps its sensitive values protected', (
     )
     expect(refused.message).toBe(
       [
-        'The field `fields.number` is sensitive in `account` and would not be in `clone`: only the owner of Grenier may change the type of this entry to it.',
-        'The field `fields.renewal` is sensitive in `account` and would not be in `clone`: only the owner of Grenier may change the type of this entry to it.',
+        'The field `fields.number` is sensitive in `account` and would not be in `clone`: only the owner of Hippocampe may change the type of this entry to it.',
+        'The field `fields.renewal` is sensitive in `account` and would not be in `clone`: only the owner of Hippocampe may change the type of this entry to it.',
       ].join(' '),
     )
     expect((await trusted(readEntry('current-account'))).entry.type).toBe('account')
@@ -340,7 +340,7 @@ describe('changing the type of an entry keeps its sensitive values protected', (
       withRights(TRUSTED)(Effect.flip(writeEntry({ entry: 'rainy-evening', type: 'folder' }))),
     )
     expect(refused.message).toBe(
-      'The type `diary` is sensitive and `folder` is not: only the owner of Grenier may move this entry out of it.',
+      'The type `diary` is sensitive and `folder` is not: only the owner of Hippocampe may move this entry out of it.',
     )
     expect((await refusalOf(readEntry('rainy-evening'))).message).toBe(
       'The entry `rainy-evening` does not exist.',
@@ -409,7 +409,7 @@ describe('changing a field never shows a sensitive value', () => {
       }),
     )
     expect(refused.message).toBe(
-      'The field `number` of `account` is sensitive: this key may not change it; ask the owner of Grenier for a key with the right `sensitive`.',
+      'The field `number` of `account` is sensitive: this key may not change it; ask the owner of Hippocampe for a key with the right `sensitive`.',
     )
     expect(JSON.stringify(refused)).not.toContain('zebracode')
     expect(JSON.stringify(refused)).not.toContain('current-account')
@@ -426,7 +426,7 @@ describe('changing a field never shows a sensitive value', () => {
       }),
     )
     expect(refused.message).toBe(
-      'The type `logbook` is sensitive: this key may not change its fields; ask the owner of Grenier for a key with the right `sensitive`.',
+      'The type `logbook` is sensitive: this key may not change its fields; ask the owner of Hippocampe for a key with the right `sensitive`.',
     )
     expect(JSON.stringify(refused)).not.toContain('still-day')
     expect(JSON.stringify(refused)).not.toContain('serene')

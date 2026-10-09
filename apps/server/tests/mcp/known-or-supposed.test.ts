@@ -16,7 +16,7 @@ beforeAll(async () => {
       return (yield* ScratchDatabase).url
     }),
   )
-  server = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-listener' })
+  server = await startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-listener' })
   await server.call('define_type', {
     name: 'person',
     label: 'Person',

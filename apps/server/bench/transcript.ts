@@ -1,7 +1,7 @@
 import { Option, Predicate, Schema } from 'effect'
 
-/** The prefix Claude Code gives the tools of an MCP server named `grenier`. */
-export const TOOL_PREFIX = 'mcp__grenier__'
+/** The prefix Claude Code gives the tools of an MCP server named `hippocampe`. */
+export const TOOL_PREFIX = 'mcp__hippocampe__'
 
 const Init = Schema.Struct({
   type: Schema.Literal('system'),

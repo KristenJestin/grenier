@@ -1,7 +1,7 @@
-# The bench of Grenier's MCP tools
+# The bench of Hippocampe's MCP tools
 
-Measures what an agent does with Grenier's tools, on tasks it is asked in plain words, against a
-Grenier of its own filled with invented data. It exists to answer one question with numbers: does a
+Measures what an agent does with Hippocampe's tools, on tasks it is asked in plain words, against a
+Hippocampe of its own filled with invented data. It exists to answer one question with numbers: does a
 change to the tools, their descriptions or the instructions make an agent succeed more often, with
 fewer calls and fewer tokens? Issue #169 uses it before and after each part; #146 runs the same
 tasks with small models.
@@ -23,7 +23,7 @@ nice -n 19 bun run bench --out /tmp/baseline.md # at low priority, table in a fi
 ```
 
 Options: `--tasks <ids>`, `--held-out include|exclude|only`, `--model <name>` (default `sonnet`),
-`--repeat <n>`, `--out <file>` (default under `/tmp/grenier-bench/`), `--database-url <url>` (a
+`--repeat <n>`, `--out <file>` (default under `/tmp/hippocampe-bench/`), `--database-url <url>` (a
 PostgreSQL server to create the bench databases on; default `DATABASE_URL`, else the local one of
 `docker-compose.yml`), `--max-cost <usd>` (the most one run may cost, default 2) and
 `--timeout <seconds>` (default 600).
@@ -34,21 +34,21 @@ The table is written after each run, so a run cut short keeps what it measured. 
 
 ## What it does
 
-1. Creates a database of its own on the PostgreSQL server (`grenier_bench_template_…`), migrates
+1. Creates a database of its own on the PostgreSQL server (`hippocampe_bench_template_…`), migrates
    it and fills it through the core, as the tools do: the types, about a hundred entries (a home
    server and its parts, the shops they came from, the projects they serve, people and
    organizations, recipes, contracts, bookmarks, notes), the links with their notes and dates, the
    rules of the instance, an owner and the key the agent uses (`bench-agent`, `read` and `write`).
    See `fixture.ts`. Every date a task cares about is relative to the day of the run.
 2. For each task and each repeat: copies that database (`CREATE DATABASE … TEMPLATE`), runs the
-   task's setup on the copy (some put items in the inbox), starts the real Grenier server on a free
-   port against the copy (`GRENIER_INSTANCE=local`, diagnostics off), and runs the agent.
+   task's setup on the copy (some put items in the inbox), starts the real Hippocampe server on a free
+   port against the copy (`HIPPOCAMPE_INSTANCE=local`, diagnostics off), and runs the agent.
 3. The agent is Claude Code, headless (`claude -p --output-format stream-json --verbose`), with
-   the bench's Grenier as its only source of tools: `--strict-mcp-config` with a generated
+   the bench's Hippocampe as its only source of tools: `--strict-mcp-config` with a generated
    configuration, no built-in tool (`--tools ""`), no settings file (`--setting-sources ""`), no
    skill, and an empty folder as its working directory, so no CLAUDE.md, project setting or MCP
    server of the machine reaches it. The `init` event of the session is read back: a run whose
-   session had a tool beyond Grenier's, or did not connect to it, is marked invalid and counts as
+   session had a tool beyond Hippocampe's, or did not connect to it, is marked invalid and counts as
    failed. The prompts never name a tool.
 4. After the run, the task's check reads the database through the core (never what the agent said
    it did) and the final answer, and gives the reasons it fails, or none.
@@ -64,7 +64,7 @@ One row per task, then totals for all tasks, for the tuning tasks and for the he
 | Column | Meaning |
 |---|---|
 | Passed | Runs whose check found nothing wrong, over runs made |
-| Calls | Calls of Grenier tools (a mean per run when repeated) |
+| Calls | Calls of Hippocampe tools (a mean per run when repeated) |
 | Wrong tool | Calls to a tool of a role the task does not need (below) |
 | Refused | Calls the server answered with an error |
 | Recovered | Refused calls followed later by a successful call of the same tool |
@@ -95,7 +95,7 @@ Below the tables: the reason of every failed run, and every wrong tool.
 its shop and the projects the server serves), what is due this week, the overdue, filing three inbox
 items one of which updates an entry, linking a person to an organization with a role and dates,
 adding a field to a type, a type made from scratch, making a field required, archiving, replacing a
-decision, a question whose answer is not in Grenier. Each has a deterministic check, and a
+decision, a question whose answer is not in Hippocampe. Each has a deterministic check, and a
 reference solution in `tests/bench/solutions.ts`: a test proves that every check fails on the
 instance as it starts and passes once the solution is applied, so none asks for nothing or for
 the impossible.

@@ -16,7 +16,7 @@ import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
-const directory = mkdtempSync(join(tmpdir(), 'grenier-media-'))
+const directory = mkdtempSync(join(tmpdir(), 'hippocampe-media-'))
 
 /** Runs with the media kept in this suite's own folder, and private addresses allowed or not. */
 const withMedia =
@@ -143,14 +143,14 @@ describe('the type of a file is read from its content', () => {
     expect(media).toMatchObject({ kind: 'pdf', mime: 'application/pdf' })
   })
 
-  test('a file of a kind Grenier does not keep is refused', async () => {
+  test('a file of a kind Hippocampe does not keep is refused', async () => {
     const gzip = new Uint8Array([
       0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0x03, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ])
     expect(
       await run(refusalOf(attachMedia({ entry: 'manual', data: base64(gzip) }).pipe(withMedia()))),
     ).toBe(
-      'The file is `application/gzip`, which Grenier does not keep: images, videos, sounds, PDF and HTML only.',
+      'The file is `application/gzip`, which Hippocampe does not keep: images, videos, sounds, PDF and HTML only.',
     )
     expect(
       await run(
@@ -178,7 +178,7 @@ describe('a file fetched from a URL', () => {
         refusalOf(attachMedia({ entry: 'manual', url: `${origin}/pixel` }).pipe(withMedia())),
       ),
     ).toBe(
-      `The URL \`${origin}/pixel\` leads to a private address: Grenier fetches only from the Internet.`,
+      `The URL \`${origin}/pixel\` leads to a private address: Hippocampe fetches only from the Internet.`,
     )
   })
 
@@ -211,7 +211,7 @@ describe('a file fetched from a URL', () => {
         ),
       ),
     ).toBe(
-      `The URL \`${url}/pixel\` leads to a private address: Grenier fetches only from the Internet.`,
+      `The URL \`${url}/pixel\` leads to a private address: Hippocampe fetches only from the Internet.`,
     )
   })
 
@@ -305,7 +305,7 @@ describe('the addresses a fetch may reach', () => {
         ),
       ),
     ).toBe(
-      'The URL `http://files.invalid/pixel` leads to a private address: Grenier fetches only from the Internet.',
+      'The URL `http://files.invalid/pixel` leads to a private address: Hippocampe fetches only from the Internet.',
     )
   })
 })
@@ -384,7 +384,7 @@ describe('an SVG image', () => {
           ),
         ),
       ),
-    ).toMatch(/^The file is `application\/xml`, which Grenier does not keep/)
+    ).toMatch(/^The file is `application\/xml`, which Hippocampe does not keep/)
   })
 })
 

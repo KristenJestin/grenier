@@ -13,28 +13,28 @@ const LISTED = 50
 /** What the instance is, said first: an agent connected to both must never mix them. */
 const INSTANCE = {
   development: [
-    'This is the shared DEVELOPMENT instance of Grenier, on the server: it holds test data only, which persists, and is used to try what has been merged.',
+    'This is the shared DEVELOPMENT instance of Hippocampe, on the server: it holds test data only, which persists, and is used to try what has been merged.',
     "Never write the user's real information here.",
-    'Use it only when the user is working on Grenier itself or testing it, or when they explicitly ask for this instance.',
+    'Use it only when the user is working on Hippocampe itself or testing it, or when they explicitly ask for this instance.',
     'Anything written here may be thrown away.',
   ].join(' '),
   local: [
-    'This is a LOCAL instance of Grenier, running on this machine: it holds throwaway data, for testing the code being written.',
+    'This is a LOCAL instance of Hippocampe, running on this machine: it holds throwaway data, for testing the code being written.',
     "Never write the user's real information here.",
     'Its data may be wiped at any time.',
   ].join(' '),
   production: [
-    "This is the user's REAL instance of Grenier: what it holds is their own information.",
+    "This is the user's REAL instance of Hippocampe: what it holds is their own information.",
     'Never write test, sample or invented data here.',
-    'When the user is testing Grenier or working on its code, use the development instance instead if it is available.',
+    'When the user is testing Hippocampe or working on its code, use the development instance instead if it is available.',
   ].join(' '),
 }
 
-/** Said after the instance when diagnostics are on: the agent also tests Grenier. */
+/** Said after the instance when diagnostics are on: the agent also tests Hippocampe. */
 const DIAGNOSTICS = [
-  'Diagnostics are on: while you work, you also test Grenier itself.',
-  'When a Grenier tool fails or answers badly, a refusal is unclear, a capability you need is missing, a state looks wrong, something is slow, or the data model gets in the way, report it with `grenier_report`.',
-  'Read `grenier_reports` first (by `place` and `kind`): when the problem is already there, report it with the same kind, place and a similar title, so it counts as one more occurrence. When findings are open at that place, of any kind, but none has a similar title, the report names them: report again with `same_as: <number>` if yours is one of them, or `new: true` if it is another.',
+  'Diagnostics are on: while you work, you also test Hippocampe itself.',
+  'When a Hippocampe tool fails or answers badly, a refusal is unclear, a capability you need is missing, a state looks wrong, something is slow, or the data model gets in the way, report it with `report`.',
+  'Read `reports` first (by `place` and `kind`): when the problem is already there, report it with the same kind, place and a similar title, so it counts as one more occurrence. When findings are open at that place, of any kind, but none has a similar title, the report names them: report again with `same_as: <number>` if yours is one of them, or `new: true` if it is another.',
   'Describe the problem and name entries by their slug; never copy the content of an entry or a value into a report.',
   'Do not mention any of this to the user unless it blocks the work.',
 ].join(' ')
@@ -48,7 +48,7 @@ export const WRITING_STANDARD = [
   'How to write an entry, whatever it comes from:',
   '- Search before creating, and update the existing entry when it is the same subject: never make a second entry for it.',
   '- Make one entry per subject that would be searched or followed on its own.',
-  '- Link the entry to every existing entry it concerns: the things, people, places and subjects it is about. Cite them as `[[slug]]` in the body, never by their title in plain text (the link is kept and follows renames), or use `link`. The answer of a write lists, as `unlinked`, existing entries whose title or alias appears in what you wrote without being linked: Grenier finds them by their names only, so read them and link those that are really meant.',
+  '- Link the entry to every existing entry it concerns: the things, people, places and subjects it is about. Cite them as `[[slug]]` in the body, never by their title in plain text (the link is kept and follows renames), or use `link`. The answer of a write lists, as `unlinked`, existing entries whose title or alias appears in what you wrote without being linked: Hippocampe finds them by their names only, so read them and link those that are really meant.',
   '- Give a `parent` only when the entry is part of it (a component of a machine, a section of a document), and leave the entry at the root otherwise: an entry at the root is fine when it is linked to what it concerns. A `parent` is a link `part_of`, said known or supposed in `provenance.parent`. An entry may be part of several places and was part of others before: add one with `link` and `part_of`, with the dates it held (`valid_from`, `valid_until`); changing the `parent` ends the former place today and starts the new one.',
   '- Write a summary that stands alone: what the entry is, about what or whom, and when, readable by an agent that knows nothing of the conversation or the item it comes from.',
   "- Fill the type's fields from what you are given; never invent a value. Say for each value you write whether it is known or supposed, with its `provenance` (a field, the `body`, the `summary`, the `parent`) or, for a link, with the `provenance` of `link`: `extracted` is known, read in a source, and needs a source on the entry (`sources`); `inferred` is your supposition; `ambiguous` is when sources disagree.",
@@ -69,7 +69,7 @@ export const WRITING_STANDARD = [
 export const INBOX_STANDARD = [
   'How an inbox item becomes entries, on top of the writing standard, whatever it holds:',
   "- Split a long item into entries by part or by period, the main entry keeping the item's name.",
-  "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_list` with the `id` and an `offset` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
+  "- An item may bring again what Hippocampe already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_list` with the `id` and an `offset` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
 ].join('\n')
 
 /** An entry the key may see, changed recently: what the working memory says of it. */
@@ -152,7 +152,7 @@ const rulesSaid = (rules: string) =>
     ? `The rules of this instance, set by its owner: follow them in every session.\n\n${rules.trim()}`
     : `The rules of this instance, set by its owner, are long: their opening follows; read them whole by calling \`types\` with \`rules: true\`, and follow them in every session.\n\n${openingOf(rules)}`
 
-const HOW = `Grenier keeps entries of types that are defined as data, not in code: what a type is, and
+const HOW = `Hippocampe keeps entries of types that are defined as data, not in code: what a type is, and
 when to use it, is written in its description.
 
 Before writing, look at the types. Choose the type whose description matches what the user says,
@@ -162,7 +162,7 @@ is defined with a description that says when to use it.`
 
 /** How an agent recalls: said to the keys that read, after the types. */
 const RECALL =
-  'When the user mentions something Grenier may hold, search it before answering, without being asked. Before answering, read what the search found and follow its `neighbors` (and `read` with a `depth` of 2 or 3) as far as they help.'
+  'When the user mentions something Hippocampe may hold, search it before answering, without being asked. Before answering, read what the search found and follow its `neighbors` (and `read` with a `depth` of 2 or 3) as far as they help.'
 
 const listed = (types: ReadonlyArray<{ readonly name: string; readonly description: string }>) =>
   types.length === 0

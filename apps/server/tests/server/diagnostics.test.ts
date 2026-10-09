@@ -55,8 +55,8 @@ async function startWith(diagnostics: 'on' | 'off') {
       DATABASE_URL: url,
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
-      GRENIER_INSTANCE: 'local',
-      GRENIER_DIAGNOSTICS: diagnostics,
+      HIPPOCAMPE_INSTANCE: 'local',
+      HIPPOCAMPE_DIAGNOSTICS: diagnostics,
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   })
@@ -108,8 +108,8 @@ describe('diagnostics over HTTP', () => {
       const { result } = await client.request('tools/list', {})
       return Schema.decodeUnknownSync(Tools)(result).tools.map(({ name }) => name)
     }
-    expect(await namesOf(on)).toContain('grenier_report')
-    expect(await namesOf(off)).not.toContain('grenier_report')
+    expect(await namesOf(on)).toContain('report')
+    expect(await namesOf(off)).not.toContain('report')
   })
 
   test('an unexpected error of a route is a bug at that route with diagnostics on, and nothing off', async () => {

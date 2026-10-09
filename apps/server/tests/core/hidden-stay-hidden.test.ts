@@ -1,5 +1,5 @@
 import type { PgClient } from '@effect/sql-pg'
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { Effect } from 'effect'
 import type { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
