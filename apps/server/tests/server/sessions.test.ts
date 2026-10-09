@@ -65,6 +65,23 @@ describe('MCP sessions are bound to their key and do not pile up', () => {
     expect(disposed()).toBe(50)
   })
 
+  test('a key whose rights change is served by a new server, so its tools follow its rights', async () => {
+    const { sessions, disposed } = fakes()
+    const send = (rights: ReadonlyArray<'read' | 'write'>) =>
+      sessions.handle(
+        { name: 'agent-a', rights },
+        'types',
+        undefined,
+        new Request('http://localhost/mcp', { method: 'POST', body: 'call' }),
+      )
+    await send(['read'])
+    await send(['read'])
+    expect(sessions.size()).toEqual({ sessions: 0, servers: 1 })
+    await send(['read', 'write'])
+    expect(sessions.size()).toEqual({ sessions: 0, servers: 1 })
+    expect(disposed()).toBe(1)
+  })
+
   test('types that keep changing leave one server per key, the old ones freed', async () => {
     const { sessions, send, disposed } = fakes()
     await Promise.all(
