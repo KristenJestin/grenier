@@ -309,17 +309,23 @@ entry part of something it is only about makes it harder to find, not easier. Re
 place that holds today as the entry's parent, and a place that is over among its links.
 
 - **A place holds today** when its link started (no `valid_from`, or a day not after today) and has
-  not ended (no `valid_until`, or a day after today): `valid_until` is the day the entry stopped
-  being part of it, so the day an entry moves it is part of the new place only. Today is the day
-  of the owner (`TZ`). A link `part_of` made before this rule, from a `parent`, has no dates.
+  not ended (no `valid_until`, or a day not before today): `valid_until` is the last day the link
+  held, as for every link. Today is the day of the owner (`TZ`). A link `part_of` made from a
+  `parent`, before places had dates, has none.
 - **`write` with `parent`** is a shorthand for the one place the entry is part of: a link `part_of`
   to the entry named, with `provenance.parent` (`extracted` or `inferred`). Changing it closes the
-  former link (`valid_until` today) and opens the new one (`valid_from` today), in one event;
-  `parent: null` closes it. The first place of an entry has no dates, since nothing says when it
-  became part of it. An entry with several places changes the oldest one that holds, and the others
-  stay. The place an entry comes back to is its former link, opened again.
+  former link (`valid_until` yesterday, its last day) and opens the new one (`valid_from` today),
+  in one event; `parent: null` closes it. A place left the day it was entered never held: its link
+  is removed in the same event, not kept with an end before its start. The first place of an entry
+  has no dates, since nothing says when it became part of it. An entry with several places changes
+  the oldest one that holds, and the others stay. An entry that comes back to a place it left
+  opens a new stay there (the link is keyed by a `period`, the day the stay began), and the
+  earlier stay stays as it was: a card in A, moved to B, moved back to A has two stays in A and
+  one in B.
 - **`link` with `part_of`** adds another place, or a past one with the dates it held. Linking again
-  changes only what the link says, as for any link, and `unlink` removes it.
+  changes only what the link says, as for any link, and `unlink` removes it. A later stay in the
+  same place is addressed with its `period` (given by `read` in `part_of`); without one, the
+  first stay.
 - **No loop.** A place that holds today may not make an entry part of itself or of one of its own
   parts, at any depth, through the places that hold: the write or the link is refused in one
   sentence. A place that is over, or has not begun, makes no loop. Every change of a place (a
@@ -331,7 +337,7 @@ place that holds today as the entry's parent, and a place that is over among its
   entry part of two places is under both. The tree of the read API and of the viewer shows an entry
   under each of its places; one with none is at the top.
 - **`read`** gives the `path`, `part_of` (every place it is or was part of, the oldest first, each
-  with its `provenance`, `note`, `valid_from` and `valid_until`), and its `children`. The links
+  with its `period`, `provenance`, `note`, `valid_from` and `valid_until`), and its `children`. The links
   `part_of` are given there and not among `links` and `backlinks`, but for the entries that were
   part of it and are no more, which stay among the `backlinks` with their dates.
 - **The export** keeps one file per entry, in the folder of its oldest place (see

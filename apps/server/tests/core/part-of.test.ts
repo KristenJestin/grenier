@@ -98,7 +98,7 @@ describe('moving a component with write { parent } closes the former place and o
     )
     const moved = await run(on('2026-10-12')(readEntry('graphics-card')))
     expect(moved.part_of).toEqual([
-      expect.objectContaining({ slug: 'machine-a', valid_from: null, valid_until: '2026-10-12' }),
+      expect.objectContaining({ slug: 'machine-a', valid_from: null, valid_until: '2026-10-11' }),
       expect.objectContaining({ slug: 'machine-b', valid_from: '2026-10-12', valid_until: null }),
     ])
     // Today, it is part of the second only.
@@ -116,7 +116,7 @@ describe('moving a component with write { parent } closes the former place and o
         {
           field: 'links.part_of',
           before: { entry: first.part_of[0]?.id, provenance: 'inferred' },
-          after: { entry: first.part_of[0]?.id, provenance: 'inferred', valid_until: '2026-10-12' },
+          after: { entry: first.part_of[0]?.id, provenance: 'inferred', valid_until: '2026-10-11' },
         },
         {
           field: 'links.part_of',
@@ -125,8 +125,9 @@ describe('moving a component with write { parent } closes the former place and o
         },
       ],
     })
-    // The day before, it was in the first.
+    // The last day of the first place is the day before the move; the day of the move, the second.
     expect((await run(on('2026-10-11')(readEntry('graphics-card')))).path).toEqual(['Machine A'])
+    expect((await run(on('2026-10-12')(readEntry('graphics-card')))).path).toEqual(['Machine B'])
   })
 
   test('parent: null closes the place, and the entry stands at the top', async () => {
@@ -138,14 +139,14 @@ describe('moving a component with write { parent } closes the former place and o
     const jar = await run(on('2026-11-01')(readEntry('jar')))
     expect(jar.path).toEqual([])
     expect(jar.part_of).toEqual([
-      expect.objectContaining({ slug: 'shelf', valid_until: '2026-11-01' }),
+      expect.objectContaining({ slug: 'shelf', valid_until: '2026-10-31' }),
     ])
     expect(
       (await run(on('2026-11-01')(listEntries()))).find(({ slug }) => slug === 'jar')?.part_of,
     ).toEqual([])
   })
 
-  test('the place an entry comes back to is the same link, opened again from that day', async () => {
+  test('a card in A, moved to B, moved back to A: two periods in A, one in B, none lost', async () => {
     await run(today(writeEntry({ type: 'note', title: 'Cupboard' })))
     await run(today(writeEntry({ type: 'note', title: 'Drawer' })))
     await run(
@@ -158,15 +159,66 @@ describe('moving a component with write { parent } closes the former place and o
       on('2026-10-20')(writeEntry({ entry: 'spoon', parent: 'cupboard', provenance: inferred })),
     )
     const spoon = await run(on('2026-10-20')(readEntry('spoon')))
-    expect(spoon.part_of).toEqual([
-      expect.objectContaining({
-        slug: 'drawer',
-        valid_from: '2026-10-10',
-        valid_until: '2026-10-20',
-      }),
-      expect.objectContaining({ slug: 'cupboard', valid_from: '2026-10-20', valid_until: null }),
+    expect(
+      spoon.part_of.map(({ slug, valid_from, valid_until, period }) => ({
+        slug,
+        valid_from,
+        valid_until,
+        period,
+      })),
+    ).toEqual([
+      { slug: 'cupboard', valid_from: null, valid_until: '2026-10-09', period: null },
+      { slug: 'drawer', valid_from: '2026-10-10', valid_until: '2026-10-19', period: null },
+      { slug: 'cupboard', valid_from: '2026-10-20', valid_until: null, period: '2026-10-20' },
     ])
     expect(spoon.path).toEqual(['Cupboard'])
+    // Back and forth again: the stay in the cupboard that holds is kept, not opened twice.
+    await run(
+      on('2026-10-20')(writeEntry({ entry: 'spoon', parent: 'cupboard', provenance: inferred })),
+    )
+    expect((await run(on('2026-10-20')(readEntry('spoon')))).part_of).toHaveLength(3)
+    // A stay is addressed by its period, to change or remove it.
+    await run(
+      on('2026-10-20')(
+        link('spoon', 'cupboard', 'part_of', '2026-10-20', '', {
+          provenance: 'inferred',
+          note: 'second stay',
+        }),
+      ),
+    )
+    expect(
+      (await run(on('2026-10-20')(readEntry('spoon')))).part_of.map(({ note }) => note),
+    ).toEqual([null, null, 'second stay'])
+  })
+
+  test('a place left on the day it was entered never held: its link goes in the same event', async () => {
+    await run(today(writeEntry({ type: 'note', title: 'Hall' })))
+    await run(today(writeEntry({ type: 'note', title: 'Study' })))
+    await run(today(writeEntry({ type: 'note', title: 'Landing' })))
+    await run(
+      today(writeEntry({ type: 'note', title: 'Vase', parent: 'hall', provenance: inferred })),
+    )
+    const day = on('2026-10-15')
+    await run(day(writeEntry({ entry: 'vase', parent: 'study', provenance: inferred })))
+    const before = (await run(entryHistory('vase'))).length
+    // Moved again the same day: the study is left the day it was entered.
+    await run(day(writeEntry({ entry: 'vase', parent: 'landing', provenance: inferred })))
+    const vase = await run(day(readEntry('vase')))
+    expect(
+      vase.part_of.map(({ slug, valid_from, valid_until }) => [slug, valid_from, valid_until]),
+    ).toEqual([
+      ['hall', null, '2026-10-14'],
+      ['landing', '2026-10-15', null],
+    ])
+    const history = await run(entryHistory('vase'))
+    expect(history).toHaveLength(before + 1)
+    expect(history.at(-1)?.changes).toEqual([
+      expect.objectContaining({ field: 'links.part_of', after: null }),
+      expect.objectContaining({ field: 'links.part_of', before: null }),
+    ])
+    // Closed the same day it was opened, with nothing else: a null parent does the same.
+    await run(day(writeEntry({ entry: 'vase', parent: null })))
+    expect((await run(day(readEntry('vase')))).part_of.map(({ slug }) => slug)).toEqual(['hall'])
   })
 
   test('the parent given again, as it is, changes nothing; with another provenance, only that', async () => {
@@ -699,7 +751,7 @@ describe('recall counts a place that holds in the parent tier, and a former one 
       // The links come first, the place that is over among them (the most recently changed first);
       // then the parent.
       { slug: 'warranty-paper', via: 'link', relation: 'documented_by', valid_until: undefined },
-      { slug: 'old-rig', via: 'link', relation: 'part_of', valid_until: '2026-10-20' },
+      { slug: 'old-rig', via: 'link', relation: 'part_of', valid_until: '2026-10-19' },
       { slug: 'new-rig', via: 'parent', relation: 'part_of', valid_until: undefined },
     ])
     // The parts of a machine are not its neighbors: they are its children. The machine it was part
@@ -738,7 +790,7 @@ describe('recall counts a place that holds in the parent tier, and a former one 
           to: 'old-rig',
           via: 'link',
           relation: 'part_of',
-          valid_until: '2026-10-20',
+          valid_until: '2026-10-19',
         },
       ]),
     )

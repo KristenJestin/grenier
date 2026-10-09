@@ -64,7 +64,7 @@ rules and runs no AI.
   slug (`superseded_by`), the id beside (`superseded_by_id`), and keys `titles` by slug, each with
   its `id`. The tree is given as `path` (the titles above the entry, through the oldest place it
   is part of today) and `part_of` (every place it is or was part of, the oldest first, with
-  `provenance`, `note`, `valid_from` and `valid_until`); `children` are the entries that are part
+  `period`, `provenance`, `note`, `valid_from` and `valid_until`); `children` are the entries that are part
   of it today, and the links `part_of` are in `part_of` and `children`, not in `links` and
   `backlinks` (those of the entries that were part of it are in `backlinks`). `depth` 2 or 3 (1 by default; 4 is refused) adds
   `graph`: `entries` (slug, title, type, summary, `depth`) within that many edges, nearest first,

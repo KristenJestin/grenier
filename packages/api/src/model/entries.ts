@@ -195,7 +195,7 @@ export const WriteEntryInput = Schema.Struct({
   }),
   parent: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
     description:
-      'The slug or id of the entry this one is part of (a component of a machine, a note of a project), and only when it really is part of it: a link `part_of` that starts today, written with `provenance.parent`. Changing it closes the link to the former place, which ends today, and opens the new one; `null` closes it. An entry with several places (add the others with `link` and `part_of`) changes the oldest one that holds today.',
+      'The slug or id of the entry this one is part of (a component of a machine, a note of a project), and only when it really is part of it: a link `part_of` that starts today, written with `provenance.parent`. Changing it closes the link to the former place, which ends yesterday, and opens the new one, which starts today; `null` closes it. An entry with several places (add the others with `link` and `part_of`) changes the oldest one that holds today.',
   }),
   fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)).annotate({
     description:
@@ -285,21 +285,23 @@ export const Link = Schema.Struct({
 export type Link = typeof Link.Type
 
 /**
- * A place an entry is part of, or was: the entry at the other end of a link `part_of`, whether the
- * place is known or supposed, a short note, and the dates it held between. It holds today from
- * `valid_from` (a day before today, or none) to `valid_until`, the day the entry stopped being part
- * of it (none, or after today).
+ * A stay in a place the entry is part of, or was: the entry at the other end of a link `part_of`,
+ * whether it is known or supposed, a short note, and the dates it held between. It holds today
+ * from `valid_from` (today or before, or none) to `valid_until`, the last day it held (today or
+ * after, or none). An entry that comes back to a place has another stay in it.
  */
 export const Place = Schema.Struct({
   id: Schema.String,
   slug: Schema.String,
   title: Schema.String,
+  /** Which stay in that place, for `link` to address it: none for the first, else the day it began. */
+  period: Schema.NullOr(Schema.String),
   /** Known (`extracted`) or supposed (`inferred`), or `unstated` before writers were asked. */
   provenance: Schema.Literals(['extracted', 'inferred', 'unstated']),
   note: Schema.NullOr(Schema.String),
   /** The day it started to hold, as `2024-01-01`. */
   valid_from: Schema.NullOr(Schema.String),
-  /** The day it stopped holding: the entry was part of it before. */
+  /** The last day it held. */
   valid_until: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'Place' })
 export type Place = typeof Place.Type

@@ -365,8 +365,9 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, e.fields,
       e.type = ${entry.type} AND EXISTS (SELECT 1 FROM types t
         WHERE t.name = e.type AND t.read_in_parent) AS in_parent
-    FROM entries e JOIN links l ON l.source_id = e.id
-    WHERE l.target_id = ${entry.id}::uuid AND l.relation = ${PART_OF} AND ${heldToday}
+    FROM entries e
+    WHERE EXISTS (SELECT 1 FROM links l WHERE l.source_id = e.id
+        AND l.target_id = ${entry.id}::uuid AND l.relation = ${PART_OF} AND ${heldToday})
       AND e.archived_at IS NULL
     ORDER BY e.title`)
   // A part of this entry comes with its fields, as the caller may see them on its own page.

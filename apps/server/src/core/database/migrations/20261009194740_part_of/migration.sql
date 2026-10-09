@@ -34,7 +34,7 @@ BEGIN
     SELECT "source_id", "target_id" FROM "links"
       WHERE "relation" = 'part_of'
         AND ("valid_from" IS NULL OR "valid_from" <= current_date)
-        AND ("valid_until" IS NULL OR "valid_until" > current_date)
+        AND ("valid_until" IS NULL OR "valid_until" >= current_date)
   ), up (start, id) AS (
     SELECT "source_id", "target_id" FROM held
     UNION

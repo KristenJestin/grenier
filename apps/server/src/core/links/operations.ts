@@ -23,6 +23,8 @@ import { About, endOf, fieldOf, holdsOn, incoming, MENTIONS, outgoing, PART_OF }
 
 const RELATION = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
 
+const isDate = Schema.is(DateText)
+
 const PERIOD = /^\d{4}(-\d{2}(-\d{2})?|-W\d{2})?$/
 
 /** A link `fulfills` closes the occurrence of one period, which it names; no other link has one. */
@@ -34,7 +36,13 @@ const checkPeriod = Effect.fnUntraced(function* (relation: string, period: strin
         'A link `fulfills` needs a period: `2026` for a yearly date, `2026-10` monthly, `2026-W41` weekly, or the date itself.',
     })
   }
-  if (relation !== 'fulfills' && period !== '') {
+  if (relation === PART_OF && period !== '' && !isDate(period)) {
+    return yield* new Refused({
+      message:
+        'A link `part_of` names a later stay in a place by the day it began, such as `2026-10-20`.',
+    })
+  }
+  if (relation !== 'fulfills' && relation !== PART_OF && period !== '') {
     return yield* new Refused({ message: 'Only a link `fulfills` takes a period.' })
   }
 })
@@ -144,8 +152,6 @@ export type LinkAbout = {
 const NOTE_LIMIT = 200
 
 const abouts = rowsOf(About)
-
-const isDate = Schema.is(DateText)
 
 /** Refuses a note too long, or a date that is not one. */
 const checkAbout = Effect.fnUntraced(function* (about: Partial<LinkAbout>) {

@@ -1149,6 +1149,16 @@
           "title": {
             "type": "string"
           },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "provenance": {
             "type": "string",
             "enum": [
@@ -1192,6 +1202,7 @@
           "id",
           "slug",
           "title",
+          "period",
           "provenance",
           "note",
           "valid_from",

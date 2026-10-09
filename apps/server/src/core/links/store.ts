@@ -39,24 +39,23 @@ export const endOf = (target: string, about: About): Schema.Json => ({
   ...Object.fromEntries(Object.entries(about).filter(([, value]) => value !== null)),
 })
 
-/** Whether a link with these dates holds on that day (see `holdingOn`). */
+/** Whether a link with these dates holds on that day: it started, and has not ended (see `holdingOn`). */
 export const holdsOn = (
   today: string,
   dates: { readonly valid_from: string | null; readonly valid_until: string | null },
 ) =>
   (dates.valid_from === null || dates.valid_from <= today) &&
-  (dates.valid_until === null || dates.valid_until > today)
+  (dates.valid_until === null || dates.valid_until >= today)
 
 /**
- * Whether a link `part_of`, in the table `links`, holds on that day: it started (no date, or a day
- * not after), and has not ended (no date, or a day after: `valid_until` is the day the entry
- * stopped being part of the place, so the day it moves it is part of the new place only). The same
- * condition as `holdsOn` for a link in hand, and `holdingToday` (in `places.ts`) for statements
+ * Whether a link, in the table `links`, holds on that day: it started (no `valid_from`, or a day
+ * not after) and has not ended (no `valid_until`, or a day not before: `valid_until` is the last
+ * day it held, for every link). The same condition as `holdsOn` for a link in hand, and `holdingToday` (in `places.ts`) for statements
  * written with Effect SQL; this one is for Drizzle.
  */
 const holdingOn = (today: string) =>
   sql`(${tables.links.valid_from} IS NULL OR ${tables.links.valid_from} <= ${today}::date)
-    AND (${tables.links.valid_until} IS NULL OR ${tables.links.valid_until} > ${today}::date)`
+    AND (${tables.links.valid_until} IS NULL OR ${tables.links.valid_until} >= ${today}::date)`
 
 const { entries } = tables
 
