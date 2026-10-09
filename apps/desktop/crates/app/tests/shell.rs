@@ -20,12 +20,16 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
     json!({
         "entry": {
             "id": id, "type": "note", "title": title, "slug": id, "aliases": [], "tags": [],
-            "parent_id": parent, "fields": {}, "provenance": {}, "sources": [], "body": body,
+            "fields": {}, "provenance": {}, "sources": [], "body": body,
             "summary": "", "created": "2026-09-01T08:00:00.000Z",
             "updated": "2026-10-01T08:00:00.000Z", "valid_from": null, "valid_until": null,
             "superseded_by": null, "archived_at": null, "archived_reason": null
         },
-        "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
+        "path": [], "part_of": parent.map(|parent| vec![json!({
+            "id": parent, "slug": parent, "title": parent, "provenance": "inferred", "note": null,
+            "valid_from": null, "valid_until": null
+        })]).unwrap_or_default(),
+        "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
         "hidden_children": 0, "cited_by": [], "titles": {}
     })
 }
@@ -66,15 +70,17 @@ fn answer(mut stream: std::net::TcpStream) {
                 "/api/entries" => (
                     "200 OK",
                     json!({ "entries": [
-                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "parent_id": null, "in_parent": false },
-                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "parent_id": "kitchen", "in_parent": false },
-                        { "id": "computer", "slug": "computer", "type": "item", "title": "Computer", "parent_id": null, "in_parent": false },
-                        { "id": "main-disk", "slug": "main-disk", "type": "item", "title": "Main disk", "parent_id": "computer", "in_parent": true },
-                        { "id": "fan", "slug": "fan", "type": "item", "title": "Fan", "parent_id": "computer", "in_parent": true },
-                        { "id": "screen", "slug": "screen", "type": "item", "title": "Screen", "parent_id": null, "in_parent": false },
-                        { "id": "stand", "slug": "stand", "type": "item", "title": "Stand", "parent_id": "screen", "in_parent": true },
-                        { "id": "attic", "slug": "attic", "type": "note", "title": "Attic", "parent_id": null, "in_parent": false },
-                        { "id": "letters", "slug": "letters", "type": "note", "title": "Letters", "parent_id": "old-trunk", "in_parent": false }
+                        { "id": "kitchen", "slug": "kitchen", "type": "note", "title": "Kitchen", "part_of": [] },
+                        { "id": "plum-tart", "slug": "plum-tart", "type": "note", "title": "Plum tart", "part_of": [{ "id": "kitchen", "in_parent": false }] },
+                        { "id": "computer", "slug": "computer", "type": "item", "title": "Computer", "part_of": [] },
+                        { "id": "main-disk", "slug": "main-disk", "type": "item", "title": "Main disk", "part_of": [{ "id": "computer", "in_parent": true }] },
+                        { "id": "fan", "slug": "fan", "type": "item", "title": "Fan", "part_of": [{ "id": "computer", "in_parent": true }] },
+                        { "id": "screen", "slug": "screen", "type": "item", "title": "Screen", "part_of": [] },
+                        { "id": "stand", "slug": "stand", "type": "item", "title": "Stand", "part_of": [{ "id": "screen", "in_parent": true }] },
+                        { "id": "attic", "slug": "attic", "type": "note", "title": "Attic", "part_of": [] },
+                        { "id": "letters", "slug": "letters", "type": "note", "title": "Letters", "part_of": [{ "id": "old-trunk", "in_parent": false }] },
+                        { "id": "shared-shelf", "slug": "shared-shelf", "type": "note", "title": "Shared shelf",
+                          "part_of": [{ "id": "kitchen", "in_parent": false }, { "id": "attic", "in_parent": false }] }
                     ]}),
                 ),
                 "/api/entries/computer" => {
@@ -104,14 +110,14 @@ fn answer(mut stream: std::net::TcpStream) {
                 "/api/entries?tag=dusty" => (
                     "200 OK",
                     json!({ "entries": [
-                        { "id": "attic", "slug": "attic", "type": "note", "title": "Attic", "parent_id": null, "in_parent": false },
-                        { "id": "letters", "slug": "letters", "type": "note", "title": "Letters", "parent_id": "old-trunk", "in_parent": false }
+                        { "id": "attic", "slug": "attic", "type": "note", "title": "Attic", "part_of": [] },
+                        { "id": "letters", "slug": "letters", "type": "note", "title": "Letters", "part_of": [{ "id": "old-trunk", "in_parent": false }] }
                     ], "next_cursor": null }),
                 ),
                 "/api/entries?supposed=true" => (
                     "200 OK",
                     json!({ "entries": [
-                        { "id": "harbor", "slug": "harbor", "type": "note", "title": "Harbor", "parent_id": null, "in_parent": false }
+                        { "id": "harbor", "slug": "harbor", "type": "note", "title": "Harbor", "part_of": [] }
                     ], "next_cursor": null }),
                 ),
                 "/api/entries/harbor" => {
@@ -152,7 +158,7 @@ fn answer(mut stream: std::net::TcpStream) {
                     let to = (from + 50).min(120);
                     let entries: Vec<Value> = (from..to)
                         .map(|n| json!({ "id": format!("note-{n:03}"), "slug": format!("note-{n:03}"), "type": "note",
-                            "title": format!("Note {n:03}"), "parent_id": null, "in_parent": false }))
+                            "title": format!("Note {n:03}"), "part_of": [] }))
                         .collect();
                     let next = if to < 120 {
                         json!(to.to_string())
@@ -325,10 +331,10 @@ fn the_parts_of_an_object_are_a_table_in_its_page_not_branches_of_the_tree(
     assert_eq!(
         tree,
         vec![
-            ("kitchen".to_string(), 1),
+            ("kitchen".to_string(), 2),
             ("computer".to_string(), 0),
             ("screen".to_string(), 0),
-            ("attic".to_string(), 0),
+            ("attic".to_string(), 1),
             ("letters".to_string(), 0)
         ]
     );
@@ -340,6 +346,36 @@ fn the_parts_of_an_object_are_a_table_in_its_page_not_branches_of_the_tree(
     cx.simulate_click(row.center(), Modifiers::none());
     cx.run_until_parked();
     assert_eq!(opened(&viewer, cx).as_deref(), Some("main-disk"));
+}
+
+#[gpui_kit::test]
+fn an_entry_with_two_places_is_drawn_under_both_in_the_tree(cx: &mut TestAppContext) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let server = format!("http://{}", listener.local_addr().expect("an address"));
+    serve(listener);
+    let (viewer, cx) = viewer_on(server, cx);
+    cx.run_until_parked();
+    let under = |viewer: &Viewer, id: &str| -> Vec<String> {
+        viewer
+            .nodes()
+            .iter()
+            .find(|node| node.id.as_ref() == id)
+            .map(|node| {
+                node.children
+                    .iter()
+                    .map(|child| child.id.to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let (kitchen, attic) = viewer.read_with(cx, |viewer, _| {
+        (under(viewer, "kitchen"), under(viewer, "attic"))
+    });
+    assert_eq!(
+        kitchen,
+        vec!["plum-tart".to_string(), "shared-shelf".to_string()]
+    );
+    assert_eq!(attic, vec!["shared-shelf".to_string()]);
 }
 
 #[gpui_kit::test]

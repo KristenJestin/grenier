@@ -122,6 +122,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "tree/two-places",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::shared_tree()),
+                    Some("ecran-partage"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::bare()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "tree/long-titles",
             build: |window, cx| {
                 viewer(

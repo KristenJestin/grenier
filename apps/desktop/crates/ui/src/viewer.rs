@@ -666,7 +666,7 @@ impl Viewer {
             .enumerate()
         {
             let header = self.group_title(group, index == 0, window, cx);
-            let items = self.items(&group.children, Some(&group.title), window, cx);
+            let items = self.items(&group.children, Some(&group.title), &group.id, window, cx);
             groups.push(v_flex().child(header).children(items).into_any_element());
         }
         let loose: Vec<TreeNode> = self
@@ -676,7 +676,7 @@ impl Viewer {
             .cloned()
             .collect();
         if !loose.is_empty() {
-            let items = self.items(&loose, None, window, cx);
+            let items = self.items(&loose, None, "", window, cx);
             groups.push(
                 v_flex()
                     .child(group_label(words::UNFILED, groups.is_empty(), cx))
@@ -724,11 +724,14 @@ impl Viewer {
         )
     }
 
-    /// The lines of a list of entries, each folder followed by what it holds, which unfolds.
+    /// The lines of a list of entries, each folder followed by what it holds, which unfolds. `at`
+    /// is where the list stands (the entries above it), so that an entry drawn under two places has
+    /// an element of its own under each.
     fn items(
         &self,
         nodes: &[TreeNode],
         parent: Option<&str>,
+        at: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
@@ -736,13 +739,14 @@ impl Viewer {
         for node in nodes {
             let folder = !node.children.is_empty();
             let open = self.expanded.contains(&node.id);
-            items.push(self.item(node, parent, folder, open, window, cx));
+            let here = format!("{at}/{}", node.id);
+            items.push(self.item(node, parent, &here, window, cx));
             if folder {
-                let children = self.items(&node.children, Some(&node.title), window, cx);
+                let children = self.items(&node.children, Some(&node.title), &here, window, cx);
                 let guide = cx.theme().border;
                 items.push(
                     reveal(
-                        SharedString::from(format!("under-{}", node.id)),
+                        SharedString::from(format!("under-{here}")),
                         open,
                         v_flex()
                             .ml(px(19.))
@@ -762,11 +766,12 @@ impl Viewer {
         &self,
         node: &TreeNode,
         parent: Option<&str>,
-        folder: bool,
-        open: bool,
+        here: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let folder = !node.children.is_empty();
+        let open = self.expanded.contains(&node.id);
         let selected = self.selected.as_ref() == Some(&node.id);
         let theme = cx.theme();
         let (muted, foreground, accent, over) = (
@@ -783,7 +788,7 @@ impl Viewer {
         };
         let chevron = folder.then(|| {
             Icon::new(IconName::ChevronRight).xsmall().with_spring(
-                SharedString::from(format!("chevron-{}", node.id)),
+                SharedString::from(format!("chevron-{here}")),
                 SpringAnimation::new(SPRING).to(open),
                 |icon, turn| icon.rotate(radians(turn.0 * FRAC_PI_2)),
             )
@@ -795,7 +800,7 @@ impl Viewer {
         let title = SharedString::from(short_title(&node.title, parent).to_string());
         let whole = node.title.clone();
         hoverable(
-            SharedString::from(format!("item-{}", node.id)),
+            SharedString::from(format!("item-{here}")),
             window,
             cx,
             move |element, hover| {
