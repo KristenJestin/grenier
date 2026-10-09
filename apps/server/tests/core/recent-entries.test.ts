@@ -1,9 +1,15 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
-import { archiveEntry, recentEntries, writeEntry } from '../../src/core/entries/index.ts'
-import { Actor, lastChangedBy } from '../../src/core/events/index.ts'
+import {
+  archiveEntry,
+  recentEntries,
+  unverified,
+  writeEntry,
+} from '../../src/core/entries/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
 import { link } from '../../src/core/links/index.ts'
+import { search } from '../../src/core/search/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
@@ -29,56 +35,73 @@ beforeAll(() =>
   ),
 )
 
-describe('lastChangedBy: who changed an entry last', () => {
+/** What the three readings of the last writer say of an entry: search, review and recent entries. */
+const writersOf = (slug: string) =>
+  run(
+    Effect.gen(function* () {
+      const listed = (yield* recentEntries(100)).find((each) => each.slug === slug)?.by
+      const found = (yield* search(undefined, { limit: 100 })).find(
+        (each) => each.slug === slug,
+      )?.by
+      const waiting = (yield* unverified({})).find((each) => each.slug === slug)?.by
+      return { listed, found, waiting }
+    }),
+  )
+
+describe('the last writer: one definition for search, review and the working memory', () => {
   test('the actor of the last write, not of an earlier one', async () => {
-    const id = await run(
+    await run(
       Effect.gen(function* () {
-        const created = yield* as('agent-first')(
-          writeEntry({ type: 'thing', title: 'Shared page' }),
-        )
+        yield* as('agent-first')(writeEntry({ type: 'thing', title: 'Shared page' }))
         yield* as('agent-second')(writeEntry({ entry: 'shared-page', body: 'Edited.' }))
-        return created.id
       }),
     )
-    expect((await run(lastChangedBy([id]))).get(id)).toBe('agent-second')
+    expect(await writersOf('shared-page')).toEqual({
+      listed: 'agent-second',
+      found: 'agent-second',
+      waiting: 'agent-second',
+    })
   })
 
   test('a link made by another key later does not take the entry over: updated did not move', async () => {
-    const id = await run(
+    await run(
       Effect.gen(function* () {
-        const written = yield* as('agent-writer')(
-          writeEntry({ type: 'thing', title: 'Linked page' }),
-        )
+        yield* as('agent-writer')(writeEntry({ type: 'thing', title: 'Linked page' }))
         yield* as('agent-writer')(writeEntry({ type: 'thing', title: 'Other page' }))
         yield* as('agent-linker')(link('linked-page', 'other-page', 'about'))
-        return written.id
       }),
     )
-    expect((await run(lastChangedBy([id]))).get(id)).toBe('agent-writer')
+    expect(await writersOf('linked-page')).toEqual({
+      listed: 'agent-writer',
+      found: 'agent-writer',
+      waiting: 'agent-writer',
+    })
+  })
+
+  test('a reference that resolved by itself when its target came does not take the entry over', async () => {
+    await run(
+      Effect.gen(function* () {
+        yield* as('agent-citer')(
+          writeEntry({ type: 'thing', title: 'Citing page', body: 'See [[cited-later]].' }),
+        )
+        yield* as('agent-target')(writeEntry({ type: 'thing', title: 'Cited later' }))
+      }),
+    )
+    expect((await writersOf('citing-page')).listed).toBe('agent-citer')
   })
 
   test('the key that archived an entry is the one that changed it last', async () => {
-    const id = await run(
+    await run(
       Effect.gen(function* () {
-        const written = yield* as('agent-writer')(writeEntry({ type: 'thing', title: 'Old page' }))
+        yield* as('agent-writer')(writeEntry({ type: 'thing', title: 'Old page' }))
         yield* as('agent-archivist')(archiveEntry('old-page', 'done'))
-        return written.id
       }),
     )
-    expect((await run(lastChangedBy([id]))).get(id)).toBe('agent-archivist')
-  })
-
-  test('several entries in one read, none for an empty list', async () => {
-    const ids = await run(
-      Effect.gen(function* () {
-        const a = yield* as('agent-a')(writeEntry({ type: 'thing', title: 'Page of a' }))
-        const b = yield* as('agent-b')(writeEntry({ type: 'thing', title: 'Page of b' }))
-        return [a.id, b.id]
-      }),
-    )
-    const by = await run(lastChangedBy(ids))
-    expect(ids.map((id) => by.get(id))).toEqual(['agent-a', 'agent-b'])
-    expect((await run(lastChangedBy([]))).size).toBe(0)
+    expect(
+      (await run(search(undefined, { archived: true, limit: 100 }))).find(
+        (each) => each.slug === 'old-page',
+      )?.by,
+    ).toBe('agent-archivist')
   })
 })
 

@@ -183,8 +183,8 @@ with those of the server it kept for the key and replaces a server told otherwis
 is given a list that is stale. "When" is the entry's `updated`. "By which key" is the actor of the
 latest event that moved it (created, updated, archived, or a body rewritten by a rename) in the
 event log: a link or a medium added later by another key leaves `updated`, and so the author,
-where they were. It is read for the whole list in one query (`lastChangedBy`, in
-`src/core/events`).
+where they were. The same definition serves `search` (its `by`, and the `by` filter) and
+`unverified`: one SQL expression, `LAST_WRITER` in `src/core/entries/last-writer.ts`.
 
 What holds across types (what to ask before writing, what never to write, the style) lives in the
 **rules of the instance**: Markdown kept in the database, set by the owner alone from the command
@@ -441,8 +441,9 @@ search configuration, `simple` by default) and accents never matter.
 Without a query, a search lists the entries by most recent change (`sort` `updated`, the default
 then; with a query the default stays `relevance`), bounded by `since` and `until`, and by `by`,
 the key that changed an entry last. When and by whom come from the event log (the actor of the
-entry's last event, leaving aside a `[[reference]]` that resolved by itself when its target was
-created), not from a column of the entry. Over MCP each result also carries these two and its
+latest event that moved the entry's `updated`: created, updated, archived, or its body rewritten by
+a rename; a link, a medium or a `[[reference]]` that resolved by itself leaves it alone), not from
+a column of the entry. Over MCP each result also carries these two and its
 neighbors, the entries next to it, chosen by fixed rules: explicit links, then the parent, then
 the entries named by its `entry` fields, then the entries its body cites, the most recently
 updated first among equals, each with how it is joined and never its body. `read` over MCP leaves

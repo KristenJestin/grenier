@@ -69,8 +69,9 @@ rules and runs no AI.
 - **Without a `query`**, `search` lists the entries by most recent change. `sort` is `relevance`
   (the default with a `query`) or `updated` (the default without one); `since` and `until` (a date
   or a date and time) bound the last change; `by` keeps the entries a key changed last. Each result
-  carries `updated` and `by`, read from the event log: the actor of the last write of the entry,
-  not counting a reference that resolved by itself when its target was created.
+  carries `updated` and `by`, read from the event log: the actor of the latest event that
+  moved its `updated` (created, updated, archived, a body rewritten by a rename); a link or a
+  medium added later leaves it alone.
 - **`read`** answers without the body unless `parts` asks for `body`. It names the parent and the
   successor by slug (`parent`, `superseded_by`), the id beside (`parent_id`, `superseded_by_id`),
   and keys `titles` by slug, each with its `id`. `depth` 2 or 3 (1 by default; 4 is refused) adds

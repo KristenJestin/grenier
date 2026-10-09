@@ -1,6 +1,5 @@
 /** The event log: every write, by whom, and every value before and after it. */
 export { Actor } from './actor.ts'
-export { lastChangedBy } from './changed-by.ts'
 export {
   cursorRefusal,
   Event,
