@@ -226,7 +226,7 @@ describe('merging types', () => {
       }),
     )
     expect(await run(refusalOf(confirmProposal(proposal.id)))).toBe(
-      'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
+      'Only the owner of Hippocampe may confirm a proposal: an agent proposes, the owner decides.',
     )
     await run(asOwner(confirmProposal(proposal.id)))
     const { entry } = await run(readEntry('silent-reel'))

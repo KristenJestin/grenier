@@ -100,7 +100,7 @@ export const lockReferences = Effect.fn('lockReferences')(function* (slugs: Read
   const client = yield* SqlClient.SqlClient
   yield* Effect.forEach(
     [...new Set(slugs)].toSorted(),
-    (slug) => client`SELECT pg_advisory_xact_lock(hashtext(${`grenier.reference ${slug}`}))`,
+    (slug) => client`SELECT pg_advisory_xact_lock(hashtext(${`hippocampe.reference ${slug}`}))`,
   )
 })
 

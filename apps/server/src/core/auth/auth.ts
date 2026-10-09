@@ -5,12 +5,12 @@ import { Config, Context, Effect, Layer, Predicate, Redacted, Result, Schema } f
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { Refused } from '../refused.ts'
-import { grenierAuthAdapter } from './adapter.ts'
+import { hippocampeAuthAdapter } from './adapter.ts'
 import { sqlBridge } from './bridge.ts'
 import { Right, RIGHTS } from './rights.ts'
 
-/** The permissions of a key, as Better Auth keeps them: the rights of the statement `grenier`. */
-const Permissions = Schema.Struct({ grenier: Schema.Array(Right) })
+/** The permissions of a key, as Better Auth keeps them: the rights of the statement `hippocampe`. */
+const Permissions = Schema.Struct({ hippocampe: Schema.Array(Right) })
 
 /** A key as the owner sees it; its secret is never shown again after its creation. */
 export const Key = Schema.Struct({
@@ -44,10 +44,10 @@ export class KeyRefused extends Schema.TaggedError<KeyRefused>()('KeyRefused', {
 const keysPlugin = () =>
   apiKey({
     schema: { apikey: { modelName: 'auth_apikey' } },
-    defaultPrefix: 'grenier_',
+    defaultPrefix: 'hippocampe_',
     requireName: true,
     rateLimit: { enabled: false },
-    // Grenier keeps the expiry itself, in the metadata: Better Auth deletes a key that expired,
+    // Hippocampe keeps the expiry itself, in the metadata: Better Auth deletes a key that expired,
     // and a key must stay listed, its name taken, since it still names writes in the history.
     enableMetadata: true,
   })
@@ -77,7 +77,7 @@ const keyRows = rowsOf(
 )
 
 /**
- * What Grenier keeps of a key beside Better Auth: when it expires. Read from the table it is
+ * What Hippocampe keeps of a key beside Better Auth: when it expires. Read from the table it is
  * JSON text; from Better Auth, an object whose date it has already turned into a `Date`.
  */
 const KeyMetadata = Schema.Union([
@@ -98,10 +98,10 @@ const actors = rowsOf(Schema.Struct({ actor: Schema.String }))
 const rightsOf = Schema.decodeUnknownSync(Schema.fromJsonString(Permissions))
 
 const REFUSALS = new Map([
-  ['KEY_EXPIRED', 'This key has expired: ask the owner of Grenier for a new one.'],
-  ['KEY_DISABLED', 'This key was revoked: ask the owner of Grenier for a new one.'],
+  ['KEY_EXPIRED', 'This key has expired: ask the owner of Hippocampe for a new one.'],
+  ['KEY_DISABLED', 'This key was revoked: ask the owner of Hippocampe for a new one.'],
 ])
-const UNKNOWN_KEY = 'This key is not known to Grenier: check it, or ask the owner for one.'
+const UNKNOWN_KEY = 'This key is not known to Hippocampe: check it, or ask the owner for one.'
 
 /**
  * Better Auth, over the database of the core: one owner, and the API keys the owner gives the
@@ -136,9 +136,9 @@ export class Auth extends Context.Service<
       const bridge = yield* sqlBridge
       const auth = betterAuth({
         secret: Redacted.value(secret),
-        database: grenierAuthAdapter(bridge),
+        database: hippocampeAuthAdapter(bridge),
         telemetry: { enabled: false },
-        // Grenier has no sign-in, redirect or callback, where a base URL matters: its warning
+        // Hippocampe has no sign-in, redirect or callback, where a base URL matters: its warning
         // about a missing one is noise on every command.
         logger: { level: 'error' },
         emailAndPassword: { enabled: false },
@@ -170,7 +170,7 @@ export class Auth extends Context.Service<
 
       const toKey = (row: Effect.Success<typeof keys>[number]): Key => ({
         name: row.name,
-        rights: row.permissions === null ? [] : rightsOf(row.permissions).grenier,
+        rights: row.permissions === null ? [] : rightsOf(row.permissions).hippocampe,
         expires_at:
           expiryOf(row.metadata) ?? (row.expires_at === null ? null : row.expires_at.toISOString()),
         revoked: row.enabled === false,
@@ -183,7 +183,7 @@ export class Auth extends Context.Service<
           const existing = yield* owner
           if (existing !== undefined) {
             return yield* new Refused({
-              message: `The owner already exists: \`${existing.email}\`. Grenier has one owner.`,
+              message: `The owner already exists: \`${existing.email}\`. Hippocampe has one owner.`,
             })
           }
           const context = yield* call(() => auth.$context)
@@ -241,7 +241,7 @@ export class Auth extends Context.Service<
               body: {
                 name,
                 userId: user.id,
-                permissions: { grenier: [...rights] },
+                permissions: { hippocampe: [...rights] },
                 metadata:
                   expiresInDays === undefined
                     ? {}
@@ -289,7 +289,7 @@ export class Auth extends Context.Service<
           const permissions = Schema.decodeUnknownSync(Schema.NullOr(Permissions))(
             result.key.permissions,
           )
-          return { name: result.key.name ?? '', rights: permissions?.grenier ?? [] }
+          return { name: result.key.name ?? '', rights: permissions?.hippocampe ?? [] }
         }),
       })
     }),

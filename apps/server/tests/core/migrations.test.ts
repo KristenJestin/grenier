@@ -143,7 +143,7 @@ describe('a database made by the migrations before Drizzle is taken over', () =>
     const error = await onScratch(Effect.andThen(byEffectMigrations(11), Effect.flip(migrate)))
     expect(error).toBeInstanceOf(MigrationsBehind)
     expect(error.message).toBe(
-      'This database stands at migration 11 of the migrations before Drizzle, not 12: migrate it with the previous version of Grenier first.',
+      'This database stands at migration 11 of the migrations before Drizzle, not 12: migrate it with the previous version of Hippocampe first.',
     )
   })
 })
@@ -169,7 +169,7 @@ describe('the migrations follow the schema', () => {
   test('drizzle-kit, run on the schema, finds nothing to migrate', () => {
     const app = new URL('../..', import.meta.url).pathname
     const folder = join(app, 'src/core/database/migrations')
-    const copy = mkdtempSync(join(tmpdir(), 'grenier-migrations-'))
+    const copy = mkdtempSync(join(tmpdir(), 'hippocampe-migrations-'))
     try {
       cpSync(folder, copy, { recursive: true })
       const output = execFileSync(

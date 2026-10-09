@@ -535,7 +535,7 @@ describe('the owner confirms a supposition', () => {
 
   test('only the owner confirms, and what is known already cannot be', async () => {
     expect(await run(refusalOf(confirmValue('supposed-text', 'summary', 'owner-person')))).toBe(
-      'Only the owner of Grenier may confirm a supposition, from the command line.',
+      'Only the owner of Hippocampe may confirm a supposition, from the command line.',
     )
     expect(
       await run(refusalOf(asOwner(confirmValue('supposed-text', 'body', 'owner-person')))),

@@ -268,19 +268,19 @@ export const changeField = Effect.fn('changeField')(
     if (!(yield* Rights).includes('sensitive')) {
       if (type.sensitive === true) {
         return yield* new Refused({
-          message: `The type \`${type.name}\` is sensitive: this key may not change its fields; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+          message: `The type \`${type.name}\` is sensitive: this key may not change its fields; ask the owner of Hippocampe for a key with the right \`sensitive\`.`,
         })
       }
       if (old.sensitive === true) {
         return yield* new Refused({
-          message: `The field \`${old.name}\` of \`${type.name}\` is sensitive: this key may not change it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+          message: `The field \`${old.name}\` of \`${type.name}\` is sensitive: this key may not change it; ask the owner of Hippocampe for a key with the right \`sensitive\`.`,
         })
       }
     }
     // Lifting a field's sensitivity shows its values at once: the owner's call alone.
     if (old.sensitive === true && input.sensitive === false && !(yield* Rights).includes('owner')) {
       return yield* new Refused({
-        message: `Only the owner of Grenier may make the field \`${old.name}\` of \`${type.name}\` no longer sensitive: they do it from the command line, with \`field:sensitive ${type.name} ${old.name} --off\`.`,
+        message: `Only the owner of Hippocampe may make the field \`${old.name}\` of \`${type.name}\` no longer sensitive: they do it from the command line, with \`field:sensitive ${type.name} ${old.name} --off\`.`,
       })
     }
     const sensitive = input.sensitive ?? old.sensitive === true
@@ -552,7 +552,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
   if (!(yield* Rights).includes('owner')) {
     return yield* new Refused({
       message:
-        'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
+        'Only the owner of Hippocampe may confirm a proposal: an agent proposes, the owner decides.',
     })
   }
   const actor = yield* currentActor

@@ -63,7 +63,7 @@ export const dropScratchDatabase = (name: string) =>
 export const emptyScratchDatabase = Layer.unwrap(
   Effect.gen(function* () {
     const server = new URL(Redacted.value(yield* databaseUrl))
-    const name = `grenier_test_${crypto.randomUUID().replaceAll('-', '')}`
+    const name = `hippocampe_test_${crypto.randomUUID().replaceAll('-', '')}`
     yield* Effect.acquireRelease(
       onServer(Effect.flatMap(SqlClient.SqlClient, (sql) => sql`CREATE DATABASE ${sql(name)}`)),
       () =>

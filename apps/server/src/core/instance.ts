@@ -30,7 +30,7 @@ export const Instance = Context.Reference<Instance>('@hippocampe/core/instance/I
 
 /** The name the MCP server announces, distinct for each instance. */
 export const mcpServerName = (name: InstanceName) =>
-  ({ production: 'grenier', development: 'grenier-dev', local: 'grenier-local' })[name]
+  ({ production: 'hippocampe', development: 'hippocampe-dev', local: 'hippocampe-local' })[name]
 
 export class InstanceMissing extends Schema.TaggedError<InstanceMissing>()('InstanceMissing', {}) {
   override readonly message =

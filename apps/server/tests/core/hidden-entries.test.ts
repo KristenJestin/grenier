@@ -21,7 +21,7 @@ import {
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
-const directory = mkdtempSync(join(tmpdir(), 'grenier-hidden-'))
+const directory = mkdtempSync(join(tmpdir(), 'hippocampe-hidden-'))
 
 type Database = SqlClient.SqlClient | PgClient.PgClient
 

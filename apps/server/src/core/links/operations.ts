@@ -362,7 +362,7 @@ export const confirmLink = Effect.fn('confirmLink')(function* (
   const actor = yield* currentActor
   if (!(yield* Rights).includes('owner')) {
     return yield* new Refused({
-      message: 'Only the owner of Grenier may confirm a supposition, from the command line.',
+      message: 'Only the owner of Hippocampe may confirm a supposition, from the command line.',
     })
   }
   if (relation === MENTIONS) {

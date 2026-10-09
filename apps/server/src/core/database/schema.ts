@@ -1,5 +1,5 @@
 /**
- * The tables of Grenier, described for Drizzle: drizzle-kit generates the migrations from this
+ * The tables of Hippocampe, described for Drizzle: drizzle-kit generates the migrations from this
  * file, and the operations of the core query through it. Constraints and indexes keep the names
  * PostgreSQL gave them when the database was made by hand-written migrations, so a database of
  * that time and one made from this schema are the same.
@@ -26,7 +26,7 @@ import {
 
 const at = { withTimezone: true, mode: 'date' } as const
 
-/** A text search configuration, such as `simple` or `grenier_french`. */
+/** A text search configuration, such as `simple` or `hippocampe_french`. */
 const regconfig = customType<{ data: string }>({ dataType: () => 'regconfig' })
 
 /** A full-text index, computed by PostgreSQL. */
@@ -60,7 +60,7 @@ export const types = pgTable('types', {
 })
 
 /**
- * Everything Grenier stores: the base fields of every entry, and the values of its type. The
+ * Everything Hippocampe stores: the base fields of every entry, and the values of its type. The
  * full-text index is weighted: title and aliases, then tags and summary, then body and the
  * descriptions of the entry's media; each entry keeps the configuration it is indexed with.
  */
@@ -444,7 +444,7 @@ export const inbox = pgTable(
 )
 
 /**
- * What diagnostics found wrong with Grenier itself, one row per problem: reports of agents and
+ * What diagnostics found wrong with Hippocampe itself, one row per problem: reports of agents and
  * unexpected errors of the server, the same problem counted once with its occurrences.
  */
 export const findings = pgTable(

@@ -286,7 +286,7 @@ export const changeType = Effect.fn('changeType')(function* (
       const inParent = input.read_in_parent ?? type.read_in_parent === true
       if (type.sensitive === true && !sensitive && !rights.includes('owner')) {
         return yield* new Refused({
-          message: `Only the owner of Grenier may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
+          message: `Only the owner of Hippocampe may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
         })
       }
       const { sensitive: _, read_in_parent: __, ...rest } = type

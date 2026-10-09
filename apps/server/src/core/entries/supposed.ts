@@ -191,7 +191,7 @@ export const confirmValue = Effect.fn('confirmValue')(function* (
   const client = yield* SqlClient.SqlClient
   if (!(yield* Rights).includes('owner')) {
     return yield* new Refused({
-      message: 'Only the owner of Grenier may confirm a supposition, from the command line.',
+      message: 'Only the owner of Hippocampe may confirm a supposition, from the command line.',
     })
   }
   return yield* client.withTransaction(

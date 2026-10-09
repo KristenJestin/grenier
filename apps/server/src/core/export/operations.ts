@@ -70,7 +70,7 @@ const markdown = (front: { readonly [key: string]: Schema.Json | undefined }, bo
   `---\n${stringify(front, { lineWidth: 0 })}---\n${body === '' ? '' : `\n${body}`}`
 
 /**
- * Everything Grenier holds, as the files of the Markdown export, sorted by path: each type in
+ * Everything Hippocampe holds, as the files of the Markdown export, sorted by path: each type in
  * `_types/<name>.md`, each entry in `<slug>.md` inside the folder of the oldest place it is part of
  * today (`<place slug>/`, beside the place's own file), archived entries included; the file of an
  * entry stays in that one folder, and every other place lists it, with a relative link, in its
