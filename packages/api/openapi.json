@@ -124,7 +124,19 @@
             "required": false
           },
           {
-            "name": "verified",
+            "name": "supposed",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "unstated",
             "in": "query",
             "schema": {
               "type": "string",
@@ -482,7 +494,19 @@
             "required": false
           },
           {
-            "name": "verified",
+            "name": "supposed",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "unstated",
             "in": "query",
             "schema": {
               "type": "string",
@@ -645,6 +669,12 @@
           "summary": {
             "type": "string"
           },
+          "summary_provenance": {
+            "type": "string",
+            "enum": [
+              "inferred"
+            ]
+          },
           "path": {
             "type": "array",
             "items": {
@@ -656,6 +686,12 @@
           },
           "rank": {
             "type": "number"
+          },
+          "supposed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Supposed"
+            }
           }
         },
         "required": [
@@ -667,6 +703,40 @@
           "path",
           "excerpt",
           "rank"
+        ],
+        "additionalProperties": false
+      },
+      "Supposed": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "when": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "what",
+          "by",
+          "when"
         ],
         "additionalProperties": false
       },
@@ -903,6 +973,15 @@
               }
             ]
           },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "extracted",
+              "inferred",
+              "ambiguous",
+              "unstated"
+            ]
+          },
           "note": {
             "anyOf": [
               {
@@ -947,6 +1026,7 @@
           "relation",
           "period",
           "field",
+          "provenance",
           "note",
           "valid_from",
           "valid_until",
@@ -1087,7 +1167,8 @@
               "enum": [
                 "extracted",
                 "inferred",
-                "ambiguous"
+                "ambiguous",
+                "unstated"
               ]
             }
           },
@@ -1102,9 +1183,6 @@
           },
           "summary": {
             "type": "string"
-          },
-          "verified": {
-            "type": "boolean"
           },
           "created": {
             "type": "string"
@@ -1176,7 +1254,6 @@
           "sources",
           "body",
           "summary",
-          "verified",
           "created",
           "updated",
           "valid_from",
@@ -1191,6 +1268,9 @@
         "anyOf": [
           {
             "$ref": "#/components/schemas/SourceEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SourceSaid"
           },
           {
             "$ref": "#/components/schemas/SourceUrl"
@@ -1260,6 +1340,34 @@
         },
         "required": [
           "url"
+        ],
+        "additionalProperties": false
+      },
+      "SourceSaid": {
+        "type": "object",
+        "properties": {
+          "said_by": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "on": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "A few words on what this source gave."
+          }
+        },
+        "required": [
+          "said_by",
+          "slug",
+          "title",
+          "on"
         ],
         "additionalProperties": false
       },

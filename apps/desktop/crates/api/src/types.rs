@@ -115,7 +115,6 @@ pub struct Entry {
     pub valid_from: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub valid_until: ::std::option::Option<::std::string::String>,
-    pub verified: bool,
 }
 #[doc = "`EntryList`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -144,6 +143,8 @@ pub enum EntryProvenanceValue {
     Inferred,
     #[serde(rename = "ambiguous")]
     Ambiguous,
+    #[serde(rename = "unstated")]
+    Unstated,
 }
 impl ::std::fmt::Display for EntryProvenanceValue {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -151,6 +152,7 @@ impl ::std::fmt::Display for EntryProvenanceValue {
             Self::Extracted => f.write_str("extracted"),
             Self::Inferred => f.write_str("inferred"),
             Self::Ambiguous => f.write_str("ambiguous"),
+            Self::Unstated => f.write_str("unstated"),
         }
     }
 }
@@ -161,6 +163,7 @@ impl ::std::str::FromStr for EntryProvenanceValue {
             "extracted" => Ok(Self::Extracted),
             "inferred" => Ok(Self::Inferred),
             "ambiguous" => Ok(Self::Ambiguous),
+            "unstated" => Ok(Self::Unstated),
             _ => Err("invalid value".into()),
         }
     }
@@ -589,6 +592,7 @@ pub struct Link {
     pub note: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub period: ::std::option::Option<::std::string::String>,
+    pub provenance: LinkProvenance,
     pub relation: ::std::string::String,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
@@ -596,6 +600,65 @@ pub struct Link {
     pub valid_from: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub valid_until: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`LinkProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum LinkProvenance {
+    #[serde(rename = "extracted")]
+    Extracted,
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "ambiguous")]
+    Ambiguous,
+    #[serde(rename = "unstated")]
+    Unstated,
+}
+impl ::std::fmt::Display for LinkProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Extracted => f.write_str("extracted"),
+            Self::Inferred => f.write_str("inferred"),
+            Self::Ambiguous => f.write_str("ambiguous"),
+            Self::Unstated => f.write_str("unstated"),
+        }
+    }
+}
+impl ::std::str::FromStr for LinkProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "extracted" => Ok(Self::Extracted),
+            "inferred" => Ok(Self::Inferred),
+            "ambiguous" => Ok(Self::Ambiguous),
+            "unstated" => Ok(Self::Unstated),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for LinkProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for LinkProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 #[doc = "`Medium`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -697,9 +760,60 @@ pub struct SearchResult {
     pub rank: f64,
     pub slug: ::std::string::String,
     pub summary: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub summary_provenance: ::std::option::Option<SearchResultSummaryProvenance>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub supposed: ::std::vec::Vec<Supposed>,
     pub title: ::std::string::String,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
+}
+#[doc = "`SearchResultSummaryProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SearchResultSummaryProvenance {
+    #[serde(rename = "inferred")]
+    Inferred,
+}
+impl ::std::fmt::Display for SearchResultSummaryProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Inferred => f.write_str("inferred"),
+        }
+    }
+}
+impl ::std::str::FromStr for SearchResultSummaryProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "inferred" => Ok(Self::Inferred),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SearchResultSummaryProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SearchResultSummaryProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 #[doc = "`SearchResults`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -711,6 +825,7 @@ pub struct SearchResults {
 #[serde(untagged)]
 pub enum Source {
     Entry(SourceEntry),
+    Said(SourceSaid),
     Url(SourceUrl),
     Identifier(SourceIdentifier),
     Item(SourceItem),
@@ -718,6 +833,11 @@ pub enum Source {
 impl ::std::convert::From<SourceEntry> for Source {
     fn from(value: SourceEntry) -> Self {
         Self::Entry(value)
+    }
+}
+impl ::std::convert::From<SourceSaid> for Source {
+    fn from(value: SourceSaid) -> Self {
+        Self::Said(value)
     }
 }
 impl ::std::convert::From<SourceUrl> for Source {
@@ -768,6 +888,17 @@ pub struct SourceItem {
     #[doc = "Where the item came from: `inbox` for an item of the inbox."]
     pub source: ::std::string::String,
 }
+#[doc = "`SourceSaid`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct SourceSaid {
+    #[doc = "A few words on what this source gave."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub note: ::std::option::Option<::std::string::String>,
+    pub on: ::std::string::String,
+    pub said_by: ::std::string::String,
+    pub slug: ::std::string::String,
+    pub title: ::std::string::String,
+}
 #[doc = "`SourceUrl`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceUrl {
@@ -776,6 +907,15 @@ pub struct SourceUrl {
     pub note: ::std::option::Option<::std::string::String>,
     #[doc = "The address of the page the entry comes from."]
     pub url: ::std::string::String,
+}
+#[doc = "`Supposed`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Supposed {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub by: ::std::option::Option<::std::string::String>,
+    pub what: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub when: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`TreeEntry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

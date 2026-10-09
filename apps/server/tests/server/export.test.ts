@@ -94,13 +94,19 @@ beforeAll(async () => {
         fields: [],
         sensitive: true,
       })
-      yield* writeEntry({ type: 'area', title: 'Kitchen', body: 'What we cook.\n' })
+      yield* writeEntry({
+        type: 'area',
+        title: 'Kitchen',
+        body: 'What we cook.\n',
+        provenance: { body: 'inferred' },
+      })
       yield* writeEntry({ type: 'area', title: 'Garden' })
       yield* writeEntry({
         type: 'recipe',
         title: 'Leek soup',
         parent: 'kitchen',
         fields: { servings: 2 },
+        provenance: { servings: 'inferred' },
       })
       yield* writeEntry({
         type: 'recipe',
@@ -112,15 +118,28 @@ beforeAll(async () => {
         sources: [{ url: 'https://example.org/plum-tart' }],
         fields: { servings: 4, cost: '4.50 EUR' },
         body: 'Lighter than [[leek-soup]].\n',
+        provenance: {
+          servings: 'inferred',
+          cost: 'inferred',
+          body: 'inferred',
+          summary: 'inferred',
+        },
       })
       yield* writeEntry({
         type: 'recipe',
         title: 'Shortcrust',
         parent: 'plum-tart',
         fields: { servings: 1 },
+        provenance: { servings: 'inferred' },
       })
-      yield* writeEntry({ type: 'diary', title: 'Monday', parent: 'garden', body: 'Rain.\n' })
-      yield* link('plum-tart', 'leek-soup', 'goes_with')
+      yield* writeEntry({
+        type: 'diary',
+        title: 'Monday',
+        parent: 'garden',
+        body: 'Rain.\n',
+        provenance: { body: 'inferred' },
+      })
+      yield* link('plum-tart', 'leek-soup', 'goes_with', '', '', { provenance: 'inferred' })
       yield* attachMedia({
         entry: 'plum-tart',
         data: Buffer.from('<!doctype html><p>Plum tart</p>').toString('base64'),
@@ -171,15 +190,20 @@ describe('the nightly export into a git repository', () => {
         valid_from: null,
         valid_until: null,
         superseded_by: null,
-        verified: false,
         archived_at: null,
         archived_reason: null,
         sources: [{ url: 'https://example.org/plum-tart' }],
         fields: { cost: '[hidden]', servings: 4 },
-        provenance: {},
+        provenance: {
+          body: 'inferred',
+          cost: 'inferred',
+          servings: 'inferred',
+          summary: 'inferred',
+        },
         links: [
-          { relation: 'goes_with', target: 'leek-soup' },
-          { relation: 'mentions', target: 'leek-soup' },
+          { relation: 'goes_with', target: 'leek-soup', provenance: 'inferred' },
+          // As known as the body it comes from.
+          { relation: 'mentions', target: 'leek-soup', provenance: 'inferred' },
         ],
         media: [
           {
@@ -225,7 +249,13 @@ describe('the nightly export into a git repository', () => {
   })
 
   test('changing one field changes one file and one line in the next commit', async () => {
-    await run(writeEntry({ entry: 'shortcrust', fields: { servings: 2 } }))
+    await run(
+      writeEntry({
+        entry: 'shortcrust',
+        fields: { servings: 2 },
+        provenance: { servings: 'inferred' },
+      }),
+    )
     expect(cli('export:markdown', folder).stdout).toMatch(/: 0 created, 1 updated, 0 archived\.\n$/)
     expect(git(folder, 'show', '--format=', '--name-only', 'HEAD')).toBe(
       'kitchen/plum-tart/shortcrust.md\n',
@@ -275,7 +305,9 @@ describe('the nightly export into a git repository', () => {
     expect(git(pushed, 'rev-list', '--count', 'HEAD')).toBe('1\n')
 
     execFileSync('git', ['init', '--quiet', '--bare', remote])
-    await run(writeEntry({ entry: 'garden', body: 'Beds and hedges.\n' }))
+    await run(
+      writeEntry({ entry: 'garden', body: 'Beds and hedges.\n', provenance: { body: 'inferred' } }),
+    )
     const next = cli('export:markdown', pushed, '--remote', remote)
     expect(next.status).toBe(0)
     expect(next.stdout).toMatch(/: 0 created, 1 updated, 0 archived\.\nPushed\.\n$/)
@@ -373,7 +405,13 @@ describe('the export never pushes a sensitive value, and holds everything', () =
     expect(cli('export:markdown', counted).status).toBe(0)
     // As a run stopped in the middle would leave it.
     writeFileSync(join(counted, 'garden.md'), 'half written')
-    await run(writeEntry({ entry: 'kitchen', summary: 'Where we cook.' }))
+    await run(
+      writeEntry({
+        entry: 'kitchen',
+        summary: 'Where we cook.',
+        provenance: { summary: 'inferred' },
+      }),
+    )
     expect(cli('export:markdown', counted).stdout).toMatch(
       /: 0 created, 1 updated, 0 archived\.\n$/,
     )
@@ -397,6 +435,7 @@ describe('the export never pushes a sensitive value, and holds everything', () =
           title: 'Rainy days',
           sources: [{ entry: 'monday' }],
           fields: { one: 'monday', several: ['monday', 'garden'] },
+          provenance: { one: 'inferred', several: 'inferred' },
         })
         return (yield* readEntry('monday')).entry.id
       }),
