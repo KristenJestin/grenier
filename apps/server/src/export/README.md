@@ -35,9 +35,10 @@ _rules.md                         the rules of the instance, as the owner wrote 
   only when the entry is filed elsewhere or its slug changes.
 - The front matter holds the base fields (`id`, `type`, `title`, `slug`, `aliases`, `tags`,
   `summary`, `created`, `updated`, `valid_from`, `valid_until`, `superseded_by` as a slug,
-  `verified`, `archived_at`, `sources`), the values of the type's `fields` and their
-  `provenance` as they are stored (a field that is `many` as a list), the outgoing `links`
-  (relation and target slug, with the period and the field of a link `fulfills`, and the `note`,
+  `archived_at`, `sources`), the values of the type's `fields` and their
+  `provenance` as they are stored (`extracted` is known, `inferred` supposed; the keys `body` and
+  `summary` are the provenance of the body and the summary; a field that is `many` as a list), the outgoing `links`
+  (relation and target slug, with its `provenance`, the period and the field of a link `fulfills`, and the `note`,
   `valid_from` and `valid_until` of a link that has them), and the `media` (hash, file under the media folder, kind,
   type, size, description). Media files are not copied.
 - Then the body, as it is stored, `[[slug]]` references left as they are.

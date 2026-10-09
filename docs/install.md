@@ -23,7 +23,7 @@ that declares it in Claude Code. Grenier listens on `127.0.0.1` only. The instan
 | The environment of the service (its secret, its database URL), the first key | `~/.config/grenier/grenier.env`, `~/.config/grenier/key` (both readable by the user only) |
 | The units | `~/.config/systemd/user/grenier.service`, `grenier-postgres.service` |
 
-A command run on this machine (`grenier key:create`, `grenier entry:verify`…) reaches this Grenier:
+A command run on this machine (`grenier key:create`, `grenier supposed`…) reaches this Grenier:
 it reads `grenier.env` when the environment does not say otherwise.
 
 ## Day to day
