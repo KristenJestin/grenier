@@ -8,12 +8,14 @@ export {
   HIDDEN,
   Link,
   Medium,
+  Place,
   PROVENANCES,
   Source,
   SourceGiven,
   SourceKept,
   STORED_PROVENANCES,
   TreeEntry,
+  TreePlace,
   WriteEntryInput,
 } from './entries.ts'
 export {

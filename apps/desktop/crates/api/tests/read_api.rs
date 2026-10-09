@@ -1,13 +1,16 @@
 //! The generated types read what the server's read API returns.
 
-use api::{EntryProvenanceValue, EntryRead, LinkProvenance, SearchResults, Source, TypeList};
+use api::{
+    EntryProvenanceValue, EntryRead, LinkProvenance, PlaceProvenance, SearchResults, Source,
+    TypeList,
+};
 
 /// An entry as `GET /api/entries/{entry}` returns it, with invented data: a sensitive value
 /// hidden, every kind of source, a medium, links both ways and a hidden child.
 const ENTRY: &str = r#"{
   "entry": {
     "id": "01a1-entry", "type": "recipe", "title": "Plum tart", "slug": "plum-tart",
-    "aliases": ["tarte aux prunes"], "tags": ["dessert"], "parent_id": "01a1-kitchen",
+    "aliases": ["tarte aux prunes"], "tags": ["dessert"],
     "fields": { "serves": 6, "cost": "[hidden]", "bought_from": ["01a1-market", "01a1-farm"] }, "provenance": { "serves": "extracted", "cost": "inferred", "body": "unstated", "summary": "inferred" },
     "sources": [
       { "entry": "01a1-notebook", "slug": "kitchen-notebook", "title": "Kitchen notebook" },
@@ -21,6 +24,10 @@ const ENTRY: &str = r#"{
     "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null, "archived_reason": null
   },
   "path": ["Kitchen"],
+  "part_of": [
+    { "id": "01a1-kitchen", "slug": "kitchen", "title": "Kitchen", "period": null, "provenance": "unstated", "note": null, "valid_from": null, "valid_until": null },
+    { "id": "01a1-market", "slug": "market", "title": "Market", "period": "2026-03-01", "provenance": "extracted", "note": "the stall", "valid_from": "2026-03-01", "valid_until": null }
+  ],
   "ancestors": [{ "id": "01a1-kitchen", "title": "Kitchen" }],
   "references": [{ "reference": "pastry", "id": "01a1-pastry", "title": "Pastry" }],
   "links": [
@@ -44,6 +51,12 @@ fn an_entry_reads_with_its_sources_media_and_links() {
     let read: EntryRead = serde_json::from_str(ENTRY).expect("an entry as the API returns it");
     assert_eq!(read.entry.title, "Plum tart");
     assert_eq!(read.hidden_children, 1);
+    assert_eq!(read.part_of.len(), 2);
+    assert_eq!(read.part_of[1].valid_from.as_deref(), Some("2026-03-01"));
+    assert!(matches!(
+        read.part_of[0].provenance,
+        PlaceProvenance::Unstated
+    ));
     assert_eq!(read.media[0].width, Some(1));
     assert!(
         matches!(&read.entry.sources[0], Source::Entry(entry) if entry.title == "Kitchen notebook")

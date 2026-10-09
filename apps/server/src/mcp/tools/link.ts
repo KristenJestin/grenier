@@ -10,7 +10,7 @@ const LinkInput = Schema.Struct({
   relation: Schema.String.annotate({ description: 'A snake_case relation such as `about`.' }),
   period: Schema.optionalKey(Schema.String).annotate({
     description:
-      'For `fulfills` only: the period of the occurrence it closes, `2026` (yearly), `2026-10` (monthly), `2026-W41` (weekly) or the date of a single deadline.',
+      "For `fulfills`: the period of the occurrence it closes, `2026` (yearly), `2026-10` (monthly), `2026-W41` (weekly) or the date of a single deadline. For `part_of`: a later stay in the same place, named by the day it began (`period` in `read`'s `part_of`); leave it out for the first.",
   }),
   field: Schema.optionalKey(Schema.String).annotate({
     description:
@@ -46,7 +46,7 @@ const LinkWithAbout = Schema.Struct({
 export const linkTool = defineTool({
   name: 'link',
   description:
-    'Links two entries with a relation, such as a person `works_at` an organization, and says whether the link is known (`extracted`) or supposed (`inferred`) in `provenance`, always. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date). `remove: true` removes the link instead.',
+    'Links two entries with a relation, such as a person `works_at` an organization, and says whether the link is known (`extracted`) or supposed (`inferred`) in `provenance`, always. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. The relation `part_of` is reserved: the entry is a part of the target (a component of a machine, a note of a project), and the links `part_of` that hold today are the tree. An entry may be part of several entries, and may have been part of others before, or in the same one twice: give the dates it held; a place that holds today may not close a loop (a link dated in the future is not checked until it begins). `write` with `parent` sets the oldest place, ending the former one yesterday. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date). `remove: true` removes the link instead.',
   input: LinkWithAbout,
   right: 'write',
   hints: { destructive: true, idempotent: false },

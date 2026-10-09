@@ -50,7 +50,8 @@ export const SearchOptions = Schema.Struct({
     description: 'Only the entries of this type, by its name.',
   }),
   under: Schema.optionalKey(Schema.String).annotate({
-    description: 'Only the entries filed below this entry, at any depth: its slug or id.',
+    description:
+      'Only the entries that are part of this entry, at any depth (through the places they are part of today): its slug or id.',
   }),
   archived: Schema.optionalKey(Schema.Boolean).annotate({
     description: 'Also find the archived entries, which are left out unless this is true.',

@@ -684,7 +684,7 @@ export const TASKS: ReadonlyArray<Task> = [
               parent: 'pantry-nas-disk-replacement',
               summary: 'Why the Halden 8 TB was chosen over the Corvid 6 TB for the Pantry NAS.',
               body: 'The Halden 8 TB is quieter and has a five-year warranty; the Corvid 6 TB is cheaper but only has two years.',
-              provenance: { body: 'inferred', summary: 'inferred' },
+              provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
             },
             {
               type: 'note',
@@ -692,7 +692,7 @@ export const TASKS: ReadonlyArray<Task> = [
               parent: 'pantry-nas-disk-replacement',
               summary: 'What to send to claim the warranty of the failing disk of the Pantry NAS.',
               body: 'Send the serial number and the error log to the maker, then ship the disk back within thirty days.',
-              provenance: { body: 'inferred', summary: 'inferred' },
+              provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
             },
             {
               type: 'note',
@@ -700,7 +700,7 @@ export const TASKS: ReadonlyArray<Task> = [
               parent: 'pantry-nas-disk-replacement',
               summary: 'The order of the work to swap the failing disk of the Pantry NAS.',
               body: 'Snapshot first, replace the disk, let the pool resilver, then check the data.',
-              provenance: { body: 'inferred', summary: 'inferred' },
+              provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
             },
           ]),
           Actor,

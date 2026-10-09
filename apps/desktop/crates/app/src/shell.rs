@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use api::{TreeEntry, TypeDefinition};
+use api::{TreeEntry, TreePlace, TypeDefinition};
 use gpui_kit::{
     AppContext as _, Context, Entity, IntoElement, Render, SharedString, Subscription, Task,
     Window, WindowAppearance, px,
@@ -450,57 +450,107 @@ impl Shell {
     }
 }
 
-/// The tree from its entries: each under its parent, by title as the server gives them; an entry
-/// whose parent this key does not see stands at the top, so that none goes missing. A part of its
-/// parent (`in_parent`) is read in the parent's page, not listed under it.
+/// The tree from its entries: each under every place it is part of, by title as the server gives
+/// them, so that an entry with two places is drawn under both. An entry none of whose places this
+/// key sees stands at the top, so that none goes missing. A part of its whole (`in_parent`) is read
+/// in the whole's page, not listed under it; what is filed under such a part goes under the whole.
 pub fn tree_of(entries: &[TreeEntry]) -> Vec<TreeNode> {
     let by_id: HashMap<&str, &TreeEntry> = entries
         .iter()
         .map(|entry| (entry.id.as_str(), entry))
         .collect();
+    /// The places of an entry this key sees, the oldest first.
+    fn seen<'a>(entry: &'a TreeEntry, by_id: &HashMap<&str, &TreeEntry>) -> Vec<&'a TreePlace> {
+        entry
+            .part_of
+            .iter()
+            .filter(|place| by_id.contains_key(place.id.as_str()))
+            .collect()
+    }
+    /// Whether the tree lists no branch for an entry: it is read in the page of each of its places.
+    fn is_part(entry: &TreeEntry, by_id: &HashMap<&str, &TreeEntry>) -> bool {
+        let places = seen(entry, by_id);
+        !places.is_empty() && places.iter().all(|place| place.in_parent)
+    }
+    /// Where what is filed under an entry stands in the tree: under the entry itself, or, when the
+    /// tree lists no branch for it, under the wholes it is read in.
+    fn stands<'a>(
+        id: &'a str,
+        by_id: &HashMap<&'a str, &'a TreeEntry>,
+        chain: &mut Vec<&'a str>,
+    ) -> Vec<&'a str> {
+        let entry = by_id[id];
+        if !is_part(entry, by_id) {
+            return vec![id];
+        }
+        let mut found: Vec<&str> = Vec::new();
+        chain.push(id);
+        for place in seen(entry, by_id) {
+            if chain.contains(&place.id.as_str()) {
+                continue;
+            }
+            for home in stands(place.id.as_str(), by_id, chain) {
+                if !found.contains(&home) {
+                    found.push(home);
+                }
+            }
+        }
+        chain.pop();
+        found
+    }
+    /// The entries to draw an entry under (`None` is the top): its places that list it.
+    fn homes<'a>(
+        entry: &'a TreeEntry,
+        by_id: &HashMap<&'a str, &'a TreeEntry>,
+    ) -> Vec<Option<&'a str>> {
+        let places = seen(entry, by_id);
+        if places.is_empty() {
+            return vec![None];
+        }
+        let mut found: Vec<Option<&str>> = Vec::new();
+        for place in places.iter().filter(|place| !place.in_parent) {
+            for home in stands(place.id.as_str(), by_id, &mut Vec::new()) {
+                if !found.contains(&Some(home)) {
+                    found.push(Some(home));
+                }
+            }
+        }
+        found
+    }
     let mut under: HashMap<Option<&str>, Vec<&TreeEntry>> = HashMap::new();
     for entry in entries {
-        let parent = entry
-            .parent_id
-            .as_deref()
-            .filter(|parent| by_id.contains_key(parent));
-        if entry.in_parent && parent.is_some() {
+        if is_part(entry, &by_id) {
             continue;
         }
-        // An entry filed under a part, which the tree does not list, goes under the whole.
-        let mut parent = parent;
-        while let Some(part) = parent
-            .and_then(|id| by_id.get(id))
-            .filter(|part| part.in_parent)
-        {
-            parent = part
-                .parent_id
-                .as_deref()
-                .filter(|above| by_id.contains_key(above));
+        for home in homes(entry, &by_id) {
+            under.entry(home).or_default().push(entry);
         }
-        under.entry(parent).or_default().push(entry);
     }
-    fn build(
-        parent: Option<&str>,
-        under: &HashMap<Option<&str>, Vec<&TreeEntry>>,
+    fn build<'a>(
+        parent: Option<&'a str>,
+        under: &HashMap<Option<&'a str>, Vec<&'a TreeEntry>>,
+        chain: &mut Vec<&'a str>,
     ) -> Vec<TreeNode> {
-        under
-            .get(&parent)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .map(|entry| TreeNode {
-                        id: entry.id.clone().into(),
-                        title: entry.title.clone().into(),
-                        type_name: entry.type_.clone().into(),
-                        archived: false,
-                        children: build(Some(&entry.id), under),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        let mut nodes = Vec::new();
+        for entry in under.get(&parent).into_iter().flatten().copied() {
+            // A loop among the places, which the server refuses, is never drawn.
+            if chain.contains(&entry.id.as_str()) {
+                continue;
+            }
+            chain.push(entry.id.as_str());
+            let children = build(Some(&entry.id), under, chain);
+            chain.pop();
+            nodes.push(TreeNode {
+                id: entry.id.clone().into(),
+                title: entry.title.clone().into(),
+                type_name: entry.type_.clone().into(),
+                archived: false,
+                children,
+            });
+        }
+        nodes
     }
-    build(None, &under)
+    build(None, &under, &mut Vec::new())
 }
 
 impl Render for Shell {
@@ -512,19 +562,12 @@ impl Render for Shell {
 #[cfg(test)]
 mod tests {
     use super::tree_of;
-    use api::TreeEntry;
+    use api::{TreeEntry, TreePlace};
+    use ui::viewer::TreeNode;
 
-    #[test]
-    fn the_children_of_a_part_are_filed_under_the_whole_it_belongs_to() {
-        let mut disk = entry("disk", Some("computer"));
-        disk.in_parent = true;
-        let tree = tree_of(&[
-            entry("computer", None),
-            disk,
-            entry("disk-manual", Some("disk")),
-        ]);
-        let shape: Vec<(&str, Vec<&str>)> = tree
-            .iter()
+    /// The tree as (entry, entries below it), one level.
+    fn shape(tree: &[TreeNode]) -> Vec<(&str, Vec<&str>)> {
+        tree.iter()
             .map(|node| {
                 (
                     node.id.as_ref(),
@@ -534,43 +577,114 @@ mod tests {
                         .collect(),
                 )
             })
-            .collect();
-        assert_eq!(shape, vec![("computer", vec!["disk-manual"])]);
+            .collect()
     }
 
-    fn entry(id: &str, parent: Option<&str>) -> TreeEntry {
+    fn place(id: &str, in_parent: bool) -> TreePlace {
+        TreePlace {
+            id: id.into(),
+            in_parent,
+        }
+    }
+
+    fn entry(id: &str, places: Vec<TreePlace>) -> TreeEntry {
         TreeEntry {
             id: id.into(),
             slug: id.into(),
             title: id.into(),
             type_: "note".into(),
-            parent_id: parent.map(Into::into),
-            in_parent: false,
+            part_of: places,
         }
     }
 
     #[test]
-    fn each_entry_goes_under_its_parent_and_one_whose_parent_is_unseen_stands_at_the_top() {
+    fn the_children_of_a_part_are_filed_under_the_whole_it_belongs_to() {
         let tree = tree_of(&[
-            entry("kitchen", None),
-            entry("plum-tart", Some("kitchen")),
-            entry("diary-page", Some("hidden-diary")),
+            entry("computer", vec![]),
+            entry("disk", vec![place("computer", true)]),
+            entry("disk-manual", vec![place("disk", false)]),
         ]);
-        let shape: Vec<(&str, Vec<&str>)> = tree
-            .iter()
-            .map(|node| {
-                (
-                    node.id.as_ref(),
-                    node.children
-                        .iter()
-                        .map(|child| child.id.as_ref())
-                        .collect(),
-                )
-            })
-            .collect();
+        assert_eq!(shape(&tree), vec![("computer", vec!["disk-manual"])]);
+    }
+
+    #[test]
+    fn each_entry_goes_under_its_place_and_one_whose_place_is_unseen_stands_at_the_top() {
+        let tree = tree_of(&[
+            entry("kitchen", vec![]),
+            entry("plum-tart", vec![place("kitchen", false)]),
+            entry("diary-page", vec![place("hidden-diary", false)]),
+        ]);
         assert_eq!(
-            shape,
+            shape(&tree),
             vec![("kitchen", vec!["plum-tart"]), ("diary-page", vec![])]
         );
+    }
+
+    #[test]
+    fn an_entry_with_two_places_is_drawn_under_both() {
+        let tree = tree_of(&[
+            entry("desktop", vec![]),
+            entry("laptop", vec![]),
+            entry(
+                "monitor",
+                vec![place("desktop", false), place("laptop", false)],
+            ),
+        ]);
+        assert_eq!(
+            shape(&tree),
+            vec![("desktop", vec!["monitor"]), ("laptop", vec!["monitor"])]
+        );
+    }
+
+    #[test]
+    fn an_entry_with_a_hidden_place_and_a_seen_one_is_drawn_under_the_seen_one_only() {
+        let tree = tree_of(&[
+            entry("laptop", vec![]),
+            entry(
+                "monitor",
+                vec![place("hidden-diary", false), place("laptop", false)],
+            ),
+        ]);
+        assert_eq!(shape(&tree), vec![("laptop", vec!["monitor"])]);
+    }
+
+    #[test]
+    fn an_entry_read_in_one_whole_and_filed_under_another_is_drawn_under_the_second_only() {
+        let tree = tree_of(&[
+            entry("computer", vec![]),
+            entry("shelf", vec![]),
+            entry("fan", vec![place("computer", true), place("shelf", false)]),
+        ]);
+        assert_eq!(
+            shape(&tree),
+            vec![("computer", vec![]), ("shelf", vec!["fan"])]
+        );
+    }
+
+    #[test]
+    fn what_is_filed_under_a_part_goes_under_every_whole_the_part_is_read_in() {
+        let tree = tree_of(&[
+            entry("desktop", vec![]),
+            entry("laptop", vec![]),
+            entry(
+                "monitor",
+                vec![place("desktop", true), place("laptop", true)],
+            ),
+            entry("stand", vec![place("monitor", false)]),
+        ]);
+        assert_eq!(
+            shape(&tree),
+            vec![("desktop", vec!["stand"]), ("laptop", vec!["stand"])]
+        );
+    }
+
+    #[test]
+    fn a_loop_among_the_places_hangs_nothing() {
+        let tree = tree_of(&[
+            entry("east", vec![place("west", false)]),
+            entry("west", vec![place("east", false)]),
+            entry("lone", vec![]),
+        ]);
+        assert_eq!(shape(&tree), vec![("lone", vec![])]);
     }
 }

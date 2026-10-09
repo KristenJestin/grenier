@@ -2,11 +2,12 @@ import { Effect, Match, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { Rights } from '../auth/index.ts'
 import { rowsOf } from '../database/rows.ts'
+import { subtreeOf } from '../links/places.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
 import { Today } from '../time/index.ts'
 import { LATEST, LINK_NAME, VALUE_HELD, VALUE_NAMES } from './certainty.ts'
-import { findEntry, lockedEntry, TREE_DEPTH, visibleIdOf, writeEntry } from './operations.ts'
+import { findEntry, lockedEntry, visibleIdOf, writeEntry } from './operations.ts'
 
 /**
  * A value that is not known: a field by its name, `body`, `summary`, or a link as
@@ -62,12 +63,7 @@ const candidates = Effect.fn('candidates')(function* (listed: Listing) {
   const ids = listed.ids
   const hidden = JSON.stringify(hiddenTypes)
   const writer = listed.by ?? null
-  const head = sql`subtree AS (
-      SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
-      UNION ALL
-      SELECT e.id, s.depth + 1 FROM entries e JOIN subtree s ON e.parent_id = s.id
-      WHERE s.depth < ${TREE_DEPTH}
-    ) CYCLE id SET looped USING trail,
+  const head = sql`${yield* subtreeOf(under)},
     vals AS (
       SELECT e.id, e.slug, e.type, e.title, e.archived_at, e.updated, p.key AS what,
         p.value AS provenance, ${sql.literal(VALUE_NAMES)} AS changed, NULL::text AS target

@@ -13,7 +13,7 @@ fn read(value: Value) -> EntryRead {
 fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
     let mut base = json!({
         "id": id, "type": type_name, "title": title, "slug": id,
-        "aliases": [], "tags": [], "parent_id": null, "fields": {}, "provenance": {},
+        "aliases": [], "tags": [], "fields": {}, "provenance": {},
         "sources": [], "body": "", "summary": "",
         "created": "2026-09-01T08:00:00.000Z", "updated": "2026-10-01T08:00:00.000Z",
         "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null, "archived_reason": null
@@ -26,7 +26,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
 
 fn around(entry: Value, extra: Value) -> Value {
     let mut base = json!({
-        "entry": entry, "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
+        "entry": entry, "path": [], "part_of": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
         "children": [], "hidden_children": 0, "cited_by": [], "titles": {}
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
@@ -69,7 +69,6 @@ pub fn contract() -> EntryData {
                 "contract",
                 json!({
                     "aliases": ["internet"], "tags": ["maison", "abonnement"],
-                    "parent_id": "maison",
                     "summary": "La fibre, la box et la ligne fixe de la maison.",
                     "fields": {
                         "provider": "Opérateur Lumière", "start": "2024-03-15", "renewal": "tacite",
@@ -87,6 +86,11 @@ pub fn contract() -> EntryData {
             ),
             json!({
                 "path": ["Maison", "Abonnements"],
+                "part_of": [{
+                    "id": "abonnements", "slug": "abonnements", "title": "Abonnements",
+                    "period": null, "provenance": "extracted", "note": null,
+                    "valid_from": null, "valid_until": null
+                }],
                 "ancestors": [{ "id": "maison", "title": "Maison" }, { "id": "abonnements", "title": "Abonnements" }],
                 "references": [
                     { "reference": "box-du-salon", "id": "box-du-salon", "title": "Box du salon" },
@@ -421,6 +425,24 @@ pub fn tree() -> Vec<TreeNode> {
     ]
 }
 
+/// A screen shared by two computers: it is part of both, so the tree draws it under both.
+pub fn shared_tree() -> Vec<TreeNode> {
+    let screen = || node("ecran-partage", "Écran partagé", "item", vec![]);
+    vec![
+        node(
+            "poste-du-bureau",
+            "Poste du bureau",
+            "item",
+            vec![
+                node("clavier-du-bureau", "Clavier du bureau", "item", vec![]),
+                screen(),
+            ],
+        ),
+        node("poste-du-salon", "Poste du salon", "item", vec![screen()]),
+        node("idee", "Une idée", "note", vec![]),
+    ]
+}
+
 /// A deep tree with long titles.
 pub fn deep_tree() -> Vec<TreeNode> {
     let mut level = node(
@@ -644,7 +666,7 @@ pub fn listed() -> ui::list::ListData {
     .map(|(id, title)| {
         serde_json::from_value(json!({
             "id": id, "slug": id, "type": "contract", "title": title,
-            "parent_id": null, "in_parent": false
+            "part_of": []
         }))
         .expect("a fixture listing")
     })

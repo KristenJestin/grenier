@@ -6,7 +6,7 @@ import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
-import { findEntry, lockedEntry } from '../entries/operations.ts'
+import { findEntry, lockedEntry, lockTree } from '../entries/operations.ts'
 import { saidOn } from '../entries/supposed.ts'
 import { DateText } from '../entries/values.ts'
 import type { FieldValues } from '../entries/values.ts'
@@ -15,15 +15,15 @@ import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { Rights } from '../auth/rights.ts'
 import { sensitivity } from '../sensitive.ts'
+import { Today } from '../time/index.ts'
 import { ruleOf } from '../time/occurrences.ts'
 import { findType } from '../types/operations.ts'
-import { incoming, MENTIONS, outgoing } from './store.ts'
-
-/** How a link is named in the event log: `links.about`, `links.fulfills.inspection.2026`. */
-const fieldOf = (relation: string, period: string, field: string) =>
-  [`links.${relation}`, field, period].filter((part) => part !== '').join('.')
+import { closesLoop, overlapsAnotherStay } from './places.ts'
+import { About, endOf, fieldOf, holdsOn, incoming, MENTIONS, outgoing, PART_OF } from './store.ts'
 
 const RELATION = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
+
+const isDate = Schema.is(DateText)
 
 const PERIOD = /^\d{4}(-\d{2}(-\d{2})?|-W\d{2})?$/
 
@@ -36,7 +36,13 @@ const checkPeriod = Effect.fnUntraced(function* (relation: string, period: strin
         'A link `fulfills` needs a period: `2026` for a yearly date, `2026-10` monthly, `2026-W41` weekly, or the date itself.',
     })
   }
-  if (relation !== 'fulfills' && period !== '') {
+  if (relation === PART_OF && period !== '' && !isDate(period)) {
+    return yield* new Refused({
+      message:
+        'A link `part_of` names a later stay in a place by the day it began, such as `2026-10-20`.',
+    })
+  }
+  if (relation !== 'fulfills' && relation !== PART_OF && period !== '') {
     return yield* new Refused({ message: 'Only a link `fulfills` takes a period.' })
   }
 })
@@ -145,16 +151,7 @@ export type LinkAbout = {
 /** How many characters the note of a link holds at most. */
 const NOTE_LIMIT = 200
 
-const About = Schema.Struct({
-  provenance: Schema.String,
-  note: Schema.NullOr(Schema.String),
-  valid_from: Schema.NullOr(Schema.String),
-  valid_until: Schema.NullOr(Schema.String),
-})
-type About = typeof About.Type
 const abouts = rowsOf(About)
-
-const isDate = Schema.is(DateText)
 
 /** Refuses a note too long, or a date that is not one. */
 const checkAbout = Effect.fnUntraced(function* (about: Partial<LinkAbout>) {
@@ -175,22 +172,13 @@ const checkAbout = Effect.fnUntraced(function* (about: Partial<LinkAbout>) {
 })
 
 /**
- * How the event log names the end of a link: `{ entry, provenance, note, valid_from, valid_until }`,
- * the note and the dates only when set. (The links of before the provenance have the target's id
- * alone, or without a provenance.)
- */
-const endOf = (target: string, about: About): Schema.Json => ({
-  entry: target,
-  ...Object.fromEntries(Object.entries(about).filter(([, value]) => value !== null)),
-})
-
-/**
  * Links two entries with a relation. Linking them again with the same relation (and, for
  * `fulfills`, the same field and period) changes only what the link says of itself, its note and
  * its dates, in one event; when that is unchanged, nothing. A link `fulfills` names the date field
  * and the period of the occurrence it closes (`inspection`, `2026`); the field may be left out
  * when the target has a single deadline or recurring date. Returns the field the link closes
- * (`''` for any other relation), its note and its dates.
+ * (`''` for any other relation), its note and its dates. A link `part_of` is a move: it takes the
+ * tree lock first, and one that holds today is refused when it would close a loop.
  */
 export const link = Effect.fn('link')(function* (
   sourceReference: string,
@@ -207,6 +195,8 @@ export const link = Effect.fn('link')(function* (
   yield* checkAbout(about)
   return yield* sql.withTransaction(
     Effect.gen(function* () {
+      // Before any row, as a move takes it: two moves cannot close a loop together.
+      if (relation === PART_OF) yield* lockTree
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
       // A known link is read in a source, which its entry then has.
@@ -236,12 +226,37 @@ export const link = Effect.fn('link')(function* (
         valid_from: about.valid_from === undefined ? held.valid_from : about.valid_from,
         valid_until: about.valid_until === undefined ? held.valid_until : about.valid_until,
       })
+      const today = (yield* Today)()
       const checked = Effect.fnUntraced(function* (said: About) {
         if (said.valid_from !== null && said.valid_until !== null)
           if (said.valid_until < said.valid_from)
             return yield* new Refused({
               message: 'The field `valid_until` cannot be before `valid_from`.',
             })
+        // A place that holds today is part of the tree: it never closes a loop. A place that is
+        // over, or has not begun, is a link like any other.
+        if (
+          relation === PART_OF &&
+          holdsOn(today, said) &&
+          (yield* closesLoop(source.id, target.id))
+        )
+          return yield* new Refused({
+            message: `A link \`part_of\` from \`${source.slug}\` to \`${target.slug}\` would close a loop: \`${target.slug}\` is \`${source.slug}\` or already part of it.`,
+          })
+        // One place is never listed twice: another stay in it never holds on the same days.
+        if (
+          relation === PART_OF &&
+          (yield* overlapsAnotherStay(
+            source.id,
+            target.id,
+            kept,
+            said.valid_from,
+            said.valid_until,
+          ))
+        )
+          return yield* new Refused({
+            message: `A link \`part_of\` from \`${source.slug}\` to \`${target.slug}\` would overlap another stay of \`${source.slug}\` in \`${target.slug}\`: end that one (\`valid_until\`) before this one starts.`,
+          })
         return said
       })
       let [held] = yield* abouts(stored)
@@ -294,6 +309,7 @@ export const unlink = Effect.fn('unlink')(function* (
   yield* checkPeriod(relation, period)
   return yield* sql.withTransaction(
     Effect.gen(function* () {
+      if (relation === PART_OF) yield* lockTree
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
       const closed = yield* fieldClosed(relation, target, field)

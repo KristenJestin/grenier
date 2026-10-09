@@ -77,6 +77,7 @@ describe('an entry is written and read back with every base field', () => {
           holder: 'household',
         },
         provenance: {
+          parent: 'inferred',
           provider: 'extracted',
           end: 'inferred',
           start: 'inferred',
@@ -97,13 +98,15 @@ describe('an entry is written and read back with every base field', () => {
     )
     const { entry } = await run(readEntry('internet-at-home'))
     expect(entry).toEqual(written)
+    expect((await run(readEntry('internet-at-home'))).part_of).toEqual([
+      expect.objectContaining({ id: holder.id, provenance: 'inferred', valid_until: null }),
+    ])
     expect(entry).toMatchObject({
       type: 'contract',
       title: 'Internet at home',
       slug: 'internet-at-home',
       aliases: ['fibre'],
       tags: ['home', 'telecom'],
-      parent_id: holder.id,
       fields: {
         provider: 'Example Telecom',
         start: '2025-01-15',
@@ -217,9 +220,23 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 
   test('a cycle in the tree', async () => {
     await run(writeEntry({ type: 'area', title: 'Outer', slug: 'outer' }))
-    await run(writeEntry({ type: 'area', title: 'Inner', slug: 'inner', parent: 'outer' }))
-    expect(await run(refusalOf(writeEntry({ entry: 'outer', parent: 'inner' })))).toBe(
-      'The field `parent` cannot be `inner`: an entry cannot be filed under itself or one of its descendants.',
+    await run(
+      writeEntry({
+        type: 'area',
+        title: 'Inner',
+        slug: 'inner',
+        parent: 'outer',
+        provenance: { parent: 'inferred' },
+      }),
+    )
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({ entry: 'outer', parent: 'inner', provenance: { parent: 'inferred' } }),
+        ),
+      ),
+    ).toBe(
+      'The field `parent` cannot be `inner`: an entry cannot be part of itself or of one of its parts.',
     )
   })
 
@@ -237,14 +254,22 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 describe('a project-like entry is read with its children and the path of its ancestors', () => {
   test('children with their summaries, ancestors from the root', async () => {
     await run(writeEntry({ type: 'area', title: 'Work', slug: 'work' }))
-    await run(writeEntry({ type: 'project', title: 'Atlas', slug: 'atlas', parent: 'work' }))
+    await run(
+      writeEntry({
+        type: 'project',
+        title: 'Atlas',
+        slug: 'atlas',
+        parent: 'work',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     const decision = await run(
       writeEntry({
         type: 'note',
         title: 'Use maps',
         parent: 'atlas',
         summary: 'We use maps.',
-        provenance: { summary: 'inferred' },
+        provenance: { parent: 'inferred', summary: 'inferred' },
       }),
     )
     const notes = await run(
@@ -253,7 +278,7 @@ describe('a project-like entry is read with its children and the path of its anc
         title: 'Kick-off',
         parent: 'atlas',
         summary: 'First meeting.',
-        provenance: { summary: 'inferred' },
+        provenance: { parent: 'inferred', summary: 'inferred' },
       }),
     )
     const read = await run(readEntry('atlas'))
@@ -319,11 +344,25 @@ describe('the reason of an archive', () => {
   })
 })
 
-describe('the tree is listed in one read: every entry with its parent, archived ones left out', () => {
+describe('the tree is listed in one read: every entry with the places it is part of, archived ones left out', () => {
   test('a folder, what it holds, and not what was archived', async () => {
     const garden = await run(writeEntry({ type: 'area', title: 'Garden', slug: 'garden' }))
-    const shed = await run(writeEntry({ type: 'note', title: 'Shed', parent: 'garden' }))
-    await run(writeEntry({ type: 'note', title: 'Old fence', parent: 'garden' }))
+    const shed = await run(
+      writeEntry({
+        type: 'note',
+        title: 'Shed',
+        parent: 'garden',
+        provenance: { parent: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Old fence',
+        parent: 'garden',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await run(archiveEntry('old-fence'))
     const listed = await run(listEntries())
     expect(listed.find(({ slug }) => slug === 'garden')).toEqual({
@@ -331,17 +370,15 @@ describe('the tree is listed in one read: every entry with its parent, archived 
       slug: 'garden',
       type: 'area',
       title: 'Garden',
-      parent_id: null,
-      in_parent: false,
+      part_of: [],
     })
-    expect(listed.filter(({ parent_id }) => parent_id === garden.id)).toEqual([
+    expect(listed.filter(({ part_of }) => part_of.some(({ id }) => id === garden.id))).toEqual([
       {
         id: shed.id,
         slug: 'shed',
         type: 'note',
         title: 'Shed',
-        parent_id: garden.id,
-        in_parent: false,
+        part_of: [{ id: garden.id, in_parent: false }],
       },
     ])
   })
@@ -477,8 +514,16 @@ describe('the tree never holds a cycle, and a cycle never hangs a read', () => {
           west.id,
         ),
         [
-          writeEntry({ entry: 'east-wing', parent: 'west-wing' }),
-          writeEntry({ entry: 'west-wing', parent: 'east-wing' }),
+          writeEntry({
+            entry: 'east-wing',
+            parent: 'west-wing',
+            provenance: { parent: 'inferred' },
+          }),
+          writeEntry({
+            entry: 'west-wing',
+            parent: 'east-wing',
+            provenance: { parent: 'inferred' },
+          }),
         ],
       ),
     )
@@ -486,20 +531,30 @@ describe('the tree never holds a cycle, and a cycle never hangs a read', () => {
     expect(ended.filter(Result.isFailure).map(({ failure }) => failure instanceof Refused)).toEqual(
       [true],
     )
-    const parents = [
-      (await run(readEntry('east-wing'))).entry.parent_id,
-      (await run(readEntry('west-wing'))).entry.parent_id,
+    const places = [
+      (await run(readEntry('east-wing'))).part_of.map(({ id }) => id),
+      (await run(readEntry('west-wing'))).part_of.map(({ id }) => id),
     ]
-    expect(parents).not.toEqual([west.id, east.id])
+    expect(places).not.toEqual([[west.id], [east.id]])
   })
 
   test('a cycle written around the rules, as a damaged database would hold', async () => {
     const upper = await run(writeEntry({ type: 'area', title: 'Loop upper', slug: 'loop-upper' }))
     const lower = await run(
-      writeEntry({ type: 'area', title: 'Loop lower', slug: 'loop-lower', parent: 'loop-upper' }),
+      writeEntry({
+        type: 'area',
+        title: 'Loop lower',
+        slug: 'loop-lower',
+        parent: 'loop-upper',
+        provenance: { parent: 'inferred' },
+      }),
     )
     await run(
-      execute('UPDATE entries SET parent_id = $1::uuid WHERE id = $2::uuid', lower.id, upper.id),
+      execute(
+        "INSERT INTO links (source_id, target_id, relation, provenance) VALUES ($1::uuid, $2::uuid, 'part_of', 'inferred')",
+        upper.id,
+        lower.id,
+      ),
     )
     const read = await run(Effect.timeout(readEntry('loop-upper'), '5 seconds'))
     expect(read.path).toEqual(['Loop lower'])

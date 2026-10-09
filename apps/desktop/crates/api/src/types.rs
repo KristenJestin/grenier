@@ -98,8 +98,6 @@ pub struct Entry {
     pub created: ::std::string::String,
     pub fields: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
     pub id: ::std::string::String,
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub parent_id: ::std::option::Option<::std::string::String>,
     pub provenance: ::std::collections::HashMap<::std::string::String, EntryProvenanceValue>,
     pub slug: ::std::string::String,
     pub sources: ::std::vec::Vec<Source>,
@@ -193,6 +191,7 @@ pub struct EntryRead {
     pub hidden_children: i64,
     pub links: ::std::vec::Vec<Link>,
     pub media: ::std::vec::Vec<Medium>,
+    pub part_of: ::std::vec::Vec<Place>,
     pub path: ::std::vec::Vec<::std::string::String>,
     pub references: ::std::vec::Vec<EntryReadReferencesItem>,
     pub titles: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
@@ -751,6 +750,77 @@ pub struct PendingReferenceCitedByItem {
 pub struct PendingReferences {
     pub pending: ::std::vec::Vec<PendingReference>,
 }
+#[doc = "`Place`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Place {
+    pub id: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub note: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub period: ::std::option::Option<::std::string::String>,
+    pub provenance: PlaceProvenance,
+    pub slug: ::std::string::String,
+    pub title: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub valid_from: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub valid_until: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`PlaceProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum PlaceProvenance {
+    #[serde(rename = "extracted")]
+    Extracted,
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "unstated")]
+    Unstated,
+}
+impl ::std::fmt::Display for PlaceProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Extracted => f.write_str("extracted"),
+            Self::Inferred => f.write_str("inferred"),
+            Self::Unstated => f.write_str("unstated"),
+        }
+    }
+}
+impl ::std::str::FromStr for PlaceProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "extracted" => Ok(Self::Extracted),
+            "inferred" => Ok(Self::Inferred),
+            "unstated" => Ok(Self::Unstated),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for PlaceProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PlaceProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 #[doc = "`SearchResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SearchResult {
@@ -981,13 +1051,17 @@ impl ::std::convert::TryFrom<::std::string::String> for SupposedProvenance {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct TreeEntry {
     pub id: ::std::string::String,
-    pub in_parent: bool,
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub parent_id: ::std::option::Option<::std::string::String>,
+    pub part_of: ::std::vec::Vec<TreePlace>,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
+}
+#[doc = "`TreePlace`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct TreePlace {
+    pub id: ::std::string::String,
+    pub in_parent: bool,
 }
 #[doc = "`TypeDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -1000,7 +1074,7 @@ pub struct TypeDefinition {
     pub label: TypeDefinitionLabel,
     #[doc = "The name of the type, in lowercase kebab-case such as `bank-account`."]
     pub name: ::std::string::String,
-    #[doc = "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."]
+    #[doc = "Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub read_in_parent: ::std::option::Option<bool>,
     #[doc = "Every entry of the type is sensitive: shown only to a key with the right `sensitive`."]

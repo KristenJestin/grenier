@@ -1531,13 +1531,13 @@ mod tests {
         let mut read: api::EntryRead = serde_json::from_value(serde_json::json!({
             "entry": {
                 "id": "e1", "type": "note", "title": "Harbor", "slug": "harbor", "aliases": [],
-                "tags": [], "parent_id": null, "fields": { "depth": "9 m", "quay": "north" },
+                "tags": [], "fields": { "depth": "9 m", "quay": "north" },
                 "provenance": provenance, "sources": [], "body": "Quiet.", "summary": "A harbor.",
                 "created": "2026-10-01T00:00:00Z", "updated": "2026-10-01T00:00:00Z",
                 "valid_from": null, "valid_until": null, "superseded_by": null,
                 "archived_at": null, "archived_reason": null
             },
-            "path": [], "references": [], "ancestors": [], "links": [], "media": [],
+            "path": [], "part_of": [], "references": [], "ancestors": [], "links": [], "media": [],
             "backlinks": [], "titles": {}, "children": [], "hidden_children": 0, "cited_by": []
         }))
         .expect("a read");

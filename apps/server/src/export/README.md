@@ -25,21 +25,29 @@ The command line does the same once, as the owner, for a try or a private copy.
 ```
 _types/recipe.md                  each type: its definition in the front matter, its description
 kitchen.md                        an entry at the root
-kitchen/plum-tart.md              an entry filed under `kitchen`, beside its parent's file
+kitchen/plum-tart.md              an entry part of `kitchen`, beside its place's file
 kitchen/plum-tart/shortcrust.md   and one below it
 _rules.md                         the rules of the instance, as the owner wrote them, when set
 ```
 
-- One file per entry, `<slug>.md`, in the folder of its parent: `<parent slug>/`, beside the
-  parent's own `<parent slug>.md`. An entry's file never moves when it gets children; it moves
-  only when the entry is filed elsewhere or its slug changes.
+- One file per entry, `<slug>.md`, in the folder of the oldest place it is part of today (a link
+  `part_of` that holds, the one with the earliest `valid_from`, none being the earliest, then the
+  first made): `<place slug>/`, beside the place's own `<place slug>.md`. An entry part of several
+  places has still one file, in that one folder, never a copy: every other place lists it in its
+  own file, in `parts_elsewhere` (the `slug` of the entry and the `file` to open, a path relative
+  to the folder of the place's own file). A place that is over, or has not begun, files and lists
+  nothing; the entry's own file still says it, among its `links`. An entry's file never moves when
+  it gets children; it moves only when its oldest place changes (the entry is moved, or the place
+  it is part of is) or its slug changes.
 - The front matter holds the base fields (`id`, `type`, `title`, `slug`, `aliases`, `tags`,
   `summary`, `created`, `updated`, `valid_from`, `valid_until`, `superseded_by` as a slug,
   `archived_at`, `sources`), the values of the type's `fields` and their
   `provenance` as they are stored (`extracted` is known, `inferred` supposed; the keys `body` and
-  `summary` are the provenance of the body and the summary; a field that is `many` as a list), the outgoing `links`
-  (relation and target slug, with its `provenance`, the period and the field of a link `fulfills`, and the `note`,
-  `valid_from` and `valid_until` of a link that has them), and the `media` (hash, file under the media folder, kind,
+  `summary` are the provenance of the body and the summary; a field that is `many` as a list), the
+  entries that are part of it and filed elsewhere (`parts_elsewhere`), the outgoing `links`
+  (relation and target slug, with its `provenance`, the period and the field of a link `fulfills`,
+  and the `note`, `valid_from` and `valid_until` of a link that has them; the places the entry is
+  or was part of are its links `part_of`), and the `media` (hash, file under the media folder, kind,
   type, size, description). Media files are not copied.
 - Then the body, as it is stored, `[[slug]]` references left as they are.
 - Archived entries are exported where they are filed, with their `archived_at`.
@@ -52,7 +60,8 @@ _rules.md                         the rules of the instance, as the owner wrote 
 ## Sensitive data
 
 Left out by default: a sensitive field is written `[hidden]`, an entry of a sensitive type is not
-written, and an entry whose parent is left out stands at the root. The id of an entry left out is
+written, and an entry whose places are all left out stands at the root (one of several places left
+out is no place: the entry is filed under the oldest of the others). The id of an entry left out is
 written nowhere: a source or an entry field naming one says `[hidden]`. `--include-sensitive` writes
 everything, for an export the owner keeps private and encrypted. The repository of the nightly
 export must be private all the same.

@@ -18,7 +18,7 @@ export runs every night into a git repository, so nothing depends on Grenier alo
 Three rules shape everything:
 
 - **Nothing is typed in code.** The system knows generic notions (an entry, its type, its
-  fields, its parent, its links, its media, its history). Types such as "recipe" or "contract"
+  fields, the entries it is part of, its links, its media, its history). Types such as "recipe" or "contract"
   and their fields are data, created and changed at run time; so are the relations between
   entries: a field of kind `entry` names the types it accepts and may hold a list (`many`), and a
   link carries a note and the dates it held between (see `docs/model.md`).

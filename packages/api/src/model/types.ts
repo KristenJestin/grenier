@@ -139,7 +139,7 @@ export const TypeDefinition = Schema.Struct({
   }),
   read_in_parent: Schema.optionalKey(Schema.Boolean).annotate({
     description:
-      'Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree.',
+      'Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree.',
   }),
   fields: Schema.Array(FieldDefinition)
     .annotate({

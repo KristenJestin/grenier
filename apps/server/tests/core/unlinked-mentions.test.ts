@@ -102,7 +102,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       title: 'Roof of the shed',
       parent: 'garden-shed',
       body: 'The roof of the garden shed leaks.',
-      provenance: { body: 'inferred' },
+      provenance: { parent: 'inferred', body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
   })

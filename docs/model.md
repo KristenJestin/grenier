@@ -16,7 +16,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `slug` | unique across all entries, kebab-case; what `[[slug]]` links point to |
 | `aliases` | other names the entry is found by |
 | `tags` | flat labels |
-| `parent_id` | where the entry is filed (see "The tree") |
+| `part_of` | the entries it is part of, or was: links `part_of` with the dates they held (see "The tree"); not a column of the entry |
 | `fields` | the values of the type's fields, validated against the type |
 | `provenance` | whether each value is known or supposed, by field name, and `body` and `summary` for those two texts: `extracted` (known, read from a source), `inferred` (supposed by the writer), `ambiguous` (sources disagree), or `unstated` (written before writers were asked; never written by a new write). See "Known or supposed" |
 | `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), what a person said (`{ "said_by": "<slug or id>", "on": "2026-10-08" }`, kept as the id of the entry that stands for them and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
@@ -54,7 +54,10 @@ disagree.
   "2026-10-08", "note": "…" }`. The person is an entry the writer may see; the source is read with
   its slug and title, and the person's `cited_by` lists what they said.
 - **Links carry theirs.** `link` gives `provenance` (`extracted` or `inferred`), kept on the link
-  and read on links and backlinks; an `extracted` link needs a source on its entry. The `mentions`
+  and read on links and backlinks; an `extracted` link needs a source on its entry. The `parent` of
+  a write is a link `part_of`, and says its own in `provenance.parent`, `extracted` or `inferred`
+  (not `ambiguous`), required whenever the place changes; `parent` is not the name of a field, as
+  `body` and `summary` are not. The `mentions`
   that come from a body take the provenance of the body.
 - **The owner confirms.** From the command line, `supposed:confirm` makes a value or a link known:
   `extracted`, with the source "said by" the entry that stands for the owner (`--as`: Grenier knows
@@ -84,7 +87,8 @@ Several entries can be written in one call (`write` with `entries`, 100 at most)
 by the rules of a single write; their bodies may cite one another with `[[slug]]` as if all
 existed, and they may name one another as `parent`, as `superseded_by` or in a field of kind
 `entry`: each is written after the entries of the batch it names (a project before its notes), and
-parents that loop within the batch are refused in one sentence. Two entries that name each other
+parents that loop within the batch are refused in one sentence. A batch gives no links: the other
+places of an entry are added with `link` once it is written. Two entries that name each other
 otherwise (`superseded_by`, a field) are written first without the reference that closes the
 loop, then with it, once both exist. A reference to the slug a new entry of the batch would have
 taken, had it been free, is refused, as in a body: it names the entry that already has it. References are checked against the slugs the batch leaves: a reference to a slug the
@@ -100,7 +104,7 @@ URL, and `entry` as the slug or id of an existing entry, kept as its id (of one 
 order given: `["Welsh", "Basque"]`, or for an `entry` field, several entries by slug or id, each
 kept as its id; `read` gives the titles of the entries the fields name, by id, in `titles` (over MCP by slug, each with its id). A
 write names the
-parent (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
+entry it is part of (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
 the `body` given is added at the end of the current body: a body too long for one call (a
 journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
@@ -157,9 +161,9 @@ change of type does not show its past values), a search does not match it, and t
 a date field that is sensitive are left out of the `briefing` (with its `from` and `to`) and of `heads_up`, since their
 date, their order or their count in a window would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
-find it, its parent counts it among `hidden_children`, its links and its media are left out, and
-its occurrences are left out. Its id is never given either: as the parent, the successor or the
-value of a field of a visible entry (`null`, or `[hidden]` for a field), in the tree, nor in a
+find it, each entry it is part of counts it among its `hidden_children` (never naming it), its
+links and its media are left out, and its occurrences are left out. Its id is never given either:
+as a place, the successor or the value of a field of a visible entry (`null`, or `[hidden]` for a field), in the tree, nor in a
 history, where a change of a link to or from it is left out (and a write that did nothing else
 is not told at all); a reference to it waits like a reference to a slug no entry has, in
 `references`, in the pending references of the `briefing` and in the answer of a write, so nothing tells the two
@@ -167,7 +171,7 @@ apart. What is stored does not depend on who writes: a reference to it is kept a
 such a key rewrites the body that holds it. Its rename rewrites no body of an entry of a type that
 is not sensitive, which such a key would see change: that reference to the old slug then waits,
 for every key, as one to a slug no entry has (the owner may give the old slug back as an alias).
-Written back as read, `null` for a parent or a successor, `[hidden]` for a field, or a list
+Written back as read, `null` for a parent (a place that is hidden stays) or a successor, `[hidden]` for a field, or a list
 without the entries it hides, keeps what is stored. Such a key may not write a sensitive field
 nor an entry of a sensitive type, nor change the type of an entry that holds a sensitive value,
 nor change a sensitive field or any field of a sensitive type; to its writes, an entry it may not
@@ -204,7 +208,8 @@ from. This **writing standard** is said once there and repeated in no tool descr
 before creating, and update the entry when it is the same subject; one entry per subject that
 would be searched or followed on its own; link the entry to every existing entry it concerns, with
 `[[slug]]` in the body (never the title in plain text) or with `link`; give a `parent` only when
-the entry is part of it, and leave the entry at the root otherwise; write a summary that stands
+the entry is part of it, said known or supposed in `provenance.parent`, and leave the entry at the
+root otherwise; write a summary that stands
 alone (what, about what or whom, and when, readable by an agent that knows nothing of the
 conversation); fields filled only from what the source says; each value, body, summary and link
 said to be known or supposed, with its `provenance`, and what someone said cited as `said_by`; every fact
@@ -226,7 +231,7 @@ recently that the key may see, newest first, each with its slug, type, title, wh
 entry of a sensitive type is left out for a key without the right `sensitive`, as everywhere. The
 instructions then say how to use it: when the owner refers to something without naming it, look at
 these entries and at what this key wrote before searching words; follow the neighbours of a
-likely entry (`read` gives its parent, its children and its links); when several subjects fit,
+likely entry (`read` gives its places, its children and its links); when several subjects fit,
 name them and ask rather than guess.
 
 The list is built for each session, as it starts, never kept: a session keeps what it was told,
@@ -291,28 +296,71 @@ because of another one at the same moment is refused with one sentence: try the 
 
 ## The tree
 
-Each entry has at most one parent (`parent_id`): the entries form a tree, like folders. There is
-no folder object: any entry may have children. A project entry is both the project's record and
-the container of its notes and decisions. An area (an entry whose type carries no field) groups
-entries by domain.
+The tree is the links `part_of` that hold today. An entry is **part of** another: a component in a
+machine, a note in a project, a section of a journal. It may be part of several entries at once (a
+monitor shared by two computers), and it may have been part of others before. There is no folder
+object: any entry may have children, the entries that are part of it today. A project entry is both
+the project's record and the container of its notes and decisions. An area (an entry whose type
+carries no field) groups entries by domain.
 
-The parent means "is part of": a component in a machine, a note in a project, a section of a
-journal. Every other relation between two entries is a link (see "Links"). An entry at the root is
-fine when it is linked to what it concerns; filing an entry under a parent it is only about makes
-it harder to find, not easier. Recall counts parents and links alike.
+`part_of` is reserved to that meaning. Every other relation between two entries is a link as any
+other (see "Links"). An entry at the root is fine when it is linked to what it concerns; making an
+entry part of something it is only about makes it harder to find, not easier. Recall counts a
+place that holds today as the entry's parent, and a place that is over among its links.
 
-The nightly Markdown export follows the parents to rebuild a folder hierarchy.
+- **A place holds today** when its link started (no `valid_from`, or a day not after today) and has
+  not ended (no `valid_until`, or a day not before today): `valid_until` is the last day the link
+  held, as for every link. Today is the day of the owner (`TZ`). A link `part_of` made from a
+  `parent`, before places had dates, has none.
+- **`write` with `parent`** is a shorthand for the one place the entry is part of: a link `part_of`
+  to the entry named, with `provenance.parent` (`extracted` or `inferred`). Changing it closes the
+  former link (`valid_until` yesterday, its last day) and opens the new one (`valid_from` today),
+  in one event; `parent: null` closes it. A place left the day it was entered never held: its link
+  is removed in the same event, not kept with an end before its start. The first place of an entry
+  has no dates, since nothing says when it became part of it. An entry with several places changes
+  the oldest one that holds, and the others stay. An entry that comes back to a place it left
+  opens a new stay there (the link is keyed by a `period`, the day the stay began), and the
+  earlier stay stays as it was: a card in A, moved to B, moved back to A has two stays in A and
+  one in B.
+- **`link` with `part_of`** adds another place, or a past one with the dates it held. Linking again
+  changes only what the link says, as for any link, and `unlink` removes it. A later stay in the
+  same place is addressed with its `period` (given by `read` in `part_of`); without one, the
+  first stay.
+- **No loop.** A place that holds today may not make an entry part of itself or of one of its own
+  parts, at any depth, through the places that hold: the write or the link is refused in one
+  sentence. A place that is over, or has not begun, makes no loop, so the check covers only the links that hold today: a link dated in the future may close a loop on the day it begins. Reads tolerate it (a walk of the tree never visits an entry twice, and `path` stops where it would repeat). Every change of a place (a
+  write that names `parent`, `link` and `unlink` with `part_of`) takes the tree lock first, then
+  the slugs, then the rows, so that two moves can never close a loop together.
+- **One stay at a time.** Two stays of an entry in one place never hold on the same days, so a
+  place is listed once in a read, the tree and the export: a `link` whose dates overlap another
+  stay of the entry in that place, or a `parent` that would open a stay over one that starts later,
+  is refused in one sentence.
+- **`path`** is the titles above an entry, through the oldest place that holds (the earliest
+  `valid_from`, none being the earliest, then the first link made) at each step; a place the key
+  may not see keeps its place in it as `[hidden]`. The `parent` of a write names the oldest place
+  that holds *and that the key may see*: a key never closes a place it may not see, and is told
+  nothing of it, so for an entry whose oldest place is hidden, `path` and `parent` differ. **`under`** (in a
+  search, a listing, `unverified` and `supposed`) follows the places that hold, at any depth, so an
+  entry part of two places is under both. The tree of the read API and of the viewer shows an entry
+  under each of its places; one with none is at the top.
+- **`read`** gives the `path`, `part_of` (every place it is or was part of, the oldest first, each
+  with its `period`, `provenance`, `note`, `valid_from` and `valid_until`), and its `children`. The links
+  `part_of` are given there and not among `links` and `backlinks`, but for the entries that were
+  part of it and are no more, which stay among the `backlinks` with their dates.
+- **The export** keeps one file per entry, in the folder of its oldest place (see
+  `apps/server/src/export/README.md`); every other place lists it in its own file, with a relative
+  link.
 
-An object made of parts (a computer and its disks) is one entry per part, filed under the whole.
-A type that says `read_in_parent` (set with `define_type` or `change_type`, false by default)
-has its entries filed under an entry of the same type read in their parent: the parent's `read`
-gives each such child its fields (sensitive ones hidden as on the child's own page), and the tree
-marks it `in_parent`, so a client shows the parts in the parent's page rather than as branches.
-Each part stays an entry of its own, found by search with its history, sources and media.
+An object made of parts (a computer and its disks) is one entry per part, part of the whole. A type
+that says `read_in_parent` (set with `define_type` or `change_type`, false by default) has its
+entries that are part of an entry of the same type read in that entry: its `read` gives each such
+child its fields (sensitive ones hidden as on the child's own page), and the tree marks the place
+`in_parent`, so a client shows the parts in the page of each whole rather than as branches. Each
+part stays an entry of its own, found by search with its history, sources and media.
 
 ## Links
 
-Links are separate from filing. A link has a source entry, a target entry and a free relation
+A link has a source entry, a target entry and a free relation
 name (`about`, `supersedes`, `done_by`, `works_at`, `related`…). A link may also say a `note`, a
 short text of 200 characters at most (the role the relation does not say: `accountant` for
 `works_at`, `graphics card` for `bought_from`), and the dates it held between, `valid_from` and
@@ -345,7 +393,7 @@ boundaries, case and accents folded ("cafe noir" finds "Café Noir"); a `[[refer
 citation, not prose, and is not read. Left out: the entry itself, entries the key may not see (a
 sensitive type, for a key without the right `sensitive`), archived entries, titles and aliases of
 fewer than 4 characters, and entries already connected to the one written: cited, linked in
-either direction, its parent or one of its children. At most 10, the longest match first, then by
+either direction (a place it is part of, or an entry that is part of it, is a link `part_of`). At most 10, the longest match first, then by
 slug; `unlinked` is absent when there is none. It is a computation on names, deterministic and
 without AI: the agent decides whether an entry is really meant, and links it (or not). The
 database narrows the names to those contained in the text (`unaccent` and `lower` on both
@@ -362,7 +410,7 @@ valid_until }`, the note and the dates when the link says them; the links of bef
 have the target's id), and a rewrite of a body after a rename is recorded as a
 change of that body. To a key without the right `sensitive`, a link to or from an entry it may not
 see is left out with what it says, and its changes in a history show both values hidden. Links
-never change the tree.
+other than `part_of` never change the tree.
 
 ## Media
 
@@ -395,7 +443,10 @@ Each write is one event, recorded in the transaction of the write: its actor (a 
 one is refused), its action (`create`, `update`, `rewrite` when a rename rewrote a body that
 cites it, `archive`, `define`, `add_field`…) and the list
 of the fields it changed, each with its value before and after. Fields are named as in a
-refusal: `title`, `parent_id`, `body`, `fields.provider`, `provenance.provider`. A write that
+refusal: `title`, `body`, `fields.provider`, `provenance.provider`, `links.part_of` (a change of
+the `parent` closes the former link and opens the new one, two changes of one event). The events of
+before the tree was made of links keep their changes of `parent_id` as they were recorded, and the
+history reads them as before. A write that
 changes nothing records nothing. The history of one field lists its changes after the
 creation; the value it was created with is the `before` of the first change.
 
@@ -490,8 +541,8 @@ enters its notice period: with nothing to tell, the key is absent.
 ## Search
 
 A search looks first in what identifies an entry, then in its body: title and aliases weigh
-most, then tags and summary, then body. It filters by type, by ancestor (only the descendants of
-an entry), by what is supposed (`supposed`, and `unstated`, see "Known or supposed") and leaves
+most, then tags and summary, then body. It filters by type, by ancestor (`under`: only the entries that are part of an entry, at any depth, through the places
+that hold today), by what is supposed (`supposed`, and `unstated`, see "Known or supposed") and leaves
 archived entries out unless asked. Each result carries the id, slug, type,
 title, summary, the path of ancestors, an excerpt with the matched words in `<mark>` tags, and
 its rank; 20 results by default. The language comes from `SEARCH_LANGUAGE` (a PostgreSQL text
@@ -503,7 +554,7 @@ the key that changed an entry last. When and by whom come from the event log (th
 latest event that moved the entry's `updated`: created, updated, archived, or its body rewritten by
 a rename; a link, a medium or a `[[reference]]` that resolved by itself leaves it alone), not from
 a column of the entry. Over MCP each result also carries these two and its
-neighbors, the entries next to it, chosen by fixed rules: explicit links, then the parent, then
+neighbors, the entries next to it, chosen by fixed rules: explicit links (a place that is over is one), then the entries it is part of today, then
 the entries named by its `entry` fields, then the entries its body cites, the most recently
 updated first among equals, each with how it is joined and never its body. `read` over MCP leaves
 out the body unless asked, and with `depth` 2 or 3 returns the graph around the entry (capped at 50

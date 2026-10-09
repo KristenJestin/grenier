@@ -73,7 +73,7 @@ describe('answers carry the entry, not its content', () => {
       parent: 'garden',
       summary: 'A year in the garden.',
       body: LONG,
-      provenance: { body: 'inferred', summary: 'inferred' },
+      provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
     })
     expect(written).toEqual({
       pending_references: [],

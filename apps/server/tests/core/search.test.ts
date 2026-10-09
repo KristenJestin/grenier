@@ -152,8 +152,23 @@ describe('search with the default language', () => {
 
   test('a search restricted to a subtree returns only what is under that entry', async () => {
     await run(writeEntry({ type: 'area', title: 'Kitchen', slug: 'kitchen' }))
-    await run(writeEntry({ type: 'area', title: 'Shelf', slug: 'shelf', parent: 'kitchen' }))
-    await run(writeEntry({ type: 'note', title: 'Saffron jar', parent: 'shelf' }))
+    await run(
+      writeEntry({
+        type: 'area',
+        title: 'Shelf',
+        slug: 'shelf',
+        parent: 'kitchen',
+        provenance: { parent: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Saffron jar',
+        parent: 'shelf',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await run(writeEntry({ type: 'note', title: 'Saffron field' }))
     const results = await run(search('saffron', { under: 'kitchen' }))
     expect(results.map(({ title, path }) => ({ title, path }))).toEqual([

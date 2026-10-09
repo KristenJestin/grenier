@@ -70,7 +70,7 @@ beforeAll(() =>
         title: 'Graphics card',
         summary: 'A graphics card for the home server.',
         parent: 'home-server',
-        provenance: { summary: 'inferred' },
+        provenance: { parent: 'inferred', summary: 'inferred' },
       })
       yield* writeEntry({
         type: 'shop',
@@ -112,7 +112,7 @@ describe('search hands over the neighbors of each result', () => {
         type: 'item',
         summary: 'The box under the stairs.',
         via: 'parent',
-        relation: 'parent',
+        relation: 'part_of',
         direction: 'to',
       },
     ])
@@ -152,7 +152,7 @@ describe('search hands over the neighbors of each result', () => {
           title: 'Fan',
           parent: 'home-server',
           fields: { maker: 'parts-depot' },
-          provenance: { maker: 'inferred' },
+          provenance: { parent: 'inferred', maker: 'inferred' },
         })
         yield* writeEntry({
           type: 'note',
@@ -216,7 +216,12 @@ describe('search hands over the neighbors of each result', () => {
   test('a neighbor of a sensitive type is absent for a key without sensitive and present with it', async () => {
     await trusted(
       Effect.gen(function* () {
-        yield* writeEntry({ type: 'vault', title: 'Server logins', parent: 'home-server' })
+        yield* writeEntry({
+          type: 'vault',
+          title: 'Server logins',
+          parent: 'home-server',
+          provenance: { parent: 'inferred' },
+        })
         yield* writeEntry({ type: 'vault', title: 'Card receipt vault' })
         yield* link('graphics-card', 'card-receipt-vault', 'kept_in', '', '', {
           provenance: 'inferred',
@@ -316,7 +321,7 @@ describe('read follows the neighbors as far as depth says', () => {
       from: 'graphics-card',
       to: 'home-server',
       via: 'parent',
-      relation: 'parent',
+      relation: 'part_of',
     })
     expect(graph.edges).toContainEqual({
       from: 'media-center',
@@ -370,7 +375,12 @@ describe('read follows the neighbors as far as depth says', () => {
       Effect.gen(function* () {
         yield* writeEntry({ type: 'note', title: 'Crowd hub' })
         for (let index = 0; index < 60; index++) {
-          yield* writeEntry({ type: 'note', title: `Crowd member ${index}`, parent: 'crowd-hub' })
+          yield* writeEntry({
+            type: 'note',
+            title: `Crowd member ${index}`,
+            parent: 'crowd-hub',
+            provenance: { parent: 'inferred' },
+          })
         }
       }),
     )

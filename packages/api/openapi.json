@@ -465,7 +465,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "description": "Only the entries filed below this entry, at any depth: its slug or id."
+              "description": "Only the entries that are part of this entry, at any depth (through the places they are part of today): its slug or id."
             },
             "required": false
           },
@@ -781,6 +781,12 @@
               "type": "string"
             }
           },
+          "part_of": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Place"
+            }
+          },
           "references": {
             "type": "array",
             "items": {
@@ -904,6 +910,7 @@
         "required": [
           "entry",
           "path",
+          "part_of",
           "references",
           "ancestors",
           "links",
@@ -1130,6 +1137,79 @@
         ],
         "additionalProperties": false
       },
+      "Place": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "extracted",
+              "inferred",
+              "unstated"
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "title",
+          "period",
+          "provenance",
+          "note",
+          "valid_from",
+          "valid_until"
+        ],
+        "additionalProperties": false
+      },
       "Entry": {
         "type": "object",
         "properties": {
@@ -1156,16 +1236,6 @@
             "items": {
               "type": "string"
             }
-          },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "fields": {
             "type": "object"
@@ -1258,7 +1328,6 @@
           "slug",
           "aliases",
           "tags",
-          "parent_id",
           "fields",
           "provenance",
           "sources",
@@ -1569,18 +1638,11 @@
           "title": {
             "type": "string"
           },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "in_parent": {
-            "type": "boolean"
+          "part_of": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TreePlace"
+            }
           }
         },
         "required": [
@@ -1588,7 +1650,22 @@
           "slug",
           "type",
           "title",
-          "parent_id",
+          "part_of"
+        ],
+        "additionalProperties": false
+      },
+      "TreePlace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "in_parent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
           "in_parent"
         ],
         "additionalProperties": false
@@ -1631,7 +1708,7 @@
           },
           "read_in_parent": {
             "type": "boolean",
-            "description": "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
+            "description": "Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
           },
           "fields": {
             "type": "array",

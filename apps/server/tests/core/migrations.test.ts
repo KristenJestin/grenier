@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Effect, Layer, Schema } from 'effect'
 import { Migrator, SqlClient } from 'effect/sql'
 import { describe, expect, test } from 'vitest'
-import { Actor } from '../../src/core/events/index.ts'
+import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { rowsOf } from '../../src/core/database/rows.ts'
 import {
   latestVersion,
@@ -28,6 +28,9 @@ const byEffectMigrations = (last = Number.POSITIVE_INFINITY) =>
     ),
     table: 'effect_sql_migrations',
   })
+
+/** The migration that makes the parent a link, by its name in the journal of Drizzle. */
+const PART_OF_MIGRATION = '20261009194740_part_of'
 
 const Definition = Schema.Struct({
   kind: Schema.String,
@@ -427,6 +430,258 @@ describe('every value says whether it is known or supposed', () => {
       }),
     )
     expect(second).toEqual(first)
+  })
+})
+
+describe('the parent becomes a dated part_of link', () => {
+  /**
+   * A database one migration behind, as the server before this migration left it: entries with a
+   * `parent_id`, a tree three levels deep, and the moves recorded in the log under `parent_id`.
+   */
+  const before = Effect.gen(function* () {
+    yield* migrate
+    const sql = yield* SqlClient.SqlClient
+    yield* sql`DROP INDEX links_part_of`
+    yield* sql`ALTER TABLE links DROP COLUMN seq`
+    yield* sql`ALTER TABLE entries ADD COLUMN parent_id uuid`
+    yield* sql`ALTER TABLE entries ADD CONSTRAINT entries_parent_id_fkey
+      FOREIGN KEY (parent_id) REFERENCES entries (id)`
+    yield* sql`CREATE INDEX entries_parent_id ON entries (parent_id)`
+    yield* sql`DELETE FROM drizzle.__drizzle_migrations WHERE name = ${PART_OF_MIGRATION}`
+    yield* sql`INSERT INTO types (name, label, description, fields)
+      VALUES ('place', 'Place', 'A place or a part of one.', '[]')`
+    yield* sql`INSERT INTO entries (type, title, slug) VALUES
+      ('place', 'Harbor', 'harbor'), ('place', 'Pier', 'pier'), ('place', 'Crane', 'crane'),
+      ('place', 'Warehouse', 'warehouse'), ('place', 'Lighthouse', 'lighthouse')`
+    yield* sql`UPDATE entries SET parent_id = (SELECT id FROM entries WHERE slug = 'harbor')
+      WHERE slug IN ('pier', 'warehouse')`
+    yield* sql`UPDATE entries SET parent_id = (SELECT id FROM entries WHERE slug = 'pier')
+      WHERE slug = 'crane'`
+    yield* sql`INSERT INTO events (actor, entry_id, action, changes)
+      SELECT 'agent-old', c.id, 'update', jsonb_build_array(jsonb_build_object(
+        'field', 'parent_id', 'before', NULL, 'after', p.id::text))
+      FROM entries c, entries p WHERE c.slug = 'crane' AND p.slug = 'pier'`
+  })
+
+  /** The titles of the ancestors of each entry as the parents of before gave them. */
+  const pathsBefore = rowsOf(
+    Schema.Struct({ slug: Schema.String, path: Schema.Array(Schema.String) }),
+  )
+  const columns = rowsOf(Schema.Struct({ column_name: Schema.String }))
+
+  test('each former parent is a link part_of without dates, unstated, and the column is gone', async () => {
+    const [places, dropped, indexes] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* migrate
+        return [
+          yield* rowsOf(
+            Schema.Struct({
+              source: Schema.String,
+              target: Schema.String,
+              relation: Schema.String,
+              provenance: Schema.NullOr(Schema.String),
+              valid_from: Schema.NullOr(Schema.String),
+              valid_until: Schema.NullOr(Schema.String),
+            }),
+          )(sql`SELECT s.slug AS source, t.slug AS target, l.relation, l.provenance,
+              l.valid_from::text AS valid_from, l.valid_until::text AS valid_until
+            FROM links l JOIN entries s ON s.id = l.source_id JOIN entries t ON t.id = l.target_id
+            ORDER BY s.slug`),
+          yield* columns(sql`SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'entries' AND column_name = 'parent_id'`),
+          yield* rowsOf(Schema.Struct({ indexname: Schema.String }))(sql`SELECT indexname
+            FROM pg_indexes WHERE indexname IN ('entries_parent_id', 'links_part_of')`),
+        ] as const
+      }),
+    )
+    const dateless = {
+      relation: 'part_of',
+      provenance: 'unstated',
+      valid_from: null,
+      valid_until: null,
+    }
+    expect(places).toEqual([
+      { source: 'crane', target: 'pier', ...dateless },
+      { source: 'pier', target: 'harbor', ...dateless },
+      { source: 'warehouse', target: 'harbor', ...dateless },
+    ])
+    expect(dropped).toEqual([])
+    expect(indexes).toEqual([{ indexname: 'links_part_of' }])
+  })
+
+  test('the path of each entry is the same as before, and its history still shows the past moves', async () => {
+    const [pathsBeforeMigration, pathsAfter, history] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        const old = yield* pathsBefore(sql`
+          WITH RECURSIVE up AS (
+            SELECT id, parent_id, title, 0 AS depth, slug AS start FROM entries
+            UNION ALL
+            SELECT e.id, e.parent_id, e.title, up.depth + 1, up.start
+            FROM entries e JOIN up ON e.id = up.parent_id
+          )
+          SELECT start AS slug,
+            coalesce(array_agg(title ORDER BY depth DESC) FILTER (WHERE depth > 0), '{}') AS path
+          FROM up GROUP BY start ORDER BY start`)
+        yield* migrate
+        return [
+          old,
+          yield* Effect.forEach(['crane', 'harbor', 'lighthouse', 'pier', 'warehouse'], (slug) =>
+            Effect.map(readEntry(slug), ({ path }) => ({ slug, path })),
+          ),
+          yield* entryHistory('crane'),
+        ] as const
+      }),
+    )
+    expect(pathsBeforeMigration).toEqual([
+      { slug: 'crane', path: ['Harbor', 'Pier'] },
+      { slug: 'harbor', path: [] },
+      { slug: 'lighthouse', path: [] },
+      { slug: 'pier', path: ['Harbor'] },
+      { slug: 'warehouse', path: ['Harbor'] },
+    ])
+    expect(pathsAfter).toEqual(pathsBeforeMigration)
+    expect(history).toEqual([
+      expect.objectContaining({
+        actor: 'agent-old',
+        changes: [{ field: 'parent_id', before: null, after: expect.any(String) }],
+      }),
+    ])
+  })
+
+  test('a type with a field named parent is refused with a sentence, and nothing is changed', async () => {
+    const [refusal, column] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO types (name, label, description, fields) VALUES
+          ('person', 'Person', 'A person.', '[{"name": "parent", "kind": "text"}]')`
+        const said = yield* migrate.pipe(
+          Effect.as('migrated'),
+          Effect.catch((error) => Effect.succeed(error.message)),
+        )
+        return [
+          said,
+          yield* columns(sql`SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'entries' AND column_name = 'parent_id'`),
+        ] as const
+      }),
+    )
+    expect(refusal).toBe(
+      'The type `person` has a field `parent`: it is the key of the provenance of the place an entry is part of. Rename the field first (`change_type` with `field` and `rename`), then start again.',
+    )
+    expect(column).toEqual([{ column_name: 'parent_id' }])
+  })
+
+  test('links part_of that made a loop before are refused with a sentence, and nothing is changed', async () => {
+    const [refusal, column] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO links (source_id, target_id, relation, provenance)
+          SELECT a.id, b.id, 'part_of', 'inferred' FROM entries a, entries b
+          WHERE (a.slug, b.slug) IN (('harbor', 'crane'))`
+        const said = yield* migrate.pipe(
+          Effect.as('migrated'),
+          Effect.catch((error) => Effect.succeed(error.message)),
+        )
+        return [
+          said,
+          yield* columns(sql`SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'entries' AND column_name = 'parent_id'`),
+        ] as const
+      }),
+    )
+    expect(refusal).toBe(
+      'The links `part_of` make a loop: `crane`, `harbor` and `pier` are part of one another. Remove one of them (`link` with `remove`), then start again.',
+    )
+    expect(column).toEqual([{ column_name: 'parent_id' }])
+  })
+
+  /** Links `part_of` made by hand before the tree was made of them: their relation was free. */
+  const handMade = Effect.gen(function* () {
+    yield* before
+    const sql = yield* SqlClient.SqlClient
+    yield* sql`INSERT INTO entries (type, title, slug, parent_id)
+      SELECT 'place', 'Lamp', 'lamp', id FROM entries WHERE slug = 'harbor'`
+    yield* sql`INSERT INTO links (source_id, target_id, relation, provenance, valid_from, valid_until)
+      SELECT s.id, t.id, 'part_of', 'inferred', l.valid_from::date, l.valid_until::date
+      FROM (VALUES
+        ('warehouse', 'lighthouse', NULL, NULL),
+        ('lamp', 'lighthouse', NULL, NULL),
+        ('lamp', 'harbor', NULL, NULL),
+        ('crane', 'pier', '2019-01-01', '2020-01-01'),
+        ('pier', 'harbor', '2999-01-01', NULL)
+      ) AS l(source, target, valid_from, valid_until)
+      JOIN entries s ON s.slug = l.source JOIN entries t ON t.slug = l.target`
+  })
+
+  test('with links part_of made by hand, the path of every entry is the same as before', async () => {
+    const [after, crane, lamp] = await onScratch(
+      Effect.gen(function* () {
+        yield* handMade
+        yield* migrate
+        const slugs = ['crane', 'harbor', 'lamp', 'lighthouse', 'pier', 'warehouse']
+        return [
+          yield* Effect.forEach(slugs, (slug) =>
+            Effect.map(readEntry(slug), ({ path }) => ({ slug, path })),
+          ),
+          yield* readEntry('crane'),
+          yield* readEntry('lamp'),
+        ] as const
+      }),
+    )
+    expect(after).toEqual([
+      { slug: 'crane', path: ['Harbor', 'Pier'] },
+      { slug: 'harbor', path: [] },
+      { slug: 'lamp', path: ['Harbor'] },
+      { slug: 'lighthouse', path: [] },
+      { slug: 'pier', path: ['Harbor'] },
+      { slug: 'warehouse', path: ['Harbor'] },
+    ])
+    // The link made by hand, over, is kept as it was, and the parent is a stay of its own.
+    expect(
+      crane.part_of.map(({ slug, valid_until, period }) => [slug, valid_until, period]),
+    ).toEqual([
+      ['pier', null, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)],
+      ['pier', '2020-01-01', null],
+    ])
+    // The parent that a link made by hand already holds is not doubled.
+    expect(lamp.part_of.map(({ slug }) => slug).toSorted()).toEqual(['harbor', 'lighthouse'])
+  })
+
+  test('a deleted type with a field named parent does not stop the migration', async () => {
+    const migrated = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO types (name, label, description, fields, deleted_at) VALUES
+          ('person', 'Person', 'A person.', '[{"name": "parent", "kind": "text"}]', now())`
+        return yield* migrate.pipe(Effect.as('migrated'))
+      }),
+    )
+    expect(migrated).toBe('migrated')
+  })
+
+  test('a database migrated twice is left as it is', async () => {
+    const [first, second] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        yield* migrate
+        const sql = yield* SqlClient.SqlClient
+        const read = rowsOf(Schema.Struct({ n: Schema.Number }))(
+          sql`SELECT count(*)::int AS n FROM links WHERE relation = 'part_of'`,
+        )
+        const one = yield* read
+        yield* migrate
+        return [one, yield* read] as const
+      }),
+    )
+    expect(second).toEqual(first)
+    expect(first).toEqual([{ n: 3 }])
   })
 })
 

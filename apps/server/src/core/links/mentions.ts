@@ -97,8 +97,8 @@ const foundIn = (text: ReturnType<typeof folded>, original: string, name: string
  * the title, the summary and the body are read: an entry whose title or alias appears whole in
  * them (between word boundaries, case and accents aside) is a mention, unless it is the entry
  * itself, archived, of a sensitive type the caller may not see, named by a name of fewer than 4
- * characters, or already connected to it: cited in its body, linked from or to it, its parent or
- * one of its children. At most 10 each, the longest match first, then by slug; every id of `ids`
+ * characters, or already connected to it: cited in its body, or linked from or to it (a link `part_of` joins
+ * an entry to its parts and to what it is part of). At most 10 each, the longest match first, then by slug; every id of `ids`
  * has an answer, empty or not. No AI: the caller decides whether to link.
  *
  * One read of the entries for all of `ids`: the database narrows the names to those contained in
@@ -127,11 +127,11 @@ export const unlinkedMentions = Effect.fn('unlinkedMentions')(function* (
   )
   const rows = yield* candidates(sql`
     WITH written AS (
-      SELECT id, parent_id,
+      SELECT id,
         regexp_replace(unaccent(lower(title || E'\n' || summary || E'\n' || body)), '\s+', ' ', 'g') AS text
       FROM entries WHERE id = ANY(${[...ids]}::uuid[])
     ), names AS MATERIALIZED (
-      SELECT e.id, e.slug, e.title, e.parent_id, n.name,
+      SELECT e.id, e.slug, e.title, n.name,
         btrim(regexp_replace(unaccent(lower(n.name)), '\s+', ' ', 'g')) AS folded
       FROM entries e
       CROSS JOIN LATERAL (
@@ -143,8 +143,7 @@ export const unlinkedMentions = Effect.fn('unlinkedMentions')(function* (
     SELECT w.id::text AS written, n.slug, n.title, n.name
     FROM written w
     JOIN names n ON n.id <> w.id AND position(n.folded in w.text) > 0
-    WHERE n.id IS DISTINCT FROM w.parent_id AND n.parent_id IS DISTINCT FROM w.id
-      AND NOT EXISTS (
+    WHERE NOT EXISTS (
         SELECT 1 FROM links l
         WHERE (l.source_id = w.id AND l.target_id = n.id)
           OR (l.source_id = n.id AND l.target_id = w.id))`)

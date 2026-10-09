@@ -79,7 +79,6 @@ export const entries = pgTable(
     tags: jsonb()
       .notNull()
       .default(sql`'[]'`),
-    parent_id: uuid(),
     fields: jsonb()
       .notNull()
       .default(sql`'{}'`),
@@ -114,16 +113,10 @@ export const entries = pgTable(
     unique('entries_slug_key').on(table.slug),
     foreignKey({ name: 'entries_type_fkey', columns: [table.type], foreignColumns: [types.name] }),
     foreignKey({
-      name: 'entries_parent_id_fkey',
-      columns: [table.parent_id],
-      foreignColumns: [table.id],
-    }),
-    foreignKey({
       name: 'entries_superseded_by_fkey',
       columns: [table.superseded_by],
       foreignColumns: [table.id],
     }),
-    index('entries_parent_id').on(table.parent_id),
     // The entries that have an alias, as the references of a body look them up (`?|`).
     index('entries_aliases').using('gin', table.aliases),
     index('entries_search').using('gin', sql.raw(`(${SEARCHABLE})`)),
@@ -165,9 +158,9 @@ export const events = pgTable(
 )
 
 /**
- * Links between entries, apart from the tree: a source, a target and a relation. A link
- * `fulfills` carries the period and the date field of the occurrence it closes. Any link may carry
- * a short note and the dates it held between.
+ * Links between entries: a source, a target and a relation. A link `fulfills` carries the period
+ * and the date field of the occurrence it closes. Any link may carry a short note and the dates it
+ * held between. The links `part_of` that hold today are the tree.
  */
 export const links = pgTable(
   'links',
@@ -184,6 +177,8 @@ export const links = pgTable(
     note: text(),
     valid_from: date({ mode: 'string' }),
     valid_until: date({ mode: 'string' }),
+    // The order the links were made in: of two places an entry has had as long, the first is its path.
+    seq: bigint({ mode: 'number' }).generatedByDefaultAsIdentity(),
   },
   (table) => [
     primaryKey({
@@ -206,6 +201,11 @@ export const links = pgTable(
       foreignColumns: [entries.id],
     }),
     index('links_target_id').on(table.target_id),
+    // The tree: what is part of an entry, read down from it. Which links hold today depends on the
+    // day, so the index keeps them all.
+    index('links_part_of')
+      .on(table.target_id, table.source_id)
+      .where(sql`relation = 'part_of'`),
   ],
 )
 
