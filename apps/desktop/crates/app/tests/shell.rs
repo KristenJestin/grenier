@@ -26,7 +26,7 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
             "superseded_by": null, "archived_at": null, "archived_reason": null
         },
         "path": [], "part_of": parent.map(|parent| vec![json!({
-            "id": parent, "slug": parent, "title": parent, "provenance": "inferred", "note": null,
+            "id": parent, "slug": parent, "title": parent, "period": null, "provenance": "inferred", "note": null,
             "valid_from": null, "valid_until": null
         })]).unwrap_or_default(),
         "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],

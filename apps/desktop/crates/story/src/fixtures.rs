@@ -88,7 +88,7 @@ pub fn contract() -> EntryData {
                 "path": ["Maison", "Abonnements"],
                 "part_of": [{
                     "id": "abonnements", "slug": "abonnements", "title": "Abonnements",
-                    "provenance": "extracted", "note": null,
+                    "period": null, "provenance": "extracted", "note": null,
                     "valid_from": null, "valid_until": null
                 }],
                 "ancestors": [{ "id": "maison", "title": "Maison" }, { "id": "abonnements", "title": "Abonnements" }],

@@ -25,8 +25,8 @@ const ENTRY: &str = r#"{
   },
   "path": ["Kitchen"],
   "part_of": [
-    { "id": "01a1-kitchen", "slug": "kitchen", "title": "Kitchen", "provenance": "unstated", "note": null, "valid_from": null, "valid_until": null },
-    { "id": "01a1-market", "slug": "market", "title": "Market", "provenance": "extracted", "note": "the stall", "valid_from": "2026-03-01", "valid_until": null }
+    { "id": "01a1-kitchen", "slug": "kitchen", "title": "Kitchen", "period": null, "provenance": "unstated", "note": null, "valid_from": null, "valid_until": null },
+    { "id": "01a1-market", "slug": "market", "title": "Market", "period": "2026-03-01", "provenance": "extracted", "note": "the stall", "valid_from": "2026-03-01", "valid_until": null }
   ],
   "ancestors": [{ "id": "01a1-kitchen", "title": "Kitchen" }],
   "references": [{ "reference": "pastry", "id": "01a1-pastry", "title": "Pastry" }],

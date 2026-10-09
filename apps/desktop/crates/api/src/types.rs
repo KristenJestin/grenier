@@ -756,6 +756,8 @@ pub struct Place {
     pub id: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub note: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub period: ::std::option::Option<::std::string::String>,
     pub provenance: PlaceProvenance,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
