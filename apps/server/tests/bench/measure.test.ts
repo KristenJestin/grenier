@@ -103,8 +103,9 @@ describe('measuring a run', () => {
 
 describe('the table of roles', () => {
   test('every tool of the server has a role, and every tool of the table exists', () => {
-    const tabled = ROLES.flatMap((role) => TOOLS_OF[role])
-    expect(TOOL_NAMES.filter((name) => !tabled.includes(name))).toEqual([])
-    expect(tabled.filter((name) => !TOOL_NAMES.includes(name))).toEqual([])
+    const tabled: ReadonlyArray<string> = ROLES.flatMap((role) => TOOLS_OF[role])
+    const served: ReadonlyArray<string> = TOOL_NAMES
+    expect(served.filter((name) => !tabled.includes(name))).toEqual([])
+    expect(tabled.filter((name) => !served.includes(name))).toEqual([])
   })
 })
