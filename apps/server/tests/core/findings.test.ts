@@ -161,7 +161,14 @@ describe('the call a finding is about is kept masked', () => {
         ],
       }),
     )
-    await run(writeEntry({ type: 'safe', title: 'Office safe', fields: { room: 'B2' } }))
+    await run(
+      writeEntry({
+        type: 'safe',
+        title: 'Office safe',
+        fields: { room: 'B2' },
+        provenance: { room: 'inferred' },
+      }),
+    )
     const byType = await run(
       maskedCall({
         type: 'safe',
@@ -381,6 +388,7 @@ describe('the server output never carries the values of a failed write', () => {
             type: 'locker',
             title: 'Zebra locker',
             body: 'The code:\nzebra 7-3-9, then left.',
+            provenance: { body: 'inferred' },
           }),
         ),
       ).pipe(Effect.flip),

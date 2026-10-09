@@ -40,7 +40,13 @@ export const SOLUTIONS = {
   'contracts-ending-soon': async () =>
     '1. Home internet, 2. Electricity plan, 3. Gym membership, 4. Phone plan.',
   'renewed-contract': async ({ today, arrange }) => {
-    await arrange(writeEntry({ entry: 'home-internet', fields: { end: addDays(today, 365) } }))
+    await arrange(
+      writeEntry({
+        entry: 'home-internet',
+        fields: { end: addDays(today, 365) },
+        provenance: { end: 'inferred' },
+      }),
+    )
     return 'Done: the contract now ends in a year.'
   },
   'create-recipe': async ({ arrange }) => {
@@ -51,6 +57,7 @@ export const SOLUTIONS = {
         parent: 'kitchen',
         fields: { servings: 8, time_minutes: 90 },
         body: 'Ingredients: 250 g flour, 125 g butter, 100 g sugar, 4 lemons, 3 eggs.\n\nSteps: bake the shell blind for 15 minutes, fill with the lemon cream, bake 20 minutes more.',
+        provenance: { servings: 'inferred', time_minutes: 'inferred', body: 'inferred' },
       }),
     )
     return 'The lemon tart is in the Kitchen.'
@@ -62,13 +69,22 @@ export const SOLUTIONS = {
         title: 'Disk four',
         parent: 'pantry-nas',
         fields: { model: 'Stonewall 4 TB', serial: 'SW-1004' },
+        provenance: { model: 'inferred', serial: 'inferred' },
       }),
     )
-    await arrange(link('disk-four', 'northgate-electronics', 'bought_from'))
+    await arrange(
+      link('disk-four', 'northgate-electronics', 'bought_from', '', '', { provenance: 'inferred' }),
+    )
     return 'Added.'
   },
   'fix-serial': async ({ arrange }) => {
-    await arrange(writeEntry({ entry: 'processor', fields: { serial: 'CV-5522' } }))
+    await arrange(
+      writeEntry({
+        entry: 'processor',
+        fields: { serial: 'CV-5522' },
+        provenance: { serial: 'inferred' },
+      }),
+    )
     return 'Corrected.'
   },
   'edit-recipe-time': async ({ arrange }) => {
@@ -76,6 +92,7 @@ export const SOLUTIONS = {
       writeEntry({
         entry: 'sourdough-bread',
         edits: [{ find: 'bake 45 minutes', replace: 'bake 50 minutes' }],
+        provenance: { body: 'inferred' },
       }),
     )
     return 'Updated.'
@@ -86,10 +103,14 @@ export const SOLUTIONS = {
   },
   'change-of-job': async ({ arrange }) => {
     await arrange(
-      link('nolan-reyes', 'riverside-bakery', 'works_at', '', '', { valid_until: '2026-08-31' }),
+      link('nolan-reyes', 'riverside-bakery', 'works_at', '', '', {
+        provenance: 'inferred',
+        valid_until: '2026-08-31',
+      }),
     )
     await arrange(
       link('nolan-reyes', 'tidewater-insurance', 'works_at', '', '', {
+        provenance: 'inferred',
         note: 'claims adviser',
         valid_from: '2026-09-01',
       }),
@@ -98,10 +119,17 @@ export const SOLUTIONS = {
   },
   'new-contact': async ({ arrange }) => {
     await arrange(
-      writeEntry({ type: 'person', title: 'Priya Nair', parent: 'people', summary: 'Accountant.' }),
+      writeEntry({
+        type: 'person',
+        title: 'Priya Nair',
+        parent: 'people',
+        summary: 'Accountant.',
+        provenance: { summary: 'inferred' },
+      }),
     )
     await arrange(
       link('priya-nair', 'harbor-credit-union', 'works_at', '', '', {
+        provenance: 'inferred',
         note: 'accountant',
         valid_from: '2025-01-15',
       }),
@@ -109,7 +137,11 @@ export const SOLUTIONS = {
     return 'Added.'
   },
   'relation-between-entries': async ({ arrange }) => {
-    await arrange(link('media-streaming-setup', 'network-router', 'depends_on'))
+    await arrange(
+      link('media-streaming-setup', 'network-router', 'depends_on', '', '', {
+        provenance: 'inferred',
+      }),
+    )
     return 'Recorded.'
   },
   'replace-decision': async ({ arrange }) => {
@@ -119,6 +151,7 @@ export const SOLUTIONS = {
         title: 'Replicate to a second NAS',
         parent: 'backup-plan',
         body: 'Replication to a second NAS replaces the snapshots: the monthly offsite trip is too much hassle.',
+        provenance: { body: 'inferred' },
       }),
     )
     await arrange(writeEntry({ entry: 'use-zfs-snapshots-for-backups', superseded_by: created.id }))
@@ -136,6 +169,7 @@ export const SOLUTIONS = {
         title: 'Worktop quote',
         parent: 'kitchen-renovation',
         body: '[[pine-street-hardware]] quoted 2400 EUR for the worktop, valid until 2026-11-30.',
+        provenance: { body: 'inferred' },
       }),
     )
     return 'Noted.'
@@ -162,6 +196,7 @@ export const SOLUTIONS = {
         type: 'plant',
         title: 'Monstera',
         fields: { place: 'living room', last_watered: '2026-10-06' },
+        provenance: { place: 'inferred', last_watered: 'inferred' },
       }),
     )
     return 'Set up.'
@@ -184,15 +219,23 @@ export const SOLUTIONS = {
         parent: 'kitchen',
         fields: { servings: 4, time_minutes: 10 },
         body: 'Blend 400 g chickpeas, 2 tbsp tahini, lemon juice and garlic.',
+        provenance: { servings: 'inferred', time_minutes: 'inferred', body: 'inferred' },
       }),
     )
-    await arrange(writeEntry({ entry: 'disk-three', fields: { serial: 'SW-2003' } }))
+    await arrange(
+      writeEntry({
+        entry: 'disk-three',
+        fields: { serial: 'SW-2003' },
+        provenance: { serial: 'inferred' },
+      }),
+    )
     await arrange(
       writeEntry({
         type: 'bookmark',
         title: 'ZFS snapshots deep dive',
         parent: 'reading',
         fields: { url: 'https://example.org/guides/zfs-snapshots-deep-dive' },
+        provenance: { url: 'inferred' },
       }),
     )
     await arrange(finishItem({ id: hummus.id, entries: ['hummus'] }))
@@ -212,6 +255,7 @@ export const SOLUTIONS = {
         parent: 'kitchen',
         fields: { servings: 4 },
         body: 'Crush basil, pine nuts, parmesan and olive oil.',
+        provenance: { servings: 'inferred', body: 'inferred' },
       }),
     )
     await arrange(finishItem({ id: pesto.id, entries: ['pesto'] }))
@@ -228,7 +272,7 @@ export const SOLUTIONS = {
     )
     return 'It is in your inbox.'
   },
-  'review-queue': async () =>
+  'supposed-queue': async () =>
     'Four entries wait: Router settings, Cable management ideas, Lemon curd and Flatbreads.',
   'nothing-known': async () => 'I found nothing about a wifi password at the cabin.',
   'resume-discussion': async () =>
@@ -242,6 +286,7 @@ export const SOLUTIONS = {
         title: 'Saturday tinkering',
         summary: 'Tidying the cables behind the Network router; Samir Haddad came by.',
         body: 'I spent the afternoon tidying the cables behind the [[network-router]], and [[samir-haddad]] came by for a coffee.',
+        provenance: { body: 'inferred', summary: 'inferred' },
       }),
     )
     return 'Added.'

@@ -19,6 +19,21 @@ const decodeType = (input: typeof TypeDefinition.Encoded) =>
     Effect.mapError(Refused.fromSchemaError),
   )
 
+/**
+ * Refuses a field named `body` or `summary`: they are the body and the summary of every entry, and
+ * the keys under which `provenance` says whether those are known or supposed.
+ */
+export const refuseReservedNames = (names: ReadonlyArray<string>) => {
+  const taken = names.filter((name) => name === 'body' || name === 'summary')
+  return taken.length === 0
+    ? Effect.void
+    : Effect.fail(
+        new Refused({
+          message: `${taken.map((name) => `The field \`${name}\``).join(' and ')} cannot be named so: \`body\` and \`summary\` are the body and the summary of every entry, and the keys of their \`provenance\`. Choose another name.`,
+        }),
+      )
+}
+
 const Row = Schema.Struct({
   name: Schema.String,
   label: Schema.String,
@@ -131,6 +146,7 @@ export const defineType = Effect.fn('defineType')(function* (input: typeof TypeD
   const db = yield* drizzle
   const actor = yield* currentActor
   const type = yield* decodeType(input)
+  yield* refuseReservedNames(type.fields.map(({ name }) => name))
   return yield* client.withTransaction(
     Effect.gen(function* () {
       // Deleted and merged types keep their name: it stays taken.
@@ -183,6 +199,7 @@ export const addField = Effect.fn('addField')(function* (
           message: `The field \`${input.name}\` cannot be required when it is added to an existing type: add it as optional.`,
         })
       }
+      yield* refuseReservedNames([input.name])
       const extended = yield* decodeType({ ...type, fields: [...type.fields, input] })
       yield* checkAcceptedTypes(extended)
       yield* db

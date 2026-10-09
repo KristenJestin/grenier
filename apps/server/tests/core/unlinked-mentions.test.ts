@@ -57,6 +57,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Tidy-up plan',
       body: 'Move the tools from the garden shed before winter.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([
       { slug: 'garden-shed', title: 'Garden shed', found: 'garden shed' },
@@ -68,6 +69,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Winter checklist',
       body: 'Move the tools from the [[garden-shed]] before winter.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
   })
@@ -77,6 +79,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Reference only',
       body: 'See [[garden-shed-roof]] for the roof.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
   })
@@ -86,9 +89,10 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Linked plan',
       body: 'The garden shed and the workshop bench.',
+      provenance: { body: 'inferred' },
     })
-    await run(link(slug, 'garden-shed', 'about'))
-    await run(link('workshop-bench', slug, 'about'))
+    await run(link(slug, 'garden-shed', 'about', '', '', { provenance: 'inferred' }))
+    await run(link('workshop-bench', slug, 'about', '', '', { provenance: 'inferred' }))
     expect(await mentionsOf(slug)).toEqual([])
   })
 
@@ -98,6 +102,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       title: 'Roof of the shed',
       parent: 'garden-shed',
       body: 'The roof of the garden shed leaks.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
   })
@@ -107,6 +112,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Bench plan',
       summary: 'Sand down The Long Bench.',
+      provenance: { summary: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([
       { slug: 'workshop-bench', title: 'Workshop bench', found: 'The Long Bench' },
@@ -114,7 +120,12 @@ describe('unlinked mentions: existing entries a text names without linking them'
   })
 
   test('the title and the summary of the entry written are read too', async () => {
-    const slug = await write({ type: 'thing', title: 'About the Garden Shed', body: 'Nothing.' })
+    const slug = await write({
+      type: 'thing',
+      title: 'About the Garden Shed',
+      body: 'Nothing.',
+      provenance: { body: 'inferred' },
+    })
     expect(await mentionsOf(slug)).toEqual([
       { slug: 'garden-shed', title: 'Garden shed', found: 'Garden Shed' },
     ])
@@ -125,6 +136,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Evening out',
       body: 'We met at the CAFE NOIR, then at the cafÉ noir again.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([
       { slug: 'cafe-noir', title: 'Café Noir', found: 'CAFE NOIR' },
@@ -136,12 +148,18 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Boundaries',
       body: 'The garden sheds are many, and a pregarden shed is not one.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
   })
 
   test('a title of 3 characters is never returned', async () => {
-    const slug = await write({ type: 'thing', title: 'Short names', body: 'I took the saw.' })
+    const slug = await write({
+      type: 'thing',
+      title: 'Short names',
+      body: 'I took the saw.',
+      provenance: { body: 'inferred' },
+    })
     expect(await mentionsOf(slug)).toEqual([])
   })
 
@@ -150,12 +168,18 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Self mention',
       body: 'Self mention is what this says.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
   })
 
   test('an archived entry is never returned', async () => {
-    const slug = await write({ type: 'thing', title: 'Archive trap', body: 'The old ladder.' })
+    const slug = await write({
+      type: 'thing',
+      title: 'Archive trap',
+      body: 'The old ladder.',
+      provenance: { body: 'inferred' },
+    })
     expect(await mentionsOf(slug)).toEqual([])
   })
 
@@ -164,6 +188,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Hidden trap',
       body: 'Behind the vault door.',
+      provenance: { body: 'inferred' },
     })
     expect(await mentionsOf(slug)).toEqual([])
     expect(await mentionsOf(slug, ['sensitive'])).toEqual([
@@ -187,6 +212,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
         ),
         'workshop bench',
       ].join(', '),
+      provenance: { body: 'inferred' },
     })
     const found = await mentionsOf(slug)
     expect(found).toHaveLength(10)
@@ -210,6 +236,7 @@ describe('unlinked mentions: existing entries a text names without linking them'
       type: 'thing',
       title: 'Order of length',
       body: 'First the garden shed, then the workshop bench.',
+      provenance: { body: 'inferred' },
     })
     expect((await mentionsOf(slug)).map(({ slug: each }) => each)).toEqual([
       'workshop-bench',

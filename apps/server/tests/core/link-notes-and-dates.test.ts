@@ -58,18 +58,21 @@ describe('links carry a note and dates', () => {
     await run(writeEntry({ type: 'person', title: 'Kim Vale' }))
     const answer = await run(
       link('kim-vale', 'lantern-works', 'works_at', '', '', {
+        provenance: 'inferred',
         note: 'comptable',
         valid_from: '2024-01-01',
       }),
     )
     expect(answer).toEqual({
       field: '',
+      provenance: 'inferred',
       note: 'comptable',
       valid_from: '2024-01-01',
       valid_until: null,
     })
     const expected = {
       relation: 'works_at',
+      provenance: 'inferred',
       note: 'comptable',
       valid_from: '2024-01-01',
       valid_until: null,
@@ -84,7 +87,12 @@ describe('links carry a note and dates', () => {
 
   test('linking again updates the note in one event; the same again records nothing', async () => {
     const before = (await run(entryHistory('kim-vale'))).length
-    await run(link('kim-vale', 'lantern-works', 'works_at', '', '', { note: 'auditrice' }))
+    await run(
+      link('kim-vale', 'lantern-works', 'works_at', '', '', {
+        provenance: 'inferred',
+        note: 'auditrice',
+      }),
+    )
     const events = await run(entryHistory('kim-vale'))
     expect(events).toHaveLength(before + 1)
     const target = await idOf('lantern-works')
@@ -93,16 +101,32 @@ describe('links carry a note and dates', () => {
       changes: [
         {
           field: 'links.works_at',
-          before: { entry: target, note: 'comptable', valid_from: '2024-01-01' },
-          after: { entry: target, note: 'auditrice', valid_from: '2024-01-01' },
+          before: {
+            entry: target,
+            provenance: 'inferred',
+            note: 'comptable',
+            valid_from: '2024-01-01',
+          },
+          after: {
+            entry: target,
+            provenance: 'inferred',
+            note: 'auditrice',
+            valid_from: '2024-01-01',
+          },
         },
       ],
     })
-    await run(link('kim-vale', 'lantern-works', 'works_at', '', '', { note: 'auditrice' }))
-    await run(link('kim-vale', 'lantern-works', 'works_at'))
+    await run(
+      link('kim-vale', 'lantern-works', 'works_at', '', '', {
+        provenance: 'inferred',
+        note: 'auditrice',
+      }),
+    )
+    await run(link('kim-vale', 'lantern-works', 'works_at', '', '', { provenance: 'inferred' }))
     expect(await run(entryHistory('kim-vale'))).toHaveLength(before + 1)
     await run(
       link('kim-vale', 'lantern-works', 'works_at', '', '', {
+        provenance: 'inferred',
         note: null,
         valid_until: '2025-06-30',
       }),
@@ -117,13 +141,21 @@ describe('links carry a note and dates', () => {
   test('a note longer than 200 characters, a wrong date or an end before the start are refused', async () => {
     expect(
       await run(
-        refusalOf(link('kim-vale', 'copper-shop', 'bought_at', '', '', { note: 'x'.repeat(201) })),
+        refusalOf(
+          link('kim-vale', 'copper-shop', 'bought_at', '', '', {
+            provenance: 'inferred',
+            note: 'x'.repeat(201),
+          }),
+        ),
       ),
     ).toBe('The note of a link holds 200 characters at most: this one holds 201.')
     expect(
       await run(
         refusalOf(
-          link('kim-vale', 'copper-shop', 'bought_at', '', '', { valid_from: '2024-13-01' }),
+          link('kim-vale', 'copper-shop', 'bought_at', '', '', {
+            provenance: 'inferred',
+            valid_from: '2024-13-01',
+          }),
         ),
       ),
     ).toBe('The field `valid_from` must be a date such as `2026-10-05`.')
@@ -131,6 +163,7 @@ describe('links carry a note and dates', () => {
       await run(
         refusalOf(
           link('kim-vale', 'copper-shop', 'bought_at', '', '', {
+            provenance: 'inferred',
             valid_from: '2024-05-01',
             valid_until: '2024-04-01',
           }),
@@ -140,14 +173,24 @@ describe('links carry a note and dates', () => {
     expect(
       await run(
         refusalOf(
-          link('kim-vale', 'lantern-works', 'works_at', '', '', { valid_from: '2026-01-01' }),
+          link('kim-vale', 'lantern-works', 'works_at', '', '', {
+            provenance: 'inferred',
+            valid_from: '2026-01-01',
+          }),
         ),
       ),
     ).toBe('The field `valid_until` cannot be before `valid_from`.')
   })
 
   test('`[[slug]]` mentions carry no note and no dates', async () => {
-    await run(writeEntry({ type: 'person', title: 'Lou Pike', body: 'Met at [[copper-shop]].' }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Lou Pike',
+        body: 'Met at [[copper-shop]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect((await run(linksOf('lou-pike')))[0]).toMatchObject({
       relation: 'mentions',
       note: null,
@@ -159,12 +202,17 @@ describe('links carry a note and dates', () => {
   test('the export writes a link’s note and dates', async () => {
     const file = (await run(markdownFiles)).find(({ path }) => path === 'kim-vale.md')
     expect(file?.content).toContain(
-      'links:\n  - relation: works_at\n    target: lantern-works\n    valid_from: 2024-01-01\n    valid_until: 2025-06-30\n',
+      'links:\n  - relation: works_at\n    target: lantern-works\n    provenance: inferred\n    valid_from: 2024-01-01\n    valid_until: 2025-06-30\n',
     )
   })
 
   test('`unlink` removes a link with its note', async () => {
-    await run(link('lou-pike', 'lantern-works', 'visited', '', '', { note: 'once' }))
+    await run(
+      link('lou-pike', 'lantern-works', 'visited', '', '', {
+        provenance: 'inferred',
+        note: 'once',
+      }),
+    )
     await run(unlink('lou-pike', 'lantern-works', 'visited'))
     expect((await run(linksOf('lou-pike'))).map(({ relation }) => relation)).toEqual(['mentions'])
   })
@@ -172,20 +220,28 @@ describe('links carry a note and dates', () => {
   test('the history of an unlink keeps what the link said, its note and its dates', async () => {
     await run(
       link('lou-pike', 'copper-shop', 'visited', '', '', {
+        provenance: 'inferred',
         note: 'twice',
         valid_from: '2025-02-01',
       }),
     )
     await run(unlink('lou-pike', 'copper-shop', 'visited'))
     expect((await run(fieldHistory('lou-pike', 'links.visited'))).at(-1)).toMatchObject({
-      before: { entry: await idOf('copper-shop'), note: 'twice', valid_from: '2025-02-01' },
+      before: {
+        entry: await idOf('copper-shop'),
+        provenance: 'inferred',
+        note: 'twice',
+        valid_from: '2025-02-01',
+      },
       after: null,
     })
   })
 
   test('an empty note is no note', async () => {
-    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { note: 'a book' }))
-    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { note: '' }))
+    await run(
+      link('lou-pike', 'copper-shop', 'owes', '', '', { provenance: 'inferred', note: 'a book' }),
+    )
+    await run(link('lou-pike', 'copper-shop', 'owes', '', '', { provenance: 'inferred', note: '' }))
     expect(
       (await run(linksOf('lou-pike'))).find(({ relation }) => relation === 'owes'),
     ).toMatchObject({ note: null })
@@ -193,8 +249,18 @@ describe('links carry a note and dates', () => {
 
   test('nothing of a link to a hidden entry reaches a key without `sensitive`', async () => {
     await run(writeEntry({ type: 'person', title: 'Mo Ash' }))
-    await run(link('mo-ash', 'quiet-evening', 'wrote', '', '', { note: 'velvet-secret' }))
-    await run(link('mo-ash', 'quiet-evening', 'wrote', '', '', { note: 'velvet-secret-2' }))
+    await run(
+      link('mo-ash', 'quiet-evening', 'wrote', '', '', {
+        provenance: 'inferred',
+        note: 'velvet-secret',
+      }),
+    )
+    await run(
+      link('mo-ash', 'quiet-evening', 'wrote', '', '', {
+        provenance: 'inferred',
+        note: 'velvet-secret-2',
+      }),
+    )
     const read = await run(plain(readEntry('mo-ash')))
     expect(read.links).toEqual([])
     const history = JSON.stringify(await run(plain(entryHistory('mo-ash'))))

@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { entriesFor, LINKS, seedInstance, TYPES, UNVERIFIED } from '../../bench/fixture.ts'
+import { entriesFor, LINKS, seedInstance, SUPPOSED, TYPES } from '../../bench/fixture.ts'
 import { migrated, runtimeOn } from '../../bench/runtime.ts'
 import { TASKS } from '../../bench/tasks.ts'
 import { worldOf } from '../../bench/world.ts'
@@ -32,7 +32,7 @@ beforeAll(async () => {
 afterAll(() => Effect.runPromise(dropScratchDatabase(template)))
 
 describe('the invented instance', () => {
-  test('about a hundred entries, written through the core, with their links and their review state', async () => {
+  test('about a hundred entries, written through the core, with their links and what is known or supposed in them', async () => {
     const name = named('grenier_bench_test_instance')
     const url = await Effect.runPromise(createScratchDatabase(name, template))
     const runtime = runtimeOn(url, SECRET)
@@ -52,12 +52,19 @@ describe('the invented instance', () => {
           `${from} to ${to}`,
         ).toContain(to)
       })
+      // Every value, body and summary says whether it is known or supposed; only a few entries
+      // are supposed, and the others cite where they are known from.
       expect(
         everything
-          .filter(({ entry }) => !entry.verified)
+          .filter(({ entry }) => Object.values(entry.provenance).includes('inferred'))
           .map(({ entry }) => entry.slug)
           .toSorted(),
-      ).toEqual([...UNVERIFIED].toSorted())
+      ).toEqual([...SUPPOSED].toSorted())
+      for (const { entry } of everything) {
+        expect(Object.values(entry.provenance), entry.slug).not.toContain('unstated')
+        if (Object.values(entry.provenance).includes('extracted'))
+          expect(entry.sources.length, entry.slug).toBeGreaterThan(0)
+      }
       const history = await world.history('pantry-nas')
       expect(history.find(({ actor }) => actor === 'agent-desk')?.changes).toEqual([
         { field: 'fields.location', before: 'garage shelf', after: 'hallway cupboard' },

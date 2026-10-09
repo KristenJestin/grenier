@@ -43,6 +43,7 @@ beforeAll(() =>
         type: 'item',
         title: 'Home server',
         summary: 'The box under the stairs.',
+        provenance: { summary: 'inferred' },
       })
       yield* writeEntry({
         type: 'item',
@@ -50,13 +51,25 @@ beforeAll(() =>
         summary: 'A graphics card for the home server.',
         body: 'Fitted in the second slot.\n\n## Warranty\nTwo years.',
         parent: 'home-server',
+        provenance: { body: 'inferred', summary: 'inferred' },
       })
-      yield* writeEntry({ type: 'shop', title: 'Corner Shop', summary: 'Sells parts.' })
-      yield* writeEntry({ type: 'project', title: 'Media center', summary: 'Films at home.' })
+      yield* writeEntry({
+        type: 'shop',
+        title: 'Corner Shop',
+        summary: 'Sells parts.',
+        provenance: { summary: 'inferred' },
+      })
+      yield* writeEntry({
+        type: 'project',
+        title: 'Media center',
+        summary: 'Films at home.',
+        provenance: { summary: 'inferred' },
+      })
       yield* link('graphics-card', 'corner-shop', 'bought_from', '', '', {
+        provenance: 'inferred',
         note: 'ordered online, invoice kept',
       })
-      yield* link('media-center', 'home-server', 'runs_on')
+      yield* link('media-center', 'home-server', 'runs_on', '', '', { provenance: 'inferred' })
     }),
   ),
 )
@@ -92,7 +105,9 @@ describe('search hands over neighbors', () => {
       Effect.gen(function* () {
         for (const name of ['Bracket', 'Cable', 'Fan']) {
           yield* writeEntry({ type: 'item', title: name })
-          yield* link('graphics-card', name.toLowerCase(), 'uses')
+          yield* link('graphics-card', name.toLowerCase(), 'uses', '', '', {
+            provenance: 'inferred',
+          })
         }
       }),
     )
@@ -110,7 +125,9 @@ describe('search hands over neighbors', () => {
     await trusted(
       Effect.gen(function* () {
         yield* writeEntry({ type: 'vault', title: 'Card unlock code' })
-        yield* link('graphics-card', 'card-unlock-code', 'unlocked_by')
+        yield* link('graphics-card', 'card-unlock-code', 'unlocked_by', '', '', {
+          provenance: 'inferred',
+        })
       }),
     )
     const slugs = async (access: typeof plain) => {
@@ -125,7 +142,9 @@ describe('search hands over neighbors', () => {
 
   test('an archived neighbor is absent, unless archived is asked', async () => {
     await plain(writeEntry({ type: 'shop', title: 'Closed Shop' }))
-    await plain(link('graphics-card', 'closed-shop', 'considered_from'))
+    await plain(
+      link('graphics-card', 'closed-shop', 'considered_from', '', '', { provenance: 'inferred' }),
+    )
     await plain(archiveEntry('closed-shop', 'Shut down.'))
     const slugs = async (input: { readonly archived?: boolean }) => {
       const { results } = asJson(
@@ -142,7 +161,11 @@ describe('search without a query lists by recent change', () => {
   test('it lists the entries newest first, each with updated and by', async () => {
     await run(
       Effect.provideService(
-        writeEntry({ entry: 'media-center', summary: 'Films, music and photos at home.' }),
+        writeEntry({
+          entry: 'media-center',
+          summary: 'Films, music and photos at home.',
+          provenance: { summary: 'inferred' },
+        }),
         Actor,
         'agent-laptop',
       ),
@@ -185,7 +208,14 @@ describe('read is concise by default', () => {
   })
 
   test('the titles of the entries its fields name are keyed by slug, with the id beside', async () => {
-    await plain(writeEntry({ type: 'item', title: 'Spare fan', fields: { maker: 'corner-shop' } }))
+    await plain(
+      writeEntry({
+        type: 'item',
+        title: 'Spare fan',
+        fields: { maker: 'corner-shop' },
+        provenance: { maker: 'inferred' },
+      }),
+    )
     const shop = await run(readEntry('corner-shop'))
     const read = asJson(await plain(readTool.run({ entry: 'spare-fan' })))
     expect(read.titles).toEqual({ 'corner-shop': { id: shop.entry.id, title: 'Corner Shop' } })

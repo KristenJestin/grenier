@@ -50,7 +50,12 @@ describe('write takes one entry or entries, and archives', () => {
     const refused = await answerOf('write', {
       entries: [
         { type: 'note', title: 'Kept out one' },
-        { type: 'note', title: 'Kept out two', fields: { mood: 'angry' } },
+        {
+          type: 'note',
+          title: 'Kept out two',
+          fields: { mood: 'angry' },
+          provenance: { mood: 'inferred' },
+        },
       ],
     })
     expect(refused).toMatchObject({ error: expect.stringContaining('mood') })
@@ -59,7 +64,12 @@ describe('write takes one entry or entries, and archives', () => {
       await answerOf('write', {
         entries: [
           { type: 'note', title: 'Shelf one' },
-          { type: 'note', title: 'Shelf two', body: 'Next to [[shelf-one]].' },
+          {
+            type: 'note',
+            title: 'Shelf two',
+            body: 'Next to [[shelf-one]].',
+            provenance: { body: 'inferred' },
+          },
         ],
       }),
     ).toMatchObject({ entries: [{ slug: 'shelf-one' }, { slug: 'shelf-two' }] })
@@ -67,7 +77,14 @@ describe('write takes one entry or entries, and archives', () => {
 
   test('a batch answers without the bodies, which the agent just sent', async () => {
     const answer = await answerOf('write', {
-      entries: [{ type: 'note', title: 'Heavy', body: 'A heavy line of text.\n'.repeat(500) }],
+      entries: [
+        {
+          type: 'note',
+          title: 'Heavy',
+          body: 'A heavy line of text.\n'.repeat(500),
+          provenance: { body: 'inferred' },
+        },
+      ],
     })
     expect(JSON.stringify(answer)).not.toContain('A heavy line')
   })
@@ -105,21 +122,63 @@ describe('write takes one entry or entries, and archives', () => {
   })
 })
 
-describe('search lists what waits for review, newest first', () => {
-  test('verified: false without a query lists the entries to review, the last changed first, with who wrote them', async () => {
-    await answerOf('write', { type: 'note', title: 'Review older' })
-    await answerOf('write', { type: 'note', title: 'Review newer' })
-    await answerOf('write', { entry: 'review-older', summary: 'Touched again.' })
+describe('search lists what is supposed, newest first', () => {
+  test('supposed: true without a query lists the entries that hold suppositions, the last changed first, with what, who and when', async () => {
+    await answerOf('write', {
+      type: 'note',
+      title: 'Review older',
+      summary: 'A first guess.',
+      provenance: { summary: 'inferred' },
+    })
+    await answerOf('write', {
+      type: 'note',
+      title: 'Review newer',
+      summary: 'A second guess.',
+      provenance: { summary: 'inferred' },
+    })
+    await answerOf('write', {
+      type: 'note',
+      title: 'Review known',
+      summary: 'Said in a call.',
+      provenance: { summary: 'extracted' },
+      sources: [{ identifier: 'call_001', label: 'call' }],
+    })
+    await answerOf('write', {
+      entry: 'review-older',
+      summary: 'Touched again.',
+      provenance: { summary: 'inferred' },
+    })
     const found = Schema.decodeUnknownSync(
       Schema.Struct({
         results: Schema.Array(
-          Schema.Struct({ slug: Schema.String, by: Schema.NullOr(Schema.String) }),
+          Schema.Struct({
+            slug: Schema.String,
+            by: Schema.NullOr(Schema.String),
+            summary_provenance: Schema.String,
+            supposed: Schema.Array(
+              Schema.Struct({
+                what: Schema.String,
+                by: Schema.NullOr(Schema.String),
+                when: Schema.NullOr(Schema.String),
+              }),
+            ),
+          }),
         ),
       }),
-    )(await answerOf('search', { verified: false, neighbors: 0, limit: 2 }))
+    )(await answerOf('search', { supposed: true, neighbors: 0, limit: 2 }))
     expect(found.results).toEqual([
-      { slug: 'review-older', by: 'agent-merged' },
-      { slug: 'review-newer', by: 'agent-merged' },
+      {
+        slug: 'review-older',
+        by: 'agent-merged',
+        summary_provenance: 'inferred',
+        supposed: [{ what: 'summary', by: 'agent-merged', when: expect.any(String) }],
+      },
+      {
+        slug: 'review-newer',
+        by: 'agent-merged',
+        summary_provenance: 'inferred',
+        supposed: [{ what: 'summary', by: 'agent-merged', when: expect.any(String) }],
+      },
     ])
   })
 })
@@ -128,7 +187,12 @@ describe('link links and, with remove, unlinks', () => {
   test('a link is made, then removed with remove: true, and seen from both ends', async () => {
     await answerOf('write', { type: 'note', title: 'Bench' })
     expect(
-      await answerOf('link', { source: 'bench', target: 'shelf-two', relation: 'about' }),
+      await answerOf('link', {
+        provenance: 'inferred',
+        source: 'bench',
+        target: 'shelf-two',
+        relation: 'about',
+      }),
     ).toMatchObject({ relation: 'about' })
     expect(await answerOf('read', { entry: 'shelf-two', parts: ['links'] })).toMatchObject({
       backlinks: [{ relation: 'about', slug: 'bench' }],
@@ -318,8 +382,16 @@ describe('read gives the history of an entry as a part', () => {
   })
 
   test('the history is paged: a page, then the next with the cursor', async () => {
-    await answerOf('write', { entry: 'old-note', summary: 'One.' })
-    await answerOf('write', { entry: 'old-note', summary: 'Two.' })
+    await answerOf('write', {
+      entry: 'old-note',
+      summary: 'One.',
+      provenance: { summary: 'inferred' },
+    })
+    await answerOf('write', {
+      entry: 'old-note',
+      summary: 'Two.',
+      provenance: { summary: 'inferred' },
+    })
     const first = Schema.decodeUnknownSync(
       Schema.Struct({
         history: Schema.Struct({
@@ -350,7 +422,12 @@ describe('briefing gives the dates of any period, and what waits', () => {
       fields: [{ name: 'ends', kind: 'date', due: { notice: 'P1D' } }],
     })
     const ends = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10)
-    await answerOf('write', { type: 'permit', title: 'Boat permit', fields: { ends } })
+    await answerOf('write', {
+      type: 'permit',
+      title: 'Boat permit',
+      fields: { ends },
+      provenance: { ends: 'inferred' },
+    })
     expect(await answerOf('briefing', { to: ends })).toMatchObject({
       to: ends,
       upcoming: [{ entry: { slug: 'boat-permit' }, date: ends }],
@@ -360,17 +437,30 @@ describe('briefing gives the dates of any period, and what waits', () => {
     })
   })
 
-  test('waiting counts the entries to review and the references without an entry, and shows the first few', async () => {
+  test('waiting counts the suppositions to confirm and the references without an entry, and shows the first few', async () => {
     await answerOf('write', {
       type: 'note',
       title: 'Dangling',
       body: 'See [[not-written-yet]].',
       fields: { place: 'Shed' },
+      provenance: { place: 'inferred', body: 'inferred' },
     })
     const answer = await answerOf('briefing', { period: 'today' })
     expect(answer).toMatchObject({
       waiting: {
-        unverified: { count: expect.any(Number), first: expect.any(Array) },
+        supposed: {
+          count: expect.any(Number),
+          first: expect.arrayContaining([
+            {
+              slug: 'dangling',
+              title: 'Dangling',
+              what: 'place',
+              provenance: 'inferred',
+              by: 'agent-merged',
+              when: expect.any(String),
+            },
+          ]),
+        },
         pending_references: { count: 1, first: [{ slug: 'not-written-yet' }] },
       },
     })
@@ -396,7 +486,12 @@ describe('the inbox is filed with inbox_list and inbox_finish', () => {
       item: { id, status: 'pending' },
     })
     expect(await answerOf('inbox_take', { id })).toMatchObject({ item: { id, status: 'taken' } })
-    await answerOf('write', { type: 'note', title: 'Journal', fields: { place: 'Garden' } })
+    await answerOf('write', {
+      type: 'note',
+      title: 'Journal',
+      fields: { place: 'Garden' },
+      provenance: { place: 'inferred' },
+    })
     expect(
       await answerOf('inbox_finish', { id, outcome: 'done', entries: ['journal'] }),
     ).toMatchObject({ item: { id, status: 'processed', entries: [{ slug: 'journal' }] } })

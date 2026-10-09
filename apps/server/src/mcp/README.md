@@ -18,12 +18,12 @@ name is refused.
 
 | Tool | Right | What it does |
 | --- | --- | --- |
-| `search` | read | Searches entries in full text, or lists them by last change; each result comes with its neighbors. `verified: false` lists what waits for the owner's review. |
+| `search` | read | Searches entries in full text, or lists them by last change; each result comes with its neighbors. `supposed: true` lists the entries that hold supposed values, `unstated: true` those that hold values written before writers were asked. |
 | `read` | read | Reads an entry without its body unless asked, by parts (`history` among them, paged), with its place in the tree, its links and, with `depth`, the graph around it. |
-| `briefing` | read | Gathers what matters for a period (`today`, `week`, `weekend`) or for any days (`from`, `to`): coming dates, overdue deadlines, a year ago, and what waits (entries to review, references without an entry). |
+| `briefing` | read | Gathers what matters for a period (`today`, `week`, `weekend`) or for any days (`from`, `to`): coming dates, overdue deadlines, a year ago, and what waits (suppositions to confirm, references without an entry). |
 | `types` | read | Reads every type, one type (`name`), the proposed deletions and merges of types (`proposals`), or the rules of the instance whole (`rules`). |
-| `write` | write | Creates or updates an entry, or up to 100 in one transaction (`entries`), or archives one (`archive`); a long body in parts. Answers with the entries it names without linking (`unlinked`). |
-| `link` | write | Links two entries with a relation, a note and the dates it held; `remove` removes the link. |
+| `write` | write | Creates or updates an entry, or up to 100 in one transaction (`entries`), or archives one (`archive`); a long body in parts. Every value, the body and the summary say their `provenance`: known (`extracted`, with a source) or supposed (`inferred`). Answers with the entries it names without linking (`unlinked`). |
+| `link` | write | Links two entries with a relation, its `provenance` (known or supposed), a note and the dates it held; `remove` removes the link. |
 | `attach_media` | write | Attaches an image, a video, a sound or a PDF to an entry; with `media` and `alt`, describes a medium already attached. |
 | `define_type` | write | Defines a type of entry and its fields, or adds fields to an existing type. |
 | `change_type` | write | Changes the label, the description or the flags of a type, or one of its fields (`field`); `propose` proposes to delete it or merge it into another. |

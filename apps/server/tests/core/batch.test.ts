@@ -25,8 +25,18 @@ describe('several entries written at once', () => {
   test('two new entries that cite each other are written in one call, with both links', async () => {
     await run(
       writeEntries([
-        { type: 'note', title: 'Seed list', body: 'Sow what [[sowing-calendar]] says.' },
-        { type: 'note', title: 'Sowing calendar', body: 'For the [[seed-list]].' },
+        {
+          type: 'note',
+          title: 'Seed list',
+          body: 'Sow what [[sowing-calendar]] says.',
+          provenance: { body: 'inferred' },
+        },
+        {
+          type: 'note',
+          title: 'Sowing calendar',
+          body: 'For the [[seed-list]].',
+          provenance: { body: 'inferred' },
+        },
       ]),
     )
     expect((await run(readEntry('seed-list'))).backlinks).toMatchObject([
@@ -43,7 +53,12 @@ describe('several entries written at once', () => {
       Effect.flip(
         writeEntries([
           { type: 'note', title: 'Tool shed' },
-          { type: 'note', title: 'Odd one', fields: { mood: 'angry' } },
+          {
+            type: 'note',
+            title: 'Odd one',
+            fields: { mood: 'angry' },
+            provenance: { mood: 'inferred' },
+          },
           { type: 'note', title: 'Garden gate' },
         ]),
       ),
@@ -59,7 +74,11 @@ describe('several entries written at once', () => {
   test('creations and updates mixed, each event under the same actor', async () => {
     await run(
       writeEntries([
-        { entry: 'seed-list', summary: 'What to sow this spring.' },
+        {
+          entry: 'seed-list',
+          summary: 'What to sow this spring.',
+          provenance: { summary: 'inferred' },
+        },
         { type: 'note', title: 'Compost heap' },
       ]).pipe(Effect.provideService(Actor, 'agent-batch')),
     )
@@ -84,14 +103,26 @@ describe('several entries written at once', () => {
   })
 
   test('a single write keeps a reference to what does not exist yet, waiting', async () => {
-    const lonely = await run(writeEntry({ type: 'note', title: 'Lonely', body: '[[nowhere]]' }))
+    const lonely = await run(
+      writeEntry({
+        type: 'note',
+        title: 'Lonely',
+        body: '[[nowhere]]',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(await run(pendingOf(lonely.id))).toEqual(['nowhere'])
   })
 
   test('a reference to a slug the batch renames away is refused, whatever the order', async () => {
     await run(writeEntry({ type: 'note', title: 'Old shelf' }))
     const rename = { entry: 'old-shelf', slug: 'new-shelf' }
-    const citing = { type: 'note', title: 'Shelf notes', body: 'See [[old-shelf]].' }
+    const citing = {
+      type: 'note',
+      title: 'Shelf notes',
+      body: 'See [[old-shelf]].',
+      provenance: { body: 'inferred' },
+    }
     const sentence =
       'The field `body` refers to `old-shelf`, which this batch renames to `new-shelf`: refer to `new-shelf`.'
     expect((await run(Effect.flip(writeEntries([rename, citing])))).message).toBe(
@@ -113,7 +144,12 @@ describe('several entries written at once', () => {
       Effect.flip(
         writeEntries([
           { type: 'note', title: 'Rain barrel' },
-          { type: 'note', title: 'Watering', body: 'Fill from the [[rain-barrel]].' },
+          {
+            type: 'note',
+            title: 'Watering',
+            body: 'Fill from the [[rain-barrel]].',
+            provenance: { body: 'inferred' },
+          },
         ]),
       ),
     )
@@ -123,7 +159,12 @@ describe('several entries written at once', () => {
     const [, second] = await run(
       writeEntries([
         { type: 'note', title: 'Rain barrel' },
-        { type: 'note', title: 'Watering', body: 'Fill from the [[rain-barrel-2]].' },
+        {
+          type: 'note',
+          title: 'Watering',
+          body: 'Fill from the [[rain-barrel-2]].',
+          provenance: { body: 'inferred' },
+        },
       ]),
     )
     expect((await run(readEntry('rain-barrel-2'))).backlinks).toMatchObject([
@@ -179,7 +220,12 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
   test('a field naming an entry written later in the batch', async () => {
     await run(
       writeEntries([
-        { type: 'dish', title: 'Roast', fields: { served_with: 'gravy' } },
+        {
+          type: 'dish',
+          title: 'Roast',
+          fields: { served_with: 'gravy' },
+          provenance: { served_with: 'inferred' },
+        },
         { type: 'dish', title: 'Gravy' },
       ]),
     )
@@ -191,8 +237,18 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
   test('two entries naming each other in fields, in any order, are both written', async () => {
     await run(
       writeEntries([
-        { type: 'dish', title: 'Pie', fields: { served_with: 'custard' } },
-        { type: 'dish', title: 'Custard', fields: { served_with: 'pie' } },
+        {
+          type: 'dish',
+          title: 'Pie',
+          fields: { served_with: 'custard' },
+          provenance: { served_with: 'inferred' },
+        },
+        {
+          type: 'dish',
+          title: 'Custard',
+          fields: { served_with: 'pie' },
+          provenance: { served_with: 'inferred' },
+        },
       ]),
     )
     const { entry: pie } = await run(readEntry('pie'))
@@ -207,7 +263,12 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
     await run(
       writeEntries([
         { type: 'dish', title: 'Old stew', superseded_by: 'new-stew' },
-        { type: 'dish', title: 'New stew', fields: { served_with: 'old-stew' } },
+        {
+          type: 'dish',
+          title: 'New stew',
+          fields: { served_with: 'old-stew' },
+          provenance: { served_with: 'inferred' },
+        },
       ]),
     )
     const { entry: old } = await run(readEntry('old-stew'))
@@ -258,8 +319,18 @@ describe('a batch resolves parents, superseded_by and entry fields within itself
     const refusal = await run(
       Effect.flip(
         writeEntries([
-          { type: 'twin', title: 'Left glove', fields: { other: 'right-glove' } },
-          { type: 'twin', title: 'Right glove', fields: { other: 'left-glove' } },
+          {
+            type: 'twin',
+            title: 'Left glove',
+            fields: { other: 'right-glove' },
+            provenance: { other: 'inferred' },
+          },
+          {
+            type: 'twin',
+            title: 'Right glove',
+            fields: { other: 'left-glove' },
+            provenance: { other: 'inferred' },
+          },
         ]),
       ),
     )

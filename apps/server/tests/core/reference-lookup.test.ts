@@ -98,7 +98,14 @@ describe('the references of a body are resolved in one query', () => {
 
   test('a write of that body looks its references up in one query, and links the entries', async () => {
     const { result, sent } = await run(
-      statementsOf(writeEntry({ type: 'note', title: 'Index of everything', body: bodyCiting })),
+      statementsOf(
+        writeEntry({
+          type: 'note',
+          title: 'Index of everything',
+          body: bodyCiting,
+          provenance: { body: 'inferred' },
+        }),
+      ),
     )
     expect(lookups(sent)).toHaveLength(1)
     expect(result.id).toBeTruthy()

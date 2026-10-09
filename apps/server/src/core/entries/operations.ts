@@ -23,7 +23,8 @@ import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@greni
 import type { Source, TypeDefinition, WriteEntryInput } from '@grenier/api/model'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { refusingContention } from './contention.ts'
-import { DateText, fieldsOf, Provenance, Slug, Text } from './values.ts'
+import { holding, wantedOf } from './certainty.ts'
+import { DateText, fieldsOf, isDate, Provenance, Slug, Text } from './values.ts'
 
 const Row = Schema.Struct({
   ...Entry.fields,
@@ -66,7 +67,6 @@ const COLUMNS = {
   sources: table.sources,
   body: table.body,
   summary: table.summary,
-  verified: table.verified,
   created: table.created,
   updated: table.updated,
   valid_from: table.valid_from,
@@ -79,6 +79,10 @@ const COLUMNS = {
 /** The entry named by its slug or its id, given as text so that any text may name none. */
 const named = (reference: string) =>
   or(eq(table.slug, reference), sql`${table.id}::text = ${reference}`)
+
+/** The entry a source names, if it names one: the entry it comes from, or who said it. */
+const namedBy = (source: SourceKept | SourceGiven) =>
+  'entry' in source ? source.entry : 'said_by' in source ? source.said_by : undefined
 
 /** An entry as it is kept: its sources name entries by id only. */
 type Kept = Omit<Entry, 'sources'> & { readonly sources: ReadonlyArray<SourceKept> }
@@ -204,7 +208,10 @@ export const lockedEntry = Effect.fn('lockedEntry')(function* (reference: string
 const masked = Effect.fn('masked')(function* (entry: Kept) {
   const { maskFields, hidesType } = yield* sensitivity
   const db = yield* drizzle
-  const sourceIds = entry.sources.flatMap((source) => ('entry' in source ? [source.entry] : []))
+  const sourceIds = entry.sources.flatMap((source) => {
+    const who = namedBy(source)
+    return who === undefined ? [] : [who]
+  })
   const found =
     sourceIds.length === 0
       ? []
@@ -215,15 +222,27 @@ const masked = Effect.fn('masked')(function* (entry: Kept) {
             .where(inArray(table.id, sourceIds)),
         )
   const sources = entry.sources.map((source): Source => {
-    if (!('entry' in source)) return source
-    const other = found.find(({ id }) => id === source.entry)
-    const hidden = other === undefined || hidesType(other.type)
-    return {
-      ...source,
-      entry: hidden ? HIDDEN : source.entry,
-      slug: hidden ? HIDDEN : other.slug,
-      title: hidden ? HIDDEN : other.title,
+    if ('entry' in source) {
+      const other = found.find(({ id }) => id === source.entry)
+      const hidden = other === undefined || hidesType(other.type)
+      return {
+        ...source,
+        entry: hidden ? HIDDEN : source.entry,
+        slug: hidden ? HIDDEN : other.slug,
+        title: hidden ? HIDDEN : other.title,
+      }
     }
+    if ('said_by' in source) {
+      const other = found.find(({ id }) => id === source.said_by)
+      const hidden = other === undefined || hidesType(other.type)
+      return {
+        ...source,
+        said_by: hidden ? HIDDEN : source.said_by,
+        slug: hidden ? HIDDEN : other.slug,
+        title: hidden ? HIDDEN : other.title,
+      }
+    }
+    return source
   })
   // No id of an entry the caller may not see: as its parent, its successor or a field's value.
   const hidden = yield* hiddenIn([entry.parent_id, entry.superseded_by, entry.fields])
@@ -380,7 +399,12 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
     db
       .select({ id: table.id, slug: table.slug, title: table.title, type: table.type })
       .from(table)
-      .where(sql`${table.sources} @> ${JSON.stringify([{ entry: entry.id }])}::jsonb`)
+      .where(
+        or(
+          sql`${table.sources} @> ${JSON.stringify([{ entry: entry.id }])}::jsonb`,
+          sql`${table.sources} @> ${JSON.stringify([{ said_by: entry.id }])}::jsonb`,
+        ),
+      )
       .orderBy(asc(table.title)),
   )
   return {
@@ -435,11 +459,15 @@ export const listEntries = Effect.fn('listEntries')(function* () {
   )
 })
 
-/** What a listing keeps: entries of a type, with every tag given, verified or not, under one. */
+/**
+ * What a listing keeps: entries of a type, with every tag given, holding supposed (or unstated)
+ * values, under one.
+ */
 export type EntryFilter = {
   readonly type?: string | undefined
   readonly tags?: ReadonlyArray<string> | undefined
-  readonly verified?: boolean | undefined
+  readonly supposed?: boolean | undefined
+  readonly unstated?: boolean | undefined
   readonly under?: string | undefined
   readonly limit?: number | undefined
   readonly cursor?: string | undefined
@@ -472,6 +500,7 @@ export const filterEntries = Effect.fn('filterEntries')(function* (filter: Entry
       message: `The cursor \`${filter.cursor ?? ''}\` is not one a listing gave: start again without it.`,
     })
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200)
+  const certain = yield* holding(wantedOf(filter))
   const rows = yield* listed(client`
     WITH RECURSIVE subtree AS (
       SELECT id, 1 AS depth FROM entries WHERE parent_id = ${under}::uuid
@@ -487,7 +516,7 @@ export const filterEntries = Effect.fn('filterEntries')(function* (filter: Entry
       AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
       AND (${filter.type ?? null}::text IS NULL OR e.type = ${filter.type ?? null})
       AND e.tags @> ${JSON.stringify(filter.tags ?? [])}::jsonb
-      AND (${filter.verified ?? null}::boolean IS NULL OR e.verified = ${filter.verified ?? null})
+      AND ${certain}
       AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
       AND (${after?.[0] ?? null}::text IS NULL
         OR (e.title, e.id::text) > (${after?.[0] ?? null}, ${after?.[1] ?? null}))
@@ -615,6 +644,17 @@ const instantOf = (value: string | undefined) => {
     : undefined
 }
 
+/**
+ * The provenance of a body once a part is added to it or edited in it. The part has its own, but
+ * the body is known only as far as both are: `extracted` when the old one and the new one both
+ * are, `ambiguous` when either is, else `inferred`. A body that was `unstated` (or has none) with
+ * an `extracted` part is `inferred` too, since what the old part was cannot be known.
+ */
+const mixedProvenance = (old: string | undefined, added: string) => {
+  if (added === 'ambiguous' || old === 'ambiguous') return 'ambiguous'
+  return added === 'extracted' && old === 'extracted' ? 'extracted' : 'inferred'
+}
+
 const withoutNulls = <V>(record: Readonly<Record<string, V | null>>): Record<string, V> =>
   Object.fromEntries(Object.entries(record).filter((pair): pair is [string, V] => pair[1] !== null))
 
@@ -627,7 +667,6 @@ const CREATED = {
   sources: [],
   body: '',
   summary: '',
-  verified: false,
   valid_from: null,
   valid_until: null,
   superseded_by: null,
@@ -646,7 +685,6 @@ const stateOf = ({ type, title, slug, parent_id, ...entry }: Kept) => ({
   sources: entry.sources,
   body: entry.body,
   summary: entry.summary,
-  verified: entry.verified,
   valid_from: entry.valid_from,
   valid_until: entry.valid_until,
   superseded_by: entry.superseded_by,
@@ -667,17 +705,22 @@ const snapshotOf = ({ fields, provenance, ...base }: Recorded): Snapshot => ({
   parent_id: base.parent_id,
   body: base.body,
   summary: base.summary,
-  verified: base.verified,
   valid_from: base.valid_from,
   valid_until: base.valid_until,
   superseded_by: base.superseded_by,
   archived_at: base.archived_at,
   archived_reason: base.archived_reason,
-  // Kept as the database keeps them: an entry by its id.
+  // Kept as the database keeps them: an entry, or who said it, by its id.
   sources: base.sources.map((source): SourceKept => {
-    if (!('entry' in source)) return source
-    const { entry, note } = source
-    return note === undefined ? { entry } : { entry, note }
+    if ('entry' in source) {
+      const { entry, note } = source
+      return note === undefined ? { entry } : { entry, note }
+    }
+    if ('said_by' in source) {
+      const { said_by, on, note } = source
+      return note === undefined ? { said_by, on } : { said_by, on, note }
+    }
+    return source
   }),
   ...prefixed('fields', fields),
   ...prefixed('provenance', provenance),
@@ -852,19 +895,42 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         } = input
         const base = existing === undefined ? CREATED : stateOf(existing)
         const edited = editsOf(base.body, edits ?? [])
+        // A part of a long body, added at the end of what is there, or at the top, one blank line
+        // before it; or words changed in place.
+        const body =
+          append === true
+            ? base.body + (given.body ?? '')
+            : prepend === true
+              ? [(given.body ?? '').replace(/\n+$/, ''), base.body].filter(Boolean).join('\n\n')
+              : (given.body ?? (edits === undefined ? base.body : edited.body))
+        const summary = given.summary ?? base.summary
+        // A part added to a body, or words edited in it, does not make the whole body known.
+        const added = provenance['body']
+        const partial =
+          (append === true || prepend === true || edits !== undefined) && base.body !== ''
+        const mixed =
+          partial && (added === 'extracted' || added === 'inferred' || added === 'ambiguous')
+            ? {
+                body: mixedProvenance(
+                  Object.entries(base.provenance).find(([name]) => name === 'body')?.[1],
+                  added,
+                ),
+              }
+            : {}
         const state = {
           ...base,
           ...given,
-          // A part of a long body, added at the end of what is there, or at the top, one blank line
-          // before it; or words changed in place.
-          body:
-            append === true
-              ? base.body + (given.body ?? '')
-              : prepend === true
-                ? [(given.body ?? '').replace(/\n+$/, ''), base.body].filter(Boolean).join('\n\n')
-                : (given.body ?? (edits === undefined ? base.body : edited.body)),
+          body,
           fields: withoutNulls({ ...base.fields, ...fields }),
-          provenance: withoutNulls({ ...base.provenance, ...provenance }),
+          // A value removed takes its provenance with it, as a text emptied does its own.
+          provenance: Object.fromEntries(
+            Object.entries(withoutNulls({ ...base.provenance, ...provenance, ...mixed })).filter(
+              ([name]) =>
+                fields[name] !== null &&
+                !(name === 'body' && body === '') &&
+                !(name === 'summary' && summary === ''),
+            ),
+          ),
         }
         const slug = state.slug ?? (yield* freeSlugOf(state.title ?? ''))
         const type = state.type === undefined ? undefined : yield* findType(state.type, 'share')
@@ -906,7 +972,6 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             provenance: Schema.Record(Schema.String, Provenance),
             body: Schema.String,
             summary: Schema.String,
-            verified: Schema.Boolean,
             valid_from: Schema.NullOr(DateText),
             valid_until: Schema.NullOr(DateText),
             superseded_by: Schema.NullOr(Schema.String),
@@ -921,7 +986,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           )
         }
         for (const name of Object.keys(state.provenance)) {
-          if (type !== undefined && !type.fields.some((field) => field.name === name)) {
+          const isText = name === 'body' || name === 'summary'
+          if (type !== undefined && !isText && !type.fields.some((field) => field.name === name)) {
             problems.push(
               `The field \`provenance.${name}\` must name a field of the type \`${type.name}\`.`,
             )
@@ -970,9 +1036,6 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           problems.push(
             'The field `updated` cannot be before `created`: give `created` too, no later than `updated`.',
           )
-        }
-        if (input.verified === true && !byOwner) {
-          problems.push('The field `verified` can be set to true by the owner only.')
         }
         const owner = yield* idOf(slug)
         if (owner !== undefined && owner !== existing?.id) {
@@ -1098,41 +1161,50 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // The stored sources of entries the caller may not see, read as the marker: written back
         // as read, or without them, they stay, as a parent or the items of a list do. Each marker
         // takes the place of the next one; the others are kept at the end.
-        const storedSourceIds = (existing?.sources ?? []).flatMap((held) =>
-          'entry' in held ? [held.entry] : [],
-        )
+        const storedSourceIds = (existing?.sources ?? []).flatMap((held) => {
+          const who = namedBy(held)
+          return who === undefined ? [] : [who]
+        })
         const hiddenSources = yield* hiddenAmong(storedSourceIds)
-        const unseenSources = (existing?.sources ?? []).filter(
-          (held) =>
-            'entry' in held &&
-            hiddenSources.has(held.entry) &&
-            !state.sources.some((sent) => 'entry' in sent && sent.entry === held.entry),
-        )
-        // The entries a source names, by id; a URL that is a web address; an item the inbox holds.
+        const unseenSources = (existing?.sources ?? []).filter((held) => {
+          const who = namedBy(held)
+          return (
+            who !== undefined &&
+            hiddenSources.has(who) &&
+            !state.sources.some((sent) => namedBy(sent) === who)
+          )
+        })
+        // The entries a source names (the entry it comes from, or who said it), by id; a URL that
+        // is a web address; an item the inbox holds.
         const sources: Array<SourceKept> = []
+        const problemsBefore = problems.length
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
-          const unseen =
-            'entry' in source && source.entry === HIDDEN ? unseenSources.shift() : undefined
+          const who = namedBy(source)
+          const unseen = who === HIDDEN ? unseenSources.shift() : undefined
           if (unseen !== undefined) {
             sources.push(unseen)
             continue
           }
-          if ('entry' in source) {
+          if (who !== undefined) {
             // An entry it already cites stays cited, whether the caller may see it or not.
-            const kept = existing?.sources.some(
-              (held) => 'entry' in held && held.entry === source.entry,
-            )
-            const id = kept === true ? source.entry : yield* visibleIdOf(source.entry)
+            const kept = existing?.sources.some((held) => namedBy(held) === who)
+            const id = kept === true ? who : yield* visibleIdOf(who)
             // A slug a new entry of the batch would have had, had it been free, names the old one.
-            const other = kept === true ? undefined : displaced.get(source.entry)
+            const other = kept === true ? undefined : displaced.get(who)
             if (other !== undefined)
               problems.push(
-                `The source ${at} names \`${source.entry}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
+                `The source ${at} names \`${who}\`, which this batch does not give to \`${other.title}\`: that entry takes the slug \`${other.slug}\`.`,
               )
             else if (id === undefined)
-              problems.push(`The source ${at} names \`${source.entry}\`, which is not an entry.`)
-            else sources.push({ ...source, entry: id })
+              problems.push(`The source ${at} names \`${who}\`, which is not an entry.`)
+            else if ('said_by' in source) {
+              if (isDate(source.on)) sources.push({ ...source, said_by: id })
+              else
+                problems.push(
+                  `The source ${at} needs \`on\`, the day it was said, such as \`2026-10-08\`: \`${source.on}\` is not a date.`,
+                )
+            } else if ('entry' in source) sources.push({ ...source, entry: id })
           } else if (
             'url' in source &&
             !(/^https?:\/\//.test(source.url) && URL.canParse(source.url))
@@ -1151,6 +1223,61 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           } else sources.push(source)
         }
         sources.push(...unseenSources)
+        // A source refused is said once: the entry is not told it has none besides.
+        const sourcesRefused = problems.length > problemsBefore
+
+        // Known or supposed: said for every value written, a field, the body, the summary, and
+        // never as `unstated`, which only what was written before can be.
+        const valuesWritten = [
+          ...Object.entries(fields)
+            .filter(
+              ([name, value]) =>
+                value !== null &&
+                // Compared as stored: an entry named by its slug is the entry named by its id.
+                !(
+                  existing !== undefined &&
+                  JSON.stringify(existing.fields[name]) === JSON.stringify(references[name])
+                ),
+            )
+            // A field the type has not is the decoder's problem, and said once.
+            .filter(
+              ([name]) => type === undefined || type.fields.some((field) => field.name === name),
+            )
+            .map(([name]) => ({ name, at: `fields.${name}` })),
+          ...(body !== base.body && body !== '' ? [{ name: 'body', at: 'body' }] : []),
+          ...(summary !== base.summary && summary !== ''
+            ? [{ name: 'summary', at: 'summary' }]
+            : []),
+        ]
+        for (const { name, at } of valuesWritten) {
+          if (!Predicate.isString(provenance[name])) {
+            problems.push(
+              `The field \`provenance.${name}\` is required with \`${at}\`: say \`extracted\` (known, read in a source), \`inferred\` (supposed by you) or \`ambiguous\` (sources disagree).`,
+            )
+          }
+        }
+        for (const [name, value] of Object.entries(provenance)) {
+          if (value === 'unstated') {
+            problems.push(
+              `The field \`provenance.${name}\` cannot be \`unstated\`: say \`extracted\`, \`inferred\` or \`ambiguous\`.`,
+            )
+          }
+        }
+        // A known value has a source: this write gives it, or the entry has one. The whole entry
+        // is checked when the write changes its sources.
+        const sourcesChanged =
+          input.sources !== undefined &&
+          JSON.stringify(sources) !== JSON.stringify(existing?.sources ?? [])
+        if (sources.length === 0 && !sourcesRefused) {
+          const asked = sourcesChanged ? state.provenance : provenance
+          for (const name of Object.keys(asked)) {
+            if (state.provenance[name] === 'extracted') {
+              problems.push(
+                `The field \`provenance.${name}\` is \`extracted\` but the entry has no source: give one in \`sources\` (what someone said is \`{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }\`), or write it \`inferred\`.`,
+              )
+            }
+          }
+        }
 
         for (const reference of referencesIn(state.body)) {
           const away = renamedAway.get(reference)
@@ -1193,12 +1320,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             : [{ field: 'created', before: existing.created, after: redated }].filter(
                 (change) => change.before !== change.after,
               )
-        const changesWith = (verified: boolean) => [
+        const changes = [
           ...changesBetween(
             existing === undefined ? {} : snapshotOf(existing),
             snapshotOf({
               ...entry,
-              verified,
               parent_id: parentId,
               fields: references,
               sources,
@@ -1209,9 +1335,6 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           ),
           ...redating,
         ]
-        // What the owner verified is no longer verified once a writer without `owner` changes it.
-        const verified = entry.verified && (byOwner || changesWith(true).length === 0)
-        const changes = changesWith(verified)
         if (existing !== undefined && changes.length === 0) return yield* masked(existing)
         const values = {
           type: entry.type,
@@ -1225,7 +1348,6 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           sources,
           body: entry.body,
           summary: entry.summary,
-          verified,
           valid_from: entry.valid_from,
           valid_until: entry.valid_until,
           superseded_by: supersededBy,
@@ -1407,9 +1529,13 @@ const withoutKeys = (input: WriteEntryInput, keys: ReadonlyArray<string>): Write
   const fields = Object.fromEntries(
     Object.entries(input.fields ?? {}).filter(([name]) => !keys.includes(name)),
   )
-  if (!keys.includes('superseded_by')) return { ...input, fields }
+  // What is said of a value goes with the value.
+  const provenance = Object.fromEntries(
+    Object.entries(input.provenance ?? {}).filter(([name]) => !keys.includes(name)),
+  )
+  if (!keys.includes('superseded_by')) return { ...input, fields, provenance }
   const { superseded_by: _, ...rest } = input
-  return { ...rest, fields }
+  return { ...rest, fields, provenance }
 }
 
 /** The second write of an entry of a batch: the references that waited for the first one. */
@@ -1417,7 +1543,12 @@ const deferredWrite = (id: string, input: WriteEntryInput, keys: ReadonlyArray<s
   const fields = Object.fromEntries(
     keys.filter((key) => key !== 'superseded_by').map((key) => [key, input.fields?.[key] ?? null]),
   )
-  const write: WriteEntryInput = { entry: id, fields }
+  const provenance = Object.fromEntries(
+    keys
+      .filter((key) => key !== 'superseded_by')
+      .map((key) => [key, input.provenance?.[key] ?? null]),
+  )
+  const write: WriteEntryInput = { entry: id, fields, provenance }
   return keys.includes('superseded_by') && input.superseded_by !== undefined
     ? { ...write, superseded_by: input.superseded_by }
     : write

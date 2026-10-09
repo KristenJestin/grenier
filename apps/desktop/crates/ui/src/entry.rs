@@ -6,8 +6,8 @@ use std::f32::consts::FRAC_PI_2;
 use std::time::{Duration, Instant};
 
 use api::{
-    Child, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind, HistoryEvent, Link, Medium,
-    Source, TypeDefinition,
+    Child, EntryProvenanceValue, EntryRead, EntryReadAncestorsItem, FieldDefinitionKind,
+    HistoryEvent, Link, LinkProvenance, Medium, Source, TypeDefinition,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::text::TextView;
@@ -26,8 +26,8 @@ use crate::links::LinksState;
 use crate::load::Load;
 use crate::motion::{SPRING, hoverable, reveal};
 use crate::parts::{
-    Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, text_button, title,
-    warning_chip,
+    Card, card, cards, chip, heading, layout, lead, mix, page, plain_card, supposed_mark,
+    text_button, title,
 };
 use crate::status;
 use crate::text as words;
@@ -129,7 +129,36 @@ fn opener(
     move |_, window, cx| on_intent(Intent::Open(target.clone()), window, cx)
 }
 
-/// A chip that lists the entries it names: of that type, with that tag, unverified.
+/// The words of the mark of what the entry says under `name`, a field, `body` or `summary`: a
+/// writer only supposed it, or sources disagree. What is known, and what was written before
+/// writers were asked, carries none.
+pub(crate) fn mark_of(read: &EntryRead, name: &str) -> Option<&'static str> {
+    match read.entry.provenance.get(name) {
+        Some(EntryProvenanceValue::Inferred) => Some(words::SUPPOSED),
+        Some(EntryProvenanceValue::Ambiguous) => Some(words::DISPUTED),
+        _ => None,
+    }
+}
+
+/// The words of the mark of a link, by the same rule.
+pub(crate) fn link_mark(link: &Link) -> Option<&'static str> {
+    match link.provenance {
+        LinkProvenance::Inferred => Some(words::SUPPOSED),
+        LinkProvenance::Ambiguous => Some(words::DISPUTED),
+        _ => None,
+    }
+}
+
+/// Whether the entry holds anything not known: a value, its texts, or a link it makes.
+fn holds_supposed(read: &EntryRead) -> bool {
+    read.entry
+        .provenance
+        .keys()
+        .any(|name| mark_of(read, name).is_some())
+        || read.links.iter().any(|link| link_mark(link).is_some())
+}
+
+/// A chip that lists the entries it names: of that type, with that tag, holding supposed values.
 fn lister(
     id: impl Into<SharedString>,
     chip: gpui_kit::Div,
@@ -220,6 +249,9 @@ fn ready(
     article.push(title(entry.title.clone()));
     if !entry.summary.is_empty() {
         article.push(lead(entry.summary.clone(), cx));
+        if let Some(mark) = mark_of(&read, "summary") {
+            article.push(div().mt(space::S).child(supposed_mark(mark, cx)));
+        }
     }
     let type_label = type_definition.as_ref().map_or_else(
         || entry.type_.clone(),
@@ -243,12 +275,17 @@ fn ready(
                 },
                 on_intent,
             ))
-            .children((!entry.verified).then(|| {
+            .children(holds_supposed(&read).then(|| {
                 lister(
-                    "chip-unverified",
-                    warning_chip(Icon::new(IconName::CircleAlert), words::UNVERIFIED, cx),
+                    "chip-supposed",
+                    chip(
+                        Some(Icon::new(IconName::CircleAlert)),
+                        words::WITH_SUPPOSED,
+                        cx,
+                    )
+                    .text_color(cx.theme().muted_foreground),
                     ListFilter {
-                        unverified: true,
+                        supposed: true,
                         ..ListFilter::default()
                     },
                     on_intent,
@@ -304,12 +341,7 @@ fn ready(
             .border_t_1()
             .border_color(border)
             .text_color(cx.theme().muted_foreground)
-            .child(words::edited_on(&entry.updated))
-            .child(if entry.verified {
-                words::VERIFIED
-            } else {
-                words::UNVERIFIED
-            }),
+            .child(words::edited_on(&entry.updated)),
     );
 
     // Where each marked part sits in the page, measured as it is laid out, so the contents can
@@ -528,6 +560,7 @@ fn fields(
                                 on_intent,
                                 cx,
                             )))
+                            .children(mark_of(read, &name).map(|mark| supposed_mark(mark, cx)))
                     }),
             );
     let chevron = Icon::new(IconName::ChevronRight)
@@ -789,6 +822,9 @@ pub fn parts_of(body: &str) -> Vec<(Option<(u8, String)>, String)> {
 /// The body, from Markdown, part by part, with `[[slug]]` references as links that open the
 /// entry, titled when the entry is among its links.
 fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &App) {
+    if let Some(mark) = mark_of(read, "body").filter(|_| !body.is_empty()) {
+        article.push(div().mt(space::XL).child(supposed_mark(mark, cx)));
+    }
     // What the server says each reference names: an alias as well as a slug; nothing yet for a
     // reference that waits for its entry.
     let titled = with_entry_links(body, |reference| {
@@ -1189,6 +1225,27 @@ fn sources(
                     window,
                     cx,
                 ),
+                Source::Said(said) if said.said_by == HIDDEN => quiet_source(
+                    Card {
+                        icon: Icon::new(IconName::User),
+                        title: words::HIDDEN_VALUE.into(),
+                        detail: Some(words::said_on(&said.on, said.note.as_deref()).into()),
+                        relation: Some(words::SAID_BY.into()),
+                    },
+                    cx,
+                ),
+                Source::Said(said) => card(
+                    id,
+                    Card {
+                        icon: Icon::new(IconName::User),
+                        title: said.title.clone().into(),
+                        detail: Some(words::said_on(&said.on, said.note.as_deref()).into()),
+                        relation: Some(words::SAID_BY.into()),
+                    },
+                    opener(on_intent, said.slug.clone()),
+                    window,
+                    cx,
+                ),
                 Source::Url(url) => card(
                     id,
                     Card {
@@ -1404,12 +1461,7 @@ fn contents(
                         .child(words::ENTRY),
                 )
                 .child(words::created_on(&entry.created))
-                .child(words::edited_on(&entry.updated))
-                .child(if entry.verified {
-                    words::VERIFIED_BY_OWNER
-                } else {
-                    words::AWAITING_VERIFICATION
-                }),
+                .child(words::edited_on(&entry.updated)),
         )
         .into_any_element()
 }
@@ -1439,8 +1491,8 @@ fn glide(scroll: ScrollHandle, place: Pixels, window: &mut Window, cx: &mut App)
 
 #[cfg(test)]
 mod tests {
-    use super::{link_detail, parts_of};
-    use api::Link;
+    use super::{holds_supposed, link_detail, mark_of, parts_of};
+    use api::{Link, LinkProvenance};
 
     fn link(note: Option<&str>, from: Option<&str>, until: Option<&str>) -> Link {
         Link {
@@ -1450,6 +1502,7 @@ mod tests {
             note: note.map(Into::into),
             valid_from: from.map(Into::into),
             valid_until: until.map(Into::into),
+            provenance: api::LinkProvenance::Extracted,
             id: "atelier".into(),
             slug: "atelier".into(),
             title: "Atelier".into(),
@@ -1472,6 +1525,58 @@ mod tests {
             Some("processor · until 30 June 2025")
         );
         assert_eq!(said(None, None, None), None);
+    }
+
+    fn read_with(provenance: serde_json::Value, links: Vec<Link>) -> api::EntryRead {
+        let mut read: api::EntryRead = serde_json::from_value(serde_json::json!({
+            "entry": {
+                "id": "e1", "type": "note", "title": "Harbor", "slug": "harbor", "aliases": [],
+                "tags": [], "parent_id": null, "fields": { "depth": "9 m", "quay": "north" },
+                "provenance": provenance, "sources": [], "body": "Quiet.", "summary": "A harbor.",
+                "created": "2026-10-01T00:00:00Z", "updated": "2026-10-01T00:00:00Z",
+                "valid_from": null, "valid_until": null, "superseded_by": null,
+                "archived_at": null, "archived_reason": null
+            },
+            "path": [], "references": [], "ancestors": [], "links": [], "media": [],
+            "backlinks": [], "titles": {}, "children": [], "hidden_children": 0, "cited_by": []
+        }))
+        .expect("a read");
+        read.links = links;
+        read
+    }
+
+    #[test]
+    fn only_what_a_writer_supposed_is_marked_not_what_is_known_nor_what_was_unstated() {
+        let read = read_with(
+            serde_json::json!({
+                "depth": "inferred", "quay": "extracted", "summary": "unstated",
+                "body": "inferred", "tide": "ambiguous"
+            }),
+            Vec::new(),
+        );
+        assert_eq!(mark_of(&read, "depth"), Some("Supposed"));
+        assert_eq!(mark_of(&read, "quay"), None);
+        assert_eq!(mark_of(&read, "summary"), None);
+        assert_eq!(mark_of(&read, "body"), Some("Supposed"));
+        // Not known either, and said in other words.
+        assert_eq!(mark_of(&read, "tide"), Some("Sources disagree"));
+        assert_eq!(mark_of(&read, "never_written"), None);
+    }
+
+    #[test]
+    fn an_entry_holds_suppositions_through_a_value_or_a_link() {
+        let known = serde_json::json!({ "depth": "extracted", "summary": "unstated" });
+        assert!(!holds_supposed(&read_with(known.clone(), Vec::new())));
+        assert!(holds_supposed(&read_with(
+            serde_json::json!({ "depth": "inferred" }),
+            Vec::new()
+        )));
+        let mut guessed = link(None, None, None);
+        guessed.provenance = LinkProvenance::Inferred;
+        assert!(holds_supposed(&read_with(known.clone(), vec![guessed])));
+        let mut disputed = link(None, None, None);
+        disputed.provenance = LinkProvenance::Ambiguous;
+        assert!(holds_supposed(&read_with(known, vec![disputed])));
     }
 
     #[test]

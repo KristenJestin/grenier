@@ -63,19 +63,32 @@ beforeAll(() =>
         type: 'item',
         title: 'Home server',
         summary: 'The box under the stairs.',
+        provenance: { summary: 'inferred' },
       })
       yield* writeEntry({
         type: 'item',
         title: 'Graphics card',
         summary: 'A graphics card for the home server.',
         parent: 'home-server',
+        provenance: { summary: 'inferred' },
       })
-      yield* writeEntry({ type: 'shop', title: 'Corner Shop', summary: 'Sells parts.' })
-      yield* writeEntry({ type: 'project', title: 'Media center', summary: 'Films at home.' })
+      yield* writeEntry({
+        type: 'shop',
+        title: 'Corner Shop',
+        summary: 'Sells parts.',
+        provenance: { summary: 'inferred' },
+      })
+      yield* writeEntry({
+        type: 'project',
+        title: 'Media center',
+        summary: 'Films at home.',
+        provenance: { summary: 'inferred' },
+      })
       yield* link('graphics-card', 'corner-shop', 'bought_from', '', '', {
+        provenance: 'inferred',
         note: 'ordered online, invoice kept',
       })
-      yield* link('media-center', 'home-server', 'runs_on')
+      yield* link('media-center', 'home-server', 'runs_on', '', '', { provenance: 'inferred' })
     }),
   ),
 )
@@ -112,7 +125,13 @@ describe('search hands over the neighbors of each result', () => {
   })
 
   test('a neighbor carries no body, only who it is', async () => {
-    await plain(writeEntry({ entry: 'corner-shop', body: 'A long text about parts.' }))
+    await plain(
+      writeEntry({
+        entry: 'corner-shop',
+        body: 'A long text about parts.',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(JSON.stringify(await around('graphics-card'))).not.toContain('A long text')
     expect(Object.keys((await around('graphics-card'))[0] ?? {})).not.toContain('body')
   })
@@ -125,6 +144,7 @@ describe('search hands over the neighbors of each result', () => {
           type: 'note',
           title: 'Rack plan',
           body: 'Where the [[order-log]] goes.',
+          provenance: { body: 'inferred' },
         })
         yield* writeEntry({ type: 'note', title: 'Order log' })
         yield* writeEntry({
@@ -132,13 +152,25 @@ describe('search hands over the neighbors of each result', () => {
           title: 'Fan',
           parent: 'home-server',
           fields: { maker: 'parts-depot' },
+          provenance: { maker: 'inferred' },
         })
-        yield* writeEntry({ type: 'note', title: 'Fan mention', body: 'About the [[fan]].' })
-        yield* link('fan', 'rack-plan', 'documented_by')
+        yield* writeEntry({
+          type: 'note',
+          title: 'Fan mention',
+          body: 'About the [[fan]].',
+          provenance: { body: 'inferred' },
+        })
+        yield* link('fan', 'rack-plan', 'documented_by', '', '', { provenance: 'inferred' })
       }),
     )
     // The mention is written last, so by recency alone it would come first.
-    await plain(writeEntry({ entry: 'fan-mention', summary: 'Touched last.' }))
+    await plain(
+      writeEntry({
+        entry: 'fan-mention',
+        summary: 'Touched last.',
+        provenance: { summary: 'inferred' },
+      }),
+    )
     expect((await around('fan')).map(({ slug, via }) => [slug, via])).toEqual([
       ['rack-plan', 'link'],
       ['home-server', 'parent'],
@@ -156,9 +188,13 @@ describe('search hands over the neighbors of each result', () => {
         yield* writeEntry({ type: 'note', title: 'Old lead' })
         yield* writeEntry({ type: 'note', title: 'New lead' })
         yield* writeEntry({ type: 'note', title: 'Hub' })
-        yield* link('hub', 'old-lead', 'about')
-        yield* link('hub', 'new-lead', 'about')
-        yield* writeEntry({ entry: 'old-lead', summary: 'Changed after the other.' })
+        yield* link('hub', 'old-lead', 'about', '', '', { provenance: 'inferred' })
+        yield* link('hub', 'new-lead', 'about', '', '', { provenance: 'inferred' })
+        yield* writeEntry({
+          entry: 'old-lead',
+          summary: 'Changed after the other.',
+          provenance: { summary: 'inferred' },
+        })
       }),
     )
     expect((await around('hub')).map(({ slug }) => slug)).toEqual(['old-lead', 'new-lead'])
@@ -182,8 +218,12 @@ describe('search hands over the neighbors of each result', () => {
       Effect.gen(function* () {
         yield* writeEntry({ type: 'vault', title: 'Server logins', parent: 'home-server' })
         yield* writeEntry({ type: 'vault', title: 'Card receipt vault' })
-        yield* link('graphics-card', 'card-receipt-vault', 'kept_in')
-        yield* link('card-receipt-vault', 'home-server', 'about')
+        yield* link('graphics-card', 'card-receipt-vault', 'kept_in', '', '', {
+          provenance: 'inferred',
+        })
+        yield* link('card-receipt-vault', 'home-server', 'about', '', '', {
+          provenance: 'inferred',
+        })
       }),
     )
     const slugs = (neighbors: ReadonlyArray<{ readonly slug: string }>) =>
@@ -223,6 +263,7 @@ describe('search hands over the neighbors of each result', () => {
           type: 'asset',
           title: 'Odd lamp',
           fields: { bought_at: 'back-alley-shop' },
+          provenance: { bought_at: 'inferred' },
         })
       }),
     )
@@ -236,7 +277,7 @@ describe('search hands over the neighbors of each result', () => {
 
   test('an archived neighbor is absent unless archived is asked', async () => {
     await plain(writeEntry({ type: 'note', title: 'Old receipt' }))
-    await plain(link('graphics-card', 'old-receipt', 'receipt'))
+    await plain(link('graphics-card', 'old-receipt', 'receipt', '', '', { provenance: 'inferred' }))
     await plain(archiveEntry('old-receipt', 'Replaced.'))
     expect((await around('graphics-card')).map(({ slug }) => slug)).not.toContain('old-receipt')
     expect(
@@ -293,12 +334,19 @@ describe('read follows the neighbors as far as depth says', () => {
   test('an edge of an entry field is in the graph, with the dates and the note of a link', async () => {
     await plain(
       link('media-center', 'corner-shop', 'supplied_by', '', '', {
+        provenance: 'inferred',
         note: 'cables',
         valid_from: '2031-01-01',
         valid_until: '2031-06-30',
       }),
     )
-    await plain(writeEntry({ entry: 'media-center', fields: { runs_on: 'home-server' } }))
+    await plain(
+      writeEntry({
+        entry: 'media-center',
+        fields: { runs_on: 'home-server' },
+        provenance: { runs_on: 'inferred' },
+      }),
+    )
     const { edges } = await plain(subgraphOf('media-center', 2))
     expect(edges).toContainEqual({
       from: 'media-center',
@@ -392,7 +440,11 @@ describe('search without a query lists by recent change', () => {
   test('by keeps only the entries a given key changed last', async () => {
     await run(
       Effect.provideService(
-        writeEntry({ entry: 'old-lead', summary: 'Touched by another key.' }),
+        writeEntry({
+          entry: 'old-lead',
+          summary: 'Touched by another key.',
+          provenance: { summary: 'inferred' },
+        }),
         Actor,
         'agent-other',
       ),
@@ -407,7 +459,12 @@ describe('search without a query lists by recent change', () => {
   test('the reference a mention resolves by itself does not count as a change by its key', async () => {
     await run(
       Effect.provideService(
-        writeEntry({ type: 'note', title: 'Late anchor', body: 'See [[not-yet-here]].' }),
+        writeEntry({
+          type: 'note',
+          title: 'Late anchor',
+          body: 'See [[not-yet-here]].',
+          provenance: { body: 'inferred' },
+        }),
         Actor,
         'agent-first',
       ),
@@ -435,7 +492,11 @@ describe('search without a query lists by recent change', () => {
 
   test('with a query, sort updated orders the matches by change, newest first', async () => {
     await plain(
-      writeEntry({ entry: 'home-server', summary: 'The box under the stairs, graphics.' }),
+      writeEntry({
+        entry: 'home-server',
+        summary: 'The box under the stairs, graphics.',
+        provenance: { summary: 'inferred' },
+      }),
     )
     const byRank = await plain(search('graphics'))
     const byDate = await plain(search('graphics', { sort: 'updated' }))

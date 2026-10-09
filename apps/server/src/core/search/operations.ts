@@ -2,8 +2,10 @@ import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { SEARCHABLE } from '../database/schema.ts'
+import { holding, wantedOf } from '../entries/certainty.ts'
 import { LAST_WRITER } from '../entries/last-writer.ts'
 import { findEntry, pathOf, slugOf, TREE_DEPTH } from '../entries/operations.ts'
+import { supposedIn } from '../entries/supposed.ts'
 import { isDate, isDateTime } from '../entries/values.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
@@ -19,7 +21,13 @@ const Found = Schema.Struct({
 })
 export type Found = typeof Found.Type
 
-const found = rowsOf(Schema.Struct({ ...Found.fields, path: Schema.Null }))
+const found = rowsOf(
+  Schema.Struct({
+    ...Found.fields,
+    path: Schema.Null,
+    summary_provenance: Schema.NullOr(Schema.Literals(['inferred', 'ambiguous'])),
+  }),
+)
 
 /**
  * How a search is ordered and bounded by the last change of the entries, beside `SearchOptions`.
@@ -81,6 +89,8 @@ export const search = Effect.fn('search')(function* (
   const sql = yield* SqlClient.SqlClient
   const configuration = yield* searchConfiguration
   const { hiddenTypes, hiddenFields } = yield* sensitivity
+  const wanted = wantedOf(options)
+  const certain = yield* holding(wanted, options.by)
   const under = options.under === undefined ? null : (yield* findEntry(options.under)).id
   // The types with fields the caller may not see: the index holds those fields, so their entries
   // are matched without it.
@@ -99,17 +109,21 @@ export const search = Effect.fn('search')(function* (
   const filters = sql`
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})
       AND e.tags @> ${JSON.stringify(options.tag ?? [])}::jsonb
-      AND (${options.verified ?? null}::boolean IS NULL OR e.verified = ${options.verified ?? null})
+      AND ${certain}
       AND (${options.archived ?? false} OR e.archived_at IS NULL)
       AND (${under}::uuid IS NULL OR e.id IN (SELECT id FROM subtree))
       AND (${startOf(options.since)}::timestamptz IS NULL
         OR e.updated >= ${startOf(options.since)}::timestamptz)
       AND (${endOf(options.until)}::timestamptz IS NULL
         OR e.updated <= ${endOf(options.until)}::timestamptz)
-      AND (${options.by ?? null}::text IS NULL OR ${sql.literal(LAST_WRITER)} = ${options.by ?? null})`
+      -- Beside the supposed, the key is who wrote a supposed value, which \`holding\` checks.
+      AND (${options.by ?? null}::text IS NULL OR ${wanted.length > 0}::boolean
+        OR ${sql.literal(LAST_WRITER)} = ${options.by ?? null})`
   // When the entry last changed, and who changed it.
   const lastChange = sql`to_char(e.updated AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated,
-      ${sql.literal(LAST_WRITER)} AS by`
+      ${sql.literal(LAST_WRITER)} AS by,
+      CASE WHEN e.provenance ->> 'summary' IN ('inferred', 'ambiguous')
+        THEN e.provenance ->> 'summary' END AS summary_provenance`
   const listing = sql`
     WITH RECURSIVE ${subtree}
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, NULL AS path,
@@ -162,7 +176,30 @@ export const search = Effect.fn('search')(function* (
     ORDER BY ${byChange ? sql`e.updated DESC,` : sql``} fit DESC, rank DESC, e.title
     LIMIT ${options.limit ?? 20}`
   const rows = yield* found(query === undefined ? listing : matching(query))
-  return yield* Effect.forEach(rows, (row) =>
-    Effect.map(pathOf(row.id), (path): Found => ({ ...row, path })),
+  // With a filter on what is supposed, what made each entry match.
+  const supposed =
+    wanted.length === 0
+      ? undefined
+      : yield* supposedIn(
+          rows.map(({ id }) => id),
+          wanted,
+        )
+  return yield* Effect.forEach(rows, ({ summary_provenance, ...row }) =>
+    Effect.map(pathOf(row.id), (path) =>
+      Object.assign(
+        { ...row, path } satisfies Found,
+        summary_provenance === null ? {} : { summary_provenance },
+        supposed === undefined
+          ? {}
+          : {
+              supposed: (supposed.get(row.id) ?? []).map(({ what, provenance, by, when }) => ({
+                what,
+                provenance,
+                by,
+                when,
+              })),
+            },
+      ),
+    ),
   )
 })

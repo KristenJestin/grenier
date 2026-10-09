@@ -128,7 +128,7 @@ const CALLS: ReadonlyArray<readonly [string, (slug: string) => Schema.Json]> = [
   ['link', (slug) => ({ source: slug, target: 'folder-one', relation: 'about' })],
   ['link', (slug) => ({ source: 'folder-one', target: slug, relation: 'about', remove: true })],
   ['attach_media', (slug) => ({ entry: slug, data: PIXEL })],
-  ['search', (slug) => ({ verified: false, under: slug })],
+  ['search', (slug) => ({ supposed: true, under: slug })],
   ['search', (slug) => ({ q: slug })],
 ]
 
@@ -212,6 +212,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
         type: 'folder',
         title: `Probe ${(probes += 1)}`,
         body: `See [[${slug}]].`,
+        provenance: { body: 'inferred' },
       }).then((answer) => JSON.stringify(answer).match(/"slug":"(probe-\d+)"/)?.[1] ?? '')
     return [await write(hidden), await write(missing)] as const
   }
@@ -249,7 +250,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
     const calls: ReadonlyArray<readonly [string, (slug: string) => Schema.Json]> = [
       ['read', (slug) => ({ entry: slug })],
       ['read', (slug) => ({ entry: slug, parts: ['history'] })],
-      ['search', () => ({ verified: false })],
+      ['search', () => ({ supposed: true })],
     ]
     await inTurn(calls, async ([name, args]) => {
       const [hidden, missing] = await both(pair, slugs, name, args)
@@ -281,6 +282,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
       title: 'Spanner',
       parent: 'tool-kit',
       fields: { about: ['secret-page', 'folder-one'] },
+      provenance: { about: 'inferred' },
     })
     const secret =
       JSON.stringify(await answerOf(keys.trusted, 'read', { entry: 'secret-page' })).match(
@@ -303,6 +305,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
       parent: 'secret-page',
       superseded_by: 'secret-page',
       fields: { about: ['secret-page', 'folder-one'] },
+      provenance: { about: 'inferred' },
     })
     const read = await answerOf(keys.plain, 'read', { entry: 'loose-kit' })
     expect(read).toMatchObject({
@@ -325,6 +328,7 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
         superseded_by: null,
         fields: { about: sent },
         summary: `Sent ${sent.length}.`,
+        provenance: { about: 'inferred', summary: 'inferred' },
       })
       expect(JSON.stringify(written)).not.toContain('"error"')
       expect(await answerOf(keys.trusted, 'read', { entry: 'loose-kit' })).toMatchObject({

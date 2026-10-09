@@ -109,10 +109,15 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 ```
 
 `key:list` shows the keys (never their secret); `key:revoke --name <name>` revokes one.
-`entry:unverified [--type <type>] [--under <slug>]` lists what waits for the owner's review;
-`entry:verify <slug>…` and `entry:unverify <slug>…` set it, as the owner (no key with `owner` is
-ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
-entry:verify <slug>`. `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
+`supposed [--type <type>] [--under <slug>] [--by <key>] [--unstated] [--limit <n>]` lists the values
+and links an agent only supposed (written `inferred` or `ambiguous`), the most recently changed
+entries first, with the entry, how it stands, the writer and when (50 at most, saying how many
+more); `--unstated` lists instead what was written before writers were asked. `supposed:confirm
+<entry> <field|body|summary> --as <person>` and `supposed:confirm <entry> <target> --link <relation>
+[--period <p>] [--field <f>] --as <person>` make a supposition known, as the owner (no key with `owner` is ever given to an MCP
+client): it becomes `extracted`, with the source "said by" the entry that stands for you, dated
+today, in one event. In the container: `docker compose exec grenier bun src/cli.ts supposed`.
+`inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
 into the inbox, one item per file, sub-folders included (hidden files and links are skipped), for
 agents to process (`inbox_take`, then `inbox_finish`); `--dry-run` says what it would add, and a file
 already in the inbox (same path, origin and content) is added again only with `--again`.

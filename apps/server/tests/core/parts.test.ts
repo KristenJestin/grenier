@@ -34,12 +34,14 @@ beforeAll(() =>
         title: 'Main disk',
         parent: 'desk-computer',
         fields: { serial: 'SN-0001', price: '80.00 EUR' },
+        provenance: { serial: 'inferred', price: 'inferred' },
       })
       yield* writeEntry({
         type: 'item',
         title: 'Graphics card',
         parent: 'desk-computer',
         fields: { warranty_until: '2028-01-31' },
+        provenance: { warranty_until: 'inferred' },
       })
       yield* writeEntry({ type: 'note', title: 'Setup notes', parent: 'desk-computer' })
     }),
@@ -101,6 +103,7 @@ describe('a part naming another entry', () => {
         title: 'Spare fan',
         parent: 'desk-computer',
         fields: { bought_with: 'shop-receipt' },
+        provenance: { bought_with: 'inferred' },
       }),
     )
     const { children } = await run(readEntry('desk-computer'))

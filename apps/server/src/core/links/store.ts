@@ -1,6 +1,7 @@
 import { Link } from '@grenier/api/model'
 import { and, asc, eq, notInArray, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import { Effect } from 'effect'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
@@ -19,13 +20,16 @@ const linksWhere = (
   where: SQL | undefined,
   hiddenTypes: ReadonlyArray<string>,
 ) =>
-  Effect.flatMap(drizzle, (db) =>
-    links(
+  Effect.flatMap(drizzle, (db) => {
+    // A `mentions` link is as known as the body it comes from.
+    const from = alias(entries, 'link_source')
+    return links(
       db
         .select({
           relation: tables.links.relation,
           period: sql<string | null>`nullif(${tables.links.period}, '')`,
           field: sql<string | null>`nullif(${tables.links.field}, '')`,
+          provenance: sql<string>`coalesce(${tables.links.provenance}, ${from.provenance} ->> 'body', 'unstated')`,
           note: tables.links.note,
           valid_from: tables.links.valid_from,
           valid_until: tables.links.valid_until,
@@ -35,12 +39,13 @@ const linksWhere = (
         })
         .from(tables.links)
         .innerJoin(entries, eq(entries.id, other))
+        .innerJoin(from, eq(from.id, tables.links.source_id))
         .where(
           hiddenTypes.length === 0 ? where : and(where, notInArray(entries.type, [...hiddenTypes])),
         )
         .orderBy(asc(tables.links.relation), asc(entries.title)),
-    ),
-  )
+    )
+  })
 
 /**
  * The links that leave an entry, by relation and title, but those to an entry of the

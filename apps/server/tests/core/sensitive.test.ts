@@ -65,7 +65,12 @@ beforeAll(() =>
           },
         ],
       })
-      yield* writeEntry({ type: 'member', title: 'Club member', fields: { born: '1990-03-25' } })
+      yield* writeEntry({
+        type: 'member',
+        title: 'Club member',
+        fields: { born: '1990-03-25' },
+        provenance: { born: 'inferred' },
+      })
       yield* defineType({
         name: 'diary',
         label: 'Diary',
@@ -80,20 +85,25 @@ beforeAll(() =>
         title: 'Current account',
         parent: 'papers',
         fields: { bank: 'Lantern Bank', number: 'zebracode-4411', renewal: '2030-03-20' },
+        provenance: { bank: 'inferred', number: 'inferred', renewal: 'inferred' },
       })
       yield* writeEntry({
         type: 'account',
         title: 'Current account',
         entry: 'current-account',
         fields: { number: 'zebracode-4412' },
+        provenance: { number: 'inferred' },
       })
       yield* writeEntry({
         type: 'diary',
         title: 'Quiet morning',
         parent: 'papers',
         body: 'Walked by the orchard at dawn.',
+        provenance: { body: 'inferred' },
       })
-      yield* link('quiet-morning', 'current-account', 'mentions_account')
+      yield* link('quiet-morning', 'current-account', 'mentions_account', '', '', {
+        provenance: 'inferred',
+      })
     }),
   ),
 )
@@ -157,13 +167,21 @@ describe('sensitive fields are shown only to keys that may see them', () => {
 
   test('writing a sensitive field without the right is refused; another field is written', async () => {
     const refused = await refusalOf(
-      writeEntry({ entry: 'current-account', fields: { number: 'zebracode-0000' } }),
+      writeEntry({
+        entry: 'current-account',
+        fields: { number: 'zebracode-0000' },
+        provenance: { number: 'inferred' },
+      }),
     )
     expect(refused.message).toBe(
       'The field `fields.number` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right `sensitive`.',
     )
     const written = await plain(
-      writeEntry({ entry: 'current-account', fields: { bank: 'Harbour Bank' } }),
+      writeEntry({
+        entry: 'current-account',
+        fields: { bank: 'Harbour Bank' },
+        provenance: { bank: 'inferred' },
+      }),
     )
     expect(written.fields).toMatchObject({ bank: 'Harbour Bank', number: HIDDEN })
     const kept = await trusted(readEntry('current-account'))
@@ -233,7 +251,14 @@ describe('a field becomes sensitive after its definition', () => {
         fields: [{ name: 'code', kind: 'text' }],
       }),
     )
-    await trusted(writeEntry({ type: 'badge', title: 'Office badge', fields: { code: 'K-77' } }))
+    await trusted(
+      writeEntry({
+        type: 'badge',
+        title: 'Office badge',
+        fields: { code: 'K-77' },
+        provenance: { code: 'inferred' },
+      }),
+    )
     await plain(changeField({ type: 'badge', field: 'code', sensitive: true }))
     expect((await plain(readEntry('office-badge'))).entry.fields).toEqual({ code: HIDDEN })
     const [, change] = await plain(typeHistory('badge'))
@@ -298,7 +323,14 @@ describe('changing the type of an entry keeps its sensitive values protected', (
   })
 
   test('an entry of a sensitive type stays in a sensitive type, unless the owner moves it', async () => {
-    await trusted(writeEntry({ type: 'diary', title: 'Rainy evening', body: 'Read by the fire.' }))
+    await trusted(
+      writeEntry({
+        type: 'diary',
+        title: 'Rainy evening',
+        body: 'Read by the fire.',
+        provenance: { body: 'inferred' },
+      }),
+    )
     const refused = await run(
       withRights(TRUSTED)(Effect.flip(writeEntry({ entry: 'rainy-evening', type: 'folder' }))),
     )
@@ -314,7 +346,12 @@ describe('changing the type of an entry keeps its sensitive values protected', (
 
   test('the owner may move a sensitive value to a type where it is not sensitive', async () => {
     await trusted(
-      writeEntry({ type: 'account', title: 'Spare account', fields: { number: 'zebracode-9' } }),
+      writeEntry({
+        type: 'account',
+        title: 'Spare account',
+        fields: { number: 'zebracode-9' },
+        provenance: { number: 'inferred' },
+      }),
     )
     await owner(writeEntry({ entry: 'spare-account', type: 'clone' }))
     expect((await plain(readEntry('spare-account'))).entry.fields).toEqual({
@@ -334,14 +371,24 @@ describe('changing a field never shows a sensitive value', () => {
           fields: [{ name: 'mood', kind: 'text' }],
           sensitive: true,
         })
-        yield* writeEntry({ type: 'logbook', title: 'Still day', fields: { mood: 'serene' } })
+        yield* writeEntry({
+          type: 'logbook',
+          title: 'Still day',
+          fields: { mood: 'serene' },
+          provenance: { mood: 'inferred' },
+        })
         yield* defineType({
           name: 'loan',
           label: 'Loan',
           description: 'Something lent.',
           fields: [{ name: 'holder', kind: 'text' }],
         })
-        yield* writeEntry({ type: 'loan', title: 'Lent ladder', fields: { holder: 'nobody-xyz' } })
+        yield* writeEntry({
+          type: 'loan',
+          title: 'Lent ladder',
+          fields: { holder: 'nobody-xyz' },
+          provenance: { holder: 'inferred' },
+        })
       }),
     ),
   )
@@ -407,8 +454,17 @@ describe('the history keeps a value hidden after its field is renamed or its ent
           description: 'A safe and its combination.',
           fields: [{ name: 'combination', kind: 'text', sensitive: true }],
         })
-        yield* writeEntry({ type: 'safe', title: 'Hall safe', fields: { combination: 'zebra-1' } })
-        yield* writeEntry({ entry: 'hall-safe', fields: { combination: 'zebra-2' } })
+        yield* writeEntry({
+          type: 'safe',
+          title: 'Hall safe',
+          fields: { combination: 'zebra-1' },
+          provenance: { combination: 'inferred' },
+        })
+        yield* writeEntry({
+          entry: 'hall-safe',
+          fields: { combination: 'zebra-2' },
+          provenance: { combination: 'inferred' },
+        })
         yield* changeField({ type: 'safe', field: 'combination', rename: 'code' })
       }),
     )
@@ -428,7 +484,12 @@ describe('the history keeps a value hidden after its field is renamed or its ent
   test('after a change of type, the past values of a field sensitive in the old type stay hidden', async () => {
     await trusted(
       Effect.gen(function* () {
-        yield* writeEntry({ type: 'account', title: 'Old card', fields: { number: 'zebra-7' } })
+        yield* writeEntry({
+          type: 'account',
+          title: 'Old card',
+          fields: { number: 'zebra-7' },
+          provenance: { number: 'inferred' },
+        })
         yield* writeEntry({ entry: 'old-card', type: 'folder', fields: { number: null } })
       }),
     )
@@ -462,6 +523,7 @@ describe('a write does not tell a key without the right that a hidden entry exis
         fields: { target: 'quiet-morning' },
         sources: [{ entry: 'quiet-morning' }],
         body: 'See [[quiet-morning]].',
+        provenance: { target: 'inferred', body: 'inferred' },
       }),
     )
     expect(refused.message).toBe(
@@ -474,7 +536,12 @@ describe('a write does not tell a key without the right that a hidden entry exis
     )
     // A reference waits, as a reference to a slug no entry has: nothing tells them apart.
     const probe = await plain(
-      writeEntry({ type: 'pointer', title: 'Probe', body: 'See [[quiet-morning]].' }),
+      writeEntry({
+        type: 'pointer',
+        title: 'Probe',
+        body: 'See [[quiet-morning]].',
+        provenance: { body: 'inferred' },
+      }),
     )
     expect((await plain(readEntry(probe.slug))).references).toEqual([
       { reference: 'quiet-morning', id: null, title: null },

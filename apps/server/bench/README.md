@@ -110,7 +110,7 @@ session would have written, through the core, as the same key (`bench-agent`), a
 the run; the second session then starts with nothing but the instance.
 
 A check asks for the facts an answer must give, and for an order when one is asked. It forbids
-a name only where the answer is a plain list (the recipes with lemon, the entries to review): a
+a name only where the answer is a plain list (the recipes with lemon, the entries that are only supposed): a
 good answer to "what is due this week" may well say what comes just after.
 
 To add a task: a `Task` in `tasks.ts` (in the owner's words, with its roles and its check), its

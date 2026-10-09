@@ -199,7 +199,11 @@ describe('the MCP tools over HTTP', () => {
       },
     )
     expect(
-      await client.call('write', { type: 'note', title: 'Odd', fields: { colour: 'red' } }),
+      await client.call('write', {
+        type: 'note',
+        title: 'Odd',
+        fields: { colour: 'red' },
+      }),
     ).toEqual({
       error: 'The field `fields.colour` is not expected.',
     })
@@ -597,6 +601,7 @@ describe('the read API', () => {
       type: 'safe',
       title: 'Office safe',
       fields: { combination: '7-3-9' },
+      provenance: { combination: 'inferred' },
     })
     expect(await get('/api/entries/office-safe')).toMatchObject({
       status: 200,
@@ -673,11 +678,20 @@ describe('the read API lists, filters and tells the history', () => {
       title: 'Oil the gate',
       tags: ['outside', 'metal'],
       fields: { code: 'gate-42' },
+      provenance: { code: 'inferred' },
     })
     await agent.call('write', { type: 'chore', title: 'Polish the kettle', tags: ['metal'] })
     await agent.call('write', { type: 'secret-chore', title: 'Hide the key' })
-    await agent.call('write', { entry: 'oil-the-gate', body: 'Oil it. '.repeat(200) })
-    await agent.call('write', { entry: 'oil-the-gate', fields: { code: 'gate-43' } })
+    await agent.call('write', {
+      entry: 'oil-the-gate',
+      body: 'Oil it. '.repeat(200),
+      provenance: { body: 'inferred' },
+    })
+    await agent.call('write', {
+      entry: 'oil-the-gate',
+      fields: { code: 'gate-43' },
+      provenance: { code: 'inferred' },
+    })
   })
 
   test('the history of an entry comes newest first, in pages, a long body as an excerpt', async () => {
@@ -722,7 +736,7 @@ describe('the read API lists, filters and tells the history', () => {
     expect((await get('/api/entries/hide-the-key/history', trusted)).status).toBe(200)
   })
 
-  test('entries listed by type, by two tags, by verified=false, sorted by title', async () => {
+  test('entries listed by type, by two tags, by supposed=true, sorted by title', async () => {
     const titles = async (query: string) =>
       (await get(`/api/entries?${query}`, trusted)).body.entries.map(
         ({ title }: { title: string }) => title,
@@ -734,11 +748,8 @@ describe('the read API lists, filters and tells the history', () => {
     ])
     expect(await titles('tag=outside&tag=metal')).toEqual(['Oil the gate'])
     expect(await titles('tag=metal')).toEqual(['Oil the gate', 'Polish the kettle'])
-    expect(await titles('type=chore&verified=false')).toEqual([
-      'Oil the gate',
-      'Polish the kettle',
-      'Sweep the yard',
-    ])
+    expect(await titles('type=chore&supposed=true')).toEqual(['Oil the gate'])
+    expect(await titles('type=chore&unstated=true')).toEqual([])
     const paged = await get('/api/entries?type=chore&limit=2', trusted)
     expect(paged.body.entries).toHaveLength(2)
     const next = await get(
@@ -748,7 +759,7 @@ describe('the read API lists, filters and tells the history', () => {
     expect(next.body).toMatchObject({ entries: [{ title: 'Sweep the yard' }], next_cursor: null })
   })
 
-  test('search filtered by tag and by verified', async () => {
+  test('search filtered by tag and by supposed, each result saying what is supposed', async () => {
     const slugs = async (query: string) =>
       (await get(`/api/search?${query}`, trusted)).body.results.map(
         ({ slug }: { slug: string }) => slug,
@@ -757,7 +768,18 @@ describe('the read API lists, filters and tells the history', () => {
       expect.arrayContaining(['oil-the-gate', 'polish-the-kettle']),
     )
     expect(await slugs('q=the&tag=metal&tag=outside')).toEqual(['oil-the-gate'])
-    expect(await slugs('q=gate&verified=true')).toEqual([])
+    expect(await slugs('q=gate&supposed=true')).toEqual(['oil-the-gate'])
+    expect(await slugs('q=kettle&supposed=true')).toEqual([])
+    expect(await slugs('q=gate&unstated=true')).toEqual([])
+    const found = await get('/api/search?q=gate&supposed=true', trusted)
+    expect(found.body.results[0]).toMatchObject({
+      slug: 'oil-the-gate',
+      summary: '',
+      supposed: [
+        { what: 'code', by: 'api-lister' },
+        { what: 'body', by: 'api-lister' },
+      ],
+    })
   })
 })
 

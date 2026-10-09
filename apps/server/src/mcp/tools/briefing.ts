@@ -1,4 +1,4 @@
-import { unverified } from '../../core/entries/index.ts'
+import { countSupposed, supposedValues } from '../../core/entries/index.ts'
 import { pendingReferences } from '../../core/links/index.ts'
 import { BRIEFING_PERIODS, briefing } from '../../core/time/index.ts'
 import { Effect, Schema } from 'effect'
@@ -16,13 +16,31 @@ const FIRST = 5
 const counted = <A>(name: string, found: ReadonlyArray<A>) =>
   found.length === 0 ? [] : [{ [name]: { count: found.length, first: found.slice(0, FIRST) } }]
 
-/** What waits: the entries to review and the references without an entry. */
+/** What waits: the suppositions to confirm and the references without an entry. */
 const waiting = Effect.gen(function* () {
-  const entries = yield* unverified({})
+  // Counted apart, and only the first few are read with their writer and their time.
+  const count = yield* countSupposed({})
+  const first = yield* supposedValues({ limit: FIRST })
   const references = yield* pendingReferences
   return Object.assign(
     {},
-    ...counted('unverified', entries),
+    ...(count === 0
+      ? []
+      : [
+          {
+            supposed: {
+              count,
+              first: first.map(({ slug, title, what, provenance, by, when }) => ({
+                slug,
+                title,
+                what,
+                provenance,
+                by,
+                when,
+              })),
+            },
+          },
+        ]),
     ...counted('pending_references', references),
   )
 })
@@ -30,7 +48,7 @@ const waiting = Effect.gen(function* () {
 export const briefingTool = defineTool({
   name: 'briefing',
   description:
-    'Gathers what matters for a period: the coming dates (`upcoming`, with the days left; what a link `fulfills` closed is left out), the overdue deadlines, and a year ago. Give a `period` (`today`, `week`, `weekend`), or `from` and `to` for any days up to a year; with neither, it is today. Under `waiting`, what needs someone: the entries the owner has not verified yet (`unverified`, newest first; only the owner verifies, from the command line: tell them what waits), and the `[[references]]` still waiting for their entry (`pending_references`: write the missing entries, or fix a misspelled reference), each with its `count` and the first few.',
+    'Gathers what matters for a period: the coming dates (`upcoming`, with the days left; what a link `fulfills` closed is left out), the overdue deadlines, and a year ago. Give a `period` (`today`, `week`, `weekend`), or `from` and `to` for any days up to a year; with neither, it is today. Under `waiting`, what needs someone: the values and links still supposed or ambiguous, not known (`supposed`, the most recently changed entries first, each with its entry, what it is, how it stands, who wrote it and when: tell the owner what waits, they confirm it from the command line, or you write it again as known when they say so), and the `[[references]]` still waiting for their entry (`pending_references`: write the missing entries, or fix a misspelled reference), each with its `count` and the first few.',
   input: Schema.Struct({
     period: Schema.optionalKey(Schema.Literals(BRIEFING_PERIODS)).annotate({
       description:

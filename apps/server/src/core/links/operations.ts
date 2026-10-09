@@ -6,12 +6,14 @@ import { SqlClient } from 'effect/sql'
 import { drizzle } from '../database/client.ts'
 import { rowsOf } from '../database/rows.ts'
 import * as tables from '../database/schema.ts'
-import { findEntry } from '../entries/operations.ts'
+import { findEntry, lockedEntry } from '../entries/operations.ts'
+import { saidOn } from '../entries/supposed.ts'
 import { DateText } from '../entries/values.ts'
 import type { FieldValues } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
+import { Rights } from '../auth/rights.ts'
 import { sensitivity } from '../sensitive.ts'
 import { ruleOf } from '../time/occurrences.ts'
 import { findType } from '../types/operations.ts'
@@ -129,10 +131,12 @@ const checkRelation = Effect.fnUntraced(function* (relation: string) {
 })
 
 /**
- * What a link says of itself, as `link` is given it: a short note (a role, such as `accountant`)
- * and the dates it held between. A key left out stays as it is; `null` removes it.
+ * What a link says of itself, as `link` is given it: whether it is known (`extracted`) or
+ * supposed (`inferred`), always; a short note (a role, such as `accountant`) and the dates it held
+ * between. A note or a date left out stays as it is; `null` removes it.
  */
 export type LinkAbout = {
+  readonly provenance: 'extracted' | 'inferred'
   readonly note?: string | null | undefined
   readonly valid_from?: string | null | undefined
   readonly valid_until?: string | null | undefined
@@ -142,6 +146,7 @@ export type LinkAbout = {
 const NOTE_LIMIT = 200
 
 const About = Schema.Struct({
+  provenance: Schema.String,
   note: Schema.NullOr(Schema.String),
   valid_from: Schema.NullOr(Schema.String),
   valid_until: Schema.NullOr(Schema.String),
@@ -149,12 +154,10 @@ const About = Schema.Struct({
 type About = typeof About.Type
 const abouts = rowsOf(About)
 
-const NOTHING: About = { note: null, valid_from: null, valid_until: null }
-
 const isDate = Schema.is(DateText)
 
 /** Refuses a note too long, or a date that is not one. */
-const checkAbout = Effect.fnUntraced(function* (about: LinkAbout) {
+const checkAbout = Effect.fnUntraced(function* (about: Partial<LinkAbout>) {
   const problems = [
     ...(about.note !== undefined && about.note !== null && about.note.length > NOTE_LIMIT
       ? [
@@ -172,13 +175,14 @@ const checkAbout = Effect.fnUntraced(function* (about: LinkAbout) {
 })
 
 /**
- * How the event log names the end of a link: the target's id, or with what the link says of
- * itself, `{ entry, note, valid_from, valid_until }`, each said only when it is set.
+ * How the event log names the end of a link: `{ entry, provenance, note, valid_from, valid_until }`,
+ * the note and the dates only when set. (The links of before the provenance have the target's id
+ * alone, or without a provenance.)
  */
-const endOf = (target: string, about: About): Schema.Json => {
-  const said = Object.fromEntries(Object.entries(about).filter(([, value]) => value !== null))
-  return Object.keys(said).length === 0 ? target : { entry: target, ...said }
-}
+const endOf = (target: string, about: About): Schema.Json => ({
+  entry: target,
+  ...Object.fromEntries(Object.entries(about).filter(([, value]) => value !== null)),
+})
 
 /**
  * Links two entries with a relation. Linking them again with the same relation (and, for
@@ -194,7 +198,7 @@ export const link = Effect.fn('link')(function* (
   relation: string,
   period = '',
   field = '',
-  about: LinkAbout = {},
+  about: LinkAbout,
 ) {
   const sql = yield* SqlClient.SqlClient
   const actor = yield* currentActor
@@ -205,15 +209,28 @@ export const link = Effect.fn('link')(function* (
     Effect.gen(function* () {
       const source = yield* findEntry(sourceReference)
       const target = yield* findEntry(targetReference)
+      // A known link is read in a source, which its entry then has.
+      if (about.provenance === 'extracted' && source.sources.length === 0) {
+        return yield* new Refused({
+          message: `The link \`${relation}\` is \`extracted\` but \`${source.slug}\` has no source: give the entry one in \`sources\` (what someone said is \`{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }\`), or link it \`inferred\`.`,
+        })
+      }
       const closed = yield* fieldClosed(relation, target, field)
       const kept = relation === 'fulfills' ? yield* periodClosed(target, closed, period) : period
-      const stored = sql`SELECT note, valid_from::text AS valid_from,
+      const stored = sql`SELECT provenance, note, valid_from::text AS valid_from,
           valid_until::text AS valid_until
         FROM links WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
           AND relation = ${relation} AND period = ${kept} AND field = ${closed} FOR UPDATE`
       const name = fieldOf(relation, kept, closed)
+      const nothing: About = {
+        provenance: about.provenance,
+        note: null,
+        valid_from: null,
+        valid_until: null,
+      }
       /** What the link says once this write is applied to what it said. */
       const merged = (held: About) => ({
+        provenance: about.provenance,
         // An empty note says nothing: it is no note.
         note: about.note === undefined ? held.note : about.note === '' ? null : about.note,
         valid_from: about.valid_from === undefined ? held.valid_from : about.valid_from,
@@ -229,11 +246,11 @@ export const link = Effect.fn('link')(function* (
       })
       let [held] = yield* abouts(stored)
       if (held === undefined) {
-        const said = yield* checked(merged(NOTHING))
+        const said = yield* checked(merged(nothing))
         const inserted = yield* sql`INSERT INTO links (source_id, target_id, relation, period,
-            field, note, valid_from, valid_until)
+            field, provenance, note, valid_from, valid_until)
           VALUES (${source.id}::uuid, ${target.id}::uuid, ${relation}, ${kept}, ${closed},
-            ${said.note}, ${said.valid_from}::date, ${said.valid_until}::date)
+            ${said.provenance}, ${said.note}, ${said.valid_from}::date, ${said.valid_until}::date)
           ON CONFLICT DO NOTHING RETURNING relation`
         if (inserted.length > 0) {
           yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
@@ -244,12 +261,12 @@ export const link = Effect.fn('link')(function* (
         // Linked by another write at the same moment: this one applies to what that one wrote.
         ;[held] = yield* abouts(stored)
       }
-      const before = held ?? NOTHING
+      const before = held ?? nothing
       const after = yield* checked(merged(before))
       const answer = { field: closed, ...after }
       if (JSON.stringify(after) === JSON.stringify(before)) return answer
-      yield* sql`UPDATE links SET note = ${after.note}, valid_from = ${after.valid_from}::date,
-          valid_until = ${after.valid_until}::date
+      yield* sql`UPDATE links SET provenance = ${after.provenance}, note = ${after.note},
+          valid_from = ${after.valid_from}::date, valid_until = ${after.valid_until}::date
         WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
           AND relation = ${relation} AND period = ${kept} AND field = ${closed}`
       yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
@@ -284,7 +301,8 @@ export const unlink = Effect.fn('unlink')(function* (
       const [deleted] = yield* abouts(sql`DELETE FROM links WHERE source_id = ${source.id}::uuid
         AND target_id = ${target.id}::uuid AND relation = ${relation} AND period = ${period}
         AND field = ${closed}
-        RETURNING note, valid_from::text AS valid_from, valid_until::text AS valid_until`)
+        RETURNING provenance, note, valid_from::text AS valid_from,
+          valid_until::text AS valid_until`)
       if (deleted === undefined) {
         return yield* new Refused({
           message: `There is no link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\`.`,
@@ -296,6 +314,101 @@ export const unlink = Effect.fn('unlink')(function* (
           before: endOf(target.id, deleted),
           after: null,
         },
+      ])
+    }),
+  )
+})
+
+const Held = Schema.Struct({ ...About.fields, period: Schema.String, field: Schema.String })
+const helds = rowsOf(Held)
+
+/** Which link of a relation: the period and the date field of a link `fulfills`. */
+export type WhichLink = {
+  readonly period?: string | undefined
+  readonly field?: string | undefined
+}
+
+/**
+ * The owner confirms a supposition about a link: the links of that relation from the entry to the
+ * target that are not known yet become `extracted` (the one a `period` and a `field` name, when
+ * several are supposed: they are listed, and none is chosen for the owner), and the entry gets the
+ * source "said by that person", dated today, once. One event, an `update` of the entry: the source
+ * changes the entry, so its time and its last writer move with it, as a confirmed field does.
+ */
+export const confirmLink = Effect.fn('confirmLink')(function* (
+  sourceReference: string,
+  relation: string,
+  targetReference: string,
+  person: string,
+  which: WhichLink = {},
+) {
+  const sql = yield* SqlClient.SqlClient
+  const actor = yield* currentActor
+  if (!(yield* Rights).includes('owner')) {
+    return yield* new Refused({
+      message: 'Only the owner of Grenier may confirm a supposition, from the command line.',
+    })
+  }
+  if (relation === MENTIONS) {
+    return yield* new Refused({
+      message: `A mention takes the provenance of its body: confirm the \`body\`.`,
+    })
+  }
+  return yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const said = yield* saidOn(person)
+      const source = yield* lockedEntry(sourceReference)
+      const target = yield* findEntry(targetReference)
+      const named = which.period !== undefined || which.field !== undefined
+      const held = (yield* helds(sql`SELECT provenance, period, field, note,
+          valid_from::text AS valid_from, valid_until::text AS valid_until
+        FROM links WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+          AND relation = ${relation} ORDER BY period, field FOR UPDATE`)).filter(
+        ({ period, field }) =>
+          (which.period === undefined || period === which.period) &&
+          (which.field === undefined || field === which.field),
+      )
+      if (held.length === 0) {
+        return yield* new Refused({
+          message: `There is no link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\`${named ? ' for that period and field' : ''}.`,
+        })
+      }
+      const supposed = held.filter(({ provenance }) => provenance !== 'extracted')
+      if (supposed.length === 0) {
+        return yield* new Refused({
+          message: `The link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\` is known already (\`extracted\`).`,
+        })
+      }
+      if (supposed.length > 1 && !named) {
+        const told = supposed.map(({ period, field }) =>
+          [period === '' ? '' : `period \`${period}\``, field === '' ? '' : `field \`${field}\``]
+            .filter((part) => part !== '')
+            .join(' '),
+        )
+        return yield* new Refused({
+          message: `Several links \`${relation}\` from \`${source.slug}\` to \`${target.slug}\` are supposed: say which with \`--period\` and \`--field\`: ${told.join('; ')}.`,
+        })
+      }
+      yield* Effect.forEach(
+        supposed,
+        ({ period, field }) =>
+          sql`UPDATE links SET provenance = 'extracted'
+          WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+            AND relation = ${relation} AND period = ${period} AND field = ${field}`,
+      )
+      const cited = source.sources.some(
+        (each) => 'said_by' in each && each.said_by === said.said_by && each.on === said.on,
+      )
+      const sources = cited ? source.sources : [...source.sources, said]
+      yield* sql`UPDATE entries SET sources = ${JSON.stringify(sources)}::jsonb, updated = now()
+        WHERE id = ${source.id}::uuid`
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
+        ...supposed.map(({ period, field, ...before }) => ({
+          field: fieldOf(relation, period, field),
+          before: endOf(target.id, before),
+          after: endOf(target.id, { ...before, provenance: 'extracted' }),
+        })),
+        ...(cited ? [] : [{ field: 'sources', before: source.sources, after: sources }]),
       ])
     }),
   )

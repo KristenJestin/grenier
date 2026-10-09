@@ -146,6 +146,7 @@ describe('an agent reports what goes wrong with Grenier', () => {
       type: 'locker',
       title: 'Gym locker',
       fields: { code: '0042' },
+      provenance: { code: 'inferred' },
     })
     expect(
       await started(on).call('grenier_report', {

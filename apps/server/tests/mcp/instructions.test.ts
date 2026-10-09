@@ -232,6 +232,20 @@ describe('agents that may write learn how to write an entry', () => {
     expect(WRITING_STANDARD).toContain('read them and link those that are really meant')
   })
 
+  test('it asks to say what is known and what is supposed, and how to write a supposition', () => {
+    expect(WRITING_STANDARD).toContain(
+      'Say for each value you write whether it is known or supposed, with its `provenance`',
+    )
+    expect(WRITING_STANDARD).toContain(
+      '`extracted` is known, read in a source, and needs a source on the entry (`sources`); `inferred` is your supposition',
+    )
+    expect(WRITING_STANDARD).toContain('{ "said_by": "<slug of their entry>", "on": "<day>" }')
+    expect(WRITING_STANDARD).toContain('write the value again as `extracted` with that source')
+    expect(WRITING_STANDARD).toContain(
+      'A body that mixes known facts and suppositions is `inferred`, and states its suppositions as such in its text ("probably", "supposed from…")',
+    )
+  })
+
   test('it says to report a value the key lacks the right for', () => {
     expect(WRITING_STANDARD).toContain(
       '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
