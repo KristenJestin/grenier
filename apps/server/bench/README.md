@@ -90,7 +90,7 @@ Below the tables: the reason of every failed run, and every wrong tool.
 
 ## The tasks
 
-`tasks.ts`, about thirty, from the examples of the issue: recall (the graphics card, its server,
+`tasks.ts`, about thirty-five, from the examples of the issue: recall (the graphics card, its server,
 its shop and the projects the server serves), what is due this week, the overdue, filing three inbox
 items one of which updates an entry, linking a person to an organization with a role and dates,
 adding a field to a type, a type made from scratch, making a field required, archiving, replacing a
@@ -98,6 +98,15 @@ decision, a question whose answer is not in Grenier. Each has a deterministic ch
 reference solution in `tests/bench/solutions.ts`: a test proves that every check fails on the
 instance as it starts and passes once the solution is applied, so none asks for nothing or for
 the impossible.
+
+Three tasks measure memory (#171). None of their rules or prompts carries a hand-over convention:
+`resume-discussion` ("Resume where we were."), `vague-music-thing` (a vague reference with three
+subjects that fit, last changed 2 days, 3 weeks and 5 months ago: the right answer names them and
+asks, and writes nothing) and `link-two-by-title` (a note that mentions two existing entries by
+their title, in passing, must end up linked to both, and filed under neither). The first needs an earlier
+session: rather than running a first agent (slow, costly, and varying), the setup writes what that
+session would have written, through the core, as the same key (`bench-agent`), a few minutes before
+the run; the second session then starts with nothing but the instance.
 
 A check asks for the facts an answer must give, and for an order when one is asked. It forbids
 a name only where the answer is a plain list (the recipes with lemon, the entries to review): a

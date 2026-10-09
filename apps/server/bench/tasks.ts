@@ -1,7 +1,10 @@
+import { Effect } from 'effect'
+import { writeEntries } from '../src/core/entries/index.ts'
+import { Actor } from '../src/core/events/index.ts'
 import { addDays } from '../src/core/time/index.ts'
 import { addToInbox } from '../src/core/inbox/index.ts'
 import { dateWordings, mentions, mentionsInOrder, mentionsNone } from './answers.ts'
-import { DAYS } from './fixture.ts'
+import { AGENT_KEY, DAYS } from './fixture.ts'
 import type { Role } from './roles.ts'
 import type { World } from './world.ts'
 
@@ -67,6 +70,13 @@ const KEPT = /already|exist|duplicate|saved|kept|have it/i
 
 const UNABLE =
   /\b(no|not|nothing|none|cannot|can't|couldn't|don't|do not|unable|isn't|aren't|haven't|doesn't)\b/i
+
+/** The three subjects "the music thing" may mean, with how long ago each last changed. */
+const MUSIC = [
+  { title: 'Music library tagging', slug: 'music-library-tagging', daysAgo: 2 },
+  { title: 'Music lessons schedule', slug: 'music-lessons-schedule', daysAgo: 21 },
+  { title: 'Music festival tickets', slug: 'music-festival-tickets', daysAgo: 150 },
+] as const
 
 export const TASKS: ReadonlyArray<Task> = [
   {
@@ -645,6 +655,129 @@ export const TASKS: ReadonlyArray<Task> = [
       return [
         ...ok(changed.length === 0, `${changed.length} entries were written`),
         ...ok(UNABLE.test(answer), 'the answer does not say that nothing is known'),
+      ]
+    },
+  },
+  {
+    id: 'resume-discussion',
+    heldOut: false,
+    prompt: 'Resume where we were.',
+    expects: ['search', 'read'],
+    // What an earlier session, using the same key, wrote a few minutes ago about a discussion
+    // with the owner: nothing says so to this session but the entries themselves.
+    setup: async (world) => {
+      await world.arrange(
+        Effect.provideService(
+          writeEntries([
+            {
+              type: 'project',
+              title: 'Pantry NAS disk replacement',
+              summary:
+                'Replacing the failing second disk of the [[pantry-nas]] with a new one, decided in a talk with the owner: which disk, the order of the work, the warranty claim.',
+              fields: { status: 'active' },
+              body: 'The second disk of the [[pantry-nas]] reports errors. Disk chosen and steps are in the parts of this project.',
+            },
+            {
+              type: 'note',
+              title: 'Replacement disk comparison',
+              parent: 'pantry-nas-disk-replacement',
+              summary: 'Why the Halden 8 TB was chosen over the Corvid 6 TB for the Pantry NAS.',
+              body: 'The Halden 8 TB is quieter and has a five-year warranty; the Corvid 6 TB is cheaper but only has two years.',
+            },
+            {
+              type: 'note',
+              title: 'Warranty claim steps',
+              parent: 'pantry-nas-disk-replacement',
+              summary: 'What to send to claim the warranty of the failing disk of the Pantry NAS.',
+              body: 'Send the serial number and the error log to the maker, then ship the disk back within thirty days.',
+            },
+            {
+              type: 'note',
+              title: 'Disk swap order',
+              parent: 'pantry-nas-disk-replacement',
+              summary: 'The order of the work to swap the failing disk of the Pantry NAS.',
+              body: 'Snapshot first, replace the disk, let the pool resilver, then check the data.',
+            },
+          ]),
+          Actor,
+          AGENT_KEY,
+        ),
+      )
+    },
+    check: async ({ answer }) => [
+      ...mentions(answer, ['Pantry NAS disk replacement', 'Halden 8 TB']),
+    ],
+  },
+  {
+    id: 'vague-music-thing',
+    heldOut: false,
+    prompt: 'Where are we on the music thing?',
+    expects: ['search', 'read'],
+    // Three subjects that fit, written at different times: none is the obvious one.
+    setup: async (world) => {
+      const day = (daysAgo: number) => addDays(world.today, -daysAgo)
+      await world.arrange(
+        writeEntries([
+          {
+            type: 'project',
+            title: MUSIC[0].title,
+            summary: 'Clean the tags of the music files kept on the Atlas server.',
+            fields: { status: 'active' },
+            body: 'Fix artist and album names, one folder at a time.',
+            created: day(MUSIC[0].daysAgo),
+            updated: day(MUSIC[0].daysAgo),
+          },
+          {
+            type: 'note',
+            title: MUSIC[1].title,
+            summary: 'The weekly timetable of the music lessons at the conservatory.',
+            body: 'Tuesday evening and Saturday morning.',
+            created: day(MUSIC[1].daysAgo),
+            updated: day(MUSIC[1].daysAgo),
+          },
+          {
+            type: 'bookmark',
+            title: MUSIC[2].title,
+            summary: 'Where to buy tickets for the summer music festival.',
+            fields: { url: 'https://example.org/festival/tickets' },
+            created: day(MUSIC[2].daysAgo),
+            updated: day(MUSIC[2].daysAgo),
+          },
+        ]),
+      )
+    },
+    check: async ({ answer, world, startedAt }) => {
+      const changed = (await world.everything()).filter(({ entry }) => entry.updated >= startedAt)
+      return [
+        ...mentions(
+          answer,
+          MUSIC.map(({ title }) => title),
+        ),
+        ...ok(answer.includes('?'), 'the answer does not ask which one is meant'),
+        ...ok(changed.length === 0, `${changed.length} entries were written`),
+      ]
+    },
+  },
+  {
+    id: 'link-two-by-title',
+    heldOut: false,
+    prompt:
+      'Add a note called "Saturday tinkering": I spent the afternoon tidying the cables behind the Network router, and Samir Haddad came by for a coffee.',
+    expects: ['write'],
+    check: async ({ world }) => {
+      const found = (await world.everything()).filter(({ entry }) =>
+        /saturday tinkering/i.test(entry.title),
+      )
+      const [idea] = found
+      const targets = idea === undefined ? [] : linked(idea)
+      return [
+        ...ok(found.length === 1, `expected one note, found ${found.length}`),
+        ...ok(targets.includes('network-router'), 'the note is not linked to the Network router'),
+        ...ok(targets.includes('samir-haddad'), 'the note is not linked to Samir Haddad'),
+        ...ok(
+          !['Network router', 'Samir Haddad'].includes(idea?.path.at(-1) ?? ''),
+          'the note is filed under one of the two entries it is only about',
+        ),
       ]
     },
   },

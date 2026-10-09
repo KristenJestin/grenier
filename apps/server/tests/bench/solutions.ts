@@ -231,4 +231,19 @@ export const SOLUTIONS = {
   'review-queue': async () =>
     'Four entries wait: Router settings, Cable management ideas, Lemon curd and Flatbreads.',
   'nothing-known': async () => 'I found nothing about a wifi password at the cabin.',
+  'resume-discussion': async () =>
+    'We were talking about the Pantry NAS disk replacement: the Halden 8 TB is chosen, and the next step is the warranty claim.',
+  'vague-music-thing': async () =>
+    'Three things could be the music thing: Music library tagging, Music lessons schedule and Music festival tickets. Which one do you mean?',
+  'link-two-by-title': async ({ arrange }) => {
+    await arrange(
+      writeEntry({
+        type: 'note',
+        title: 'Saturday tinkering',
+        summary: 'Tidying the cables behind the Network router; Samir Haddad came by.',
+        body: 'I spent the afternoon tidying the cables behind the [[network-router]], and [[samir-haddad]] came by for a coffee.',
+      }),
+    )
+    return 'Added.'
+  },
 } satisfies { readonly [task: string]: Solution }
