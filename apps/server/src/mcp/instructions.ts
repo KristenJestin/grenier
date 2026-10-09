@@ -38,21 +38,33 @@ const DIAGNOSTICS = [
 ].join(' ')
 
 /**
- * How an item of the inbox becomes entries, whatever the instance and the item: said to every key
- * that may write, the keys that list `inbox_take`, whose description refers to it. The rules of
- * the instance come before it and may add to it (the language of the entries, for one).
+ * How to write an entry, whatever it comes from and whatever the instance: said to every key that
+ * may write, once, here and nowhere else (no tool description repeats it). The rules of the
+ * instance come after it and may add to it (the language of the entries, for one).
+ */
+export const WRITING_STANDARD = [
+  'How to write an entry, whatever it comes from:',
+  '- Search before creating, and update the existing entry when it is the same subject: never make a second entry for it.',
+  '- Make one entry per subject that would be searched or followed on its own.',
+  '- Link the entry to every existing entry it concerns: the things, people, places and subjects it is about. Cite them as `[[slug]]` in the body, never by their title in plain text (the link is kept and follows renames), or use `link`. The answer of a write lists, as `unlinked`, existing entries whose title or alias appears in what you wrote without being linked: Grenier finds them by their names only, so read them and link those that are really meant.',
+  '- Give a `parent` only when the entry is part of it (a component of a machine, a section of a document), and leave the entry at the root otherwise: an entry at the root is fine when it is linked to what it concerns.',
+  '- Write a summary that stands alone: what the entry is, about what or whom, and when, readable by an agent that knows nothing of the conversation or the item it comes from.',
+  "- Fill the type's fields from what you are given, with their `provenance`; never invent a value.",
+  '- Rewrite what you are given clean, but keep every fact: names, dates, numbers, commands, reasons, options set aside and why. Make it shorter only by removing repetition.',
+  '- An entry says only what its source says. A fact taken from another entry is added with that entry in `sources`; an interpretation is written as one.',
+  '- A dated text keeps its time: never put names or states of today into what was true at its date.',
+  "- Write in the language of what you are given, unless the instance's rules say otherwise.",
+  '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
+].join('\n')
+
+/**
+ * What is specific to an inbox item, on top of the writing standard: said to every key that may
+ * write, the keys that list `inbox_take`, whose description refers to it. The rules of the
+ * instance come before it.
  */
 export const INBOX_STANDARD = [
-  'How an inbox item becomes entries, whatever it holds:',
-  "- Choose each entry's type from the content and the type descriptions. Make one entry per subject that would be searched or followed on its own; split a long item into entries by part or by period, the main entry keeping the item's name.",
-  "- Fill the type's fields from what the item says, with their `provenance`; never invent a value.",
-  '- Rewrite it clean, but keep every fact: names, dates, numbers, commands, reasons, options set aside and why. Make it shorter only by removing repetition.',
-  '- An entry made from an item says only what the item says. A fact taken from another entry is added with that entry in `sources`; an interpretation is written as one.',
-  '- A dated text keeps its time: never put names or states of today into what was true at its date.',
-  '- To change a few words of a body, use `edits`; never retype a whole body.',
-  "- Keep the item's language, unless the instance's rules say otherwise.",
-  '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
-  '- Cite another entry as `[[slug]]`, never by its title in plain text: the link is kept and follows renames.',
+  'How an inbox item becomes entries, on top of the writing standard, whatever it holds:',
+  "- Split a long item into entries by part or by period, the main entry keeping the item's name.",
   "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_read` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
 ].join('\n')
 
@@ -106,8 +118,9 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
  * What an agent is told when its session starts, what matters most first: what the instance is,
  * how to choose a type, the types of the instance with their descriptions (or only their names
  * when there are many); then what diagnostics ask of it when they are on, the rules its owner set
- * for every agent, if any, and how an inbox item becomes entries when it may write. A client may
- * cut the instructions at 2,048 characters: the later parts are the ones it can lose.
+ * for every agent, if any, and, when it may write, how to write an entry and how an inbox item
+ * becomes entries. A client may cut the instructions at 2,048 characters: the later parts are the
+ * ones it can lose.
  */
 export const instructionsFor = (
   types: ReadonlyArray<{ readonly name: string; readonly description: string }>,
@@ -123,7 +136,7 @@ export const instructionsFor = (
     ...(reads ? [RECALL] : []),
     ...(instance.diagnostics ? [DIAGNOSTICS] : []),
     ...(rules === null ? [] : [rulesSaid(rules)]),
-    ...(writes ? [INBOX_STANDARD] : []),
+    ...(writes ? [WRITING_STANDARD, INBOX_STANDARD] : []),
   ].join('\n\n')
 
 /**
