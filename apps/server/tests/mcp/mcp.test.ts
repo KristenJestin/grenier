@@ -130,7 +130,12 @@ describe('an agent works through MCP calls only', () => {
       fields: { stage: 'digging' },
       provenance: { stage: 'inferred' },
     })
-    await mcp().call('write', { type: 'project', title: 'Pond', parent: 'garden' })
+    await mcp().call('write', {
+      type: 'project',
+      title: 'Pond',
+      parent: 'garden',
+      provenance: { parent: 'inferred' },
+    })
     expect(await mcp().call('read', { entry: 'garden' })).toMatchObject({
       result: {
         entry: { fields: { stage: 'digging' } },

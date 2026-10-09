@@ -45,22 +45,28 @@ and a call that mixes them is refused in a sentence that names what to leave out
 rules and runs no AI.
 
 - **`search`** gives each result its `neighbors` (3 by default, `neighbors` 0 to 10, 0 for none):
-  explicit links first, then the parent, then the entries its `entry` fields name (either way),
-  then the entries its body cites (`mentions`, either way); the most recently updated first among
-  equals. A neighbor is `slug`, `title`, `type`, `summary`, how it is joined (`via`: `link`,
-  `parent`, `field` or `mention`; `relation`: the link's relation, `parent`, the field's name or
-  `mentions`; `direction`: `to` when the result names it, `from` when it names the result), the
-  `note` and dates of a link when it has them, never a body. The children of a result are not its
-  neighbors: `read` lists them. All the neighbors of a page of results come from one query.
+  explicit links first (a link `part_of` that is over, or has not begun, is one), then the entries
+  it is part of today (`via: parent`, a link `part_of` that holds), then the entries its `entry`
+  fields name (either way), then the entries its body cites (`mentions`, either way); the most
+  recently updated first among equals. A neighbor is `slug`, `title`, `type`, `summary`, how it is
+  joined (`via`: `link`, `parent`, `field` or `mention`; `relation`: the link's relation,
+  `part_of` for a parent, the field's name or `mentions`; `direction`: `to` when the result names
+  it, `from` when it names the result), the `note` and dates of a link when it has them, never a
+  body. The entries that are part of a result today are not its neighbors: `read` lists them as
+  its children. All the neighbors of a page of results come from one query.
 - **Without a `query`**, `search` lists the entries by most recent change. `sort` is `relevance`
   (the default with a `query`) or `updated` (the default without one); `since` and `until` (a date
   or a date and time) bound the last change; `by` keeps the entries a key changed last. Each result
   carries `updated` and `by`, read from the event log: the actor of the latest event that
   moved its `updated` (created, updated, archived, a body rewritten by a rename); a link or a
   medium added later leaves it alone.
-- **`read`** answers without the body unless `parts` asks for `body`. It names the parent and the
-  successor by slug (`parent`, `superseded_by`), the id beside (`parent_id`, `superseded_by_id`),
-  and keys `titles` by slug, each with its `id`. `depth` 2 or 3 (1 by default; 4 is refused) adds
+- **`read`** answers without the body unless `parts` asks for `body`. It names the successor by
+  slug (`superseded_by`), the id beside (`superseded_by_id`), and keys `titles` by slug, each with
+  its `id`. The tree is given as `path` (the titles above the entry, through the oldest place it
+  is part of today) and `part_of` (every place it is or was part of, the oldest first, with
+  `provenance`, `note`, `valid_from` and `valid_until`); `children` are the entries that are part
+  of it today, and the links `part_of` are in `part_of` and `children`, not in `links` and
+  `backlinks` (those of the entries that were part of it are in `backlinks`). `depth` 2 or 3 (1 by default; 4 is refused) adds
   `graph`: `entries` (slug, title, type, summary, `depth`) within that many edges, nearest first,
   and the `edges` between them (`from`, `to`, `via`, `relation`, a link's `note` and dates), from
   one recursive query. At most 50 entries; `cut: true` says there were more.

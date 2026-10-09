@@ -51,7 +51,7 @@ beforeAll(() =>
         summary: 'A graphics card for the home server.',
         body: 'Fitted in the second slot.\n\n## Warranty\nTwo years.',
         parent: 'home-server',
-        provenance: { body: 'inferred', summary: 'inferred' },
+        provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
       })
       yield* writeEntry({
         type: 'shop',
@@ -181,13 +181,17 @@ describe('search without a query lists by recent change', () => {
 })
 
 describe('read is concise by default', () => {
-  test('without parts, read returns no body, and names the parent by slug with its id beside', async () => {
+  test('without parts, read returns no body, and gives the places it is part of with their slug and id', async () => {
     const read = asJson(await plain(readTool.run({ entry: 'graphics-card' })))
     const server = await run(readEntry('home-server'))
     expect(read.entry.slug).toBe('graphics-card')
     expect(read.entry).not.toHaveProperty('body')
     expect(JSON.stringify(read)).not.toContain('Fitted in the second slot')
-    expect(read.entry).toMatchObject({ parent: 'home-server', parent_id: server.entry.id })
+    expect(read.entry).not.toHaveProperty('parent')
+    expect(read.part_of).toEqual([
+      expect.objectContaining({ slug: 'home-server', id: server.entry.id, provenance: 'inferred' }),
+    ])
+    expect(read.path).toEqual(['Home server'])
     expect(read.links).toContainEqual(
       expect.objectContaining({ relation: 'bought_from', slug: 'corner-shop' }),
     )
@@ -261,7 +265,12 @@ describe('read follows the neighbors with depth', () => {
       Effect.gen(function* () {
         yield* writeEntry({ type: 'project', title: 'Big shelf' })
         for (let index = 0; index < 55; index++) {
-          yield* writeEntry({ type: 'project', title: `Shelf part ${index}`, parent: 'big-shelf' })
+          yield* writeEntry({
+            type: 'project',
+            title: `Shelf part ${index}`,
+            parent: 'big-shelf',
+            provenance: { parent: 'inferred' },
+          })
         }
       }),
     )
@@ -277,5 +286,50 @@ describe('read follows the neighbors with depth', () => {
       )
     expect(await slugs(plain)).not.toContain('card-unlock-code')
     expect(await slugs(trusted)).toContain('card-unlock-code')
+  })
+})
+
+describe('read gives the places an entry is part of, with their dates', () => {
+  test('part_of alone: every place with its provenance and dates, and the links part_of are not among the links', async () => {
+    await run(
+      Effect.gen(function* () {
+        yield* writeEntry({ type: 'item', title: 'Rig one' })
+        yield* writeEntry({ type: 'item', title: 'Rig two' })
+        yield* writeEntry({
+          type: 'item',
+          title: 'Shared monitor',
+          parent: 'rig-one',
+          provenance: { parent: 'inferred' },
+        })
+        yield* link('shared-monitor', 'rig-two', 'part_of', '', '', {
+          provenance: 'inferred',
+          valid_from: '2026-03-01',
+          note: 'on loan',
+        })
+        yield* link('shared-monitor', 'corner-shop', 'bought_from', '', '', {
+          provenance: 'inferred',
+        })
+      }),
+    )
+    const read = asJson(await plain(readTool.run({ entry: 'shared-monitor', parts: ['part_of'] })))
+    expect(read.part_of).toEqual([
+      expect.objectContaining({ slug: 'rig-one', provenance: 'inferred', valid_from: null }),
+      expect.objectContaining({
+        slug: 'rig-two',
+        provenance: 'inferred',
+        valid_from: '2026-03-01',
+        note: 'on loan',
+      }),
+    ])
+    expect(read).not.toHaveProperty('path')
+    expect(read).not.toHaveProperty('links')
+    const whole = asJson(await plain(readTool.run({ entry: 'shared-monitor' })))
+    expect(whole.path).toEqual(['Rig one'])
+    expect(whole.links.map(({ relation }: { relation: string }) => relation)).toEqual([
+      'bought_from',
+    ])
+    expect(asJson(await plain(readTool.run({ entry: 'rig-two' }))).children).toEqual([
+      expect.objectContaining({ slug: 'shared-monitor' }),
+    ])
   })
 })
