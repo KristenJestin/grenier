@@ -269,6 +269,26 @@ describe('an agent works through MCP calls only', () => {
   })
 })
 
+describe('an unknown key in a call is refused', () => {
+  test('a key the schema does not name is refused, naming it, and nothing is written', async () => {
+    const refused = await mcp().call('write', {
+      type: 'note',
+      title: 'Never written',
+      colour: 'red',
+    })
+    expect(refused).toMatchObject({ error: expect.stringContaining('colour') })
+    expect(await mcp().call('search', { query: 'Never written' })).toMatchObject({
+      result: { results: [] },
+    })
+  })
+
+  test('a limit that is not an integer is refused', async () => {
+    expect(await mcp().call('history', { entry: 'orchard-plan', limit: 1.5 })).toHaveProperty(
+      'error',
+    )
+  })
+})
+
 describe('dates come to the agent', () => {
   test('a date in its notice period is in the next answer, once a day; upcoming lists it until fulfilled', async () => {
     await mcp().call('define_type', {
