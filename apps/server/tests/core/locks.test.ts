@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
 import { readEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
+import { TREE_LOCK } from '../../src/core/entries/operations.ts'
 import {
   addToInbox,
   finishItem,
@@ -266,6 +267,77 @@ describe('a batch takes every slug lock before any row lock', () => {
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
     expect((await run(readEntry('pergola'))).links.map(({ slug }) => slug)).toEqual(['wisteria'])
+  })
+})
+
+describe('a rename locks every slug the stored body cites, before any row', () => {
+  test('an entry renamed without a body, while another write holds a slug its body cites and waits for the entry', async () => {
+    const elder = await run(
+      writeEntry({ type: 'note', title: 'Elder', body: 'About [[elder]] and [[hazel]].' }),
+    )
+    // The entry's row is held while both start. The rename queues for it first and, with the row,
+    // wants `hazel`; the other write holds `hazel` as an alias and waits for the same row.
+    const ended = await run(
+      whileLocked(execute('SELECT 1 FROM entries WHERE id = $1::uuid FOR UPDATE', elder.id), [
+        Effect.asVoid(writeEntry({ entry: elder.id, slug: 'elderberry' })),
+        Effect.asVoid(writeEntry({ entry: elder.id, aliases: ['hazel'] })).pipe(
+          Effect.delay('300 millis'),
+        ),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    expect((await run(readEntry('elderberry'))).entry).toMatchObject({
+      body: 'About [[elderberry]] and [[hazel]].',
+      aliases: ['hazel'],
+    })
+  })
+})
+
+describe('a batch that moves an entry takes the tree lock before its slug locks', () => {
+  test('write_many moving an entry and citing a slug, while a write moves another and cites it too', async () => {
+    await run(
+      Effect.forEach(['Drawer', 'Shelf', 'Cabinet', 'Closet'], (title) =>
+        writeEntry({ type: 'note', title }),
+      ),
+    )
+    // The tree lock held while both start. The write that moves one entry queues for it first,
+    // holding nothing; the batch, without the fix, takes `lichen` before it queues.
+    const ended = await run(
+      whileLocked(execute('SELECT pg_advisory_xact_lock($1::bigint)', String(TREE_LOCK)), [
+        Effect.asVoid(writeEntry({ entry: 'shelf', parent: 'closet', body: 'Grows [[lichen]].' })),
+        Effect.asVoid(
+          writeEntries([{ entry: 'drawer', parent: 'cabinet', body: 'Grows [[lichen]] too.' }]),
+        ).pipe(Effect.delay('300 millis')),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    expect((await run(readEntry('drawer'))).path).toEqual(['Cabinet'])
+  })
+})
+
+describe('the rows of a batch are locked in one order', () => {
+  test('two batches of the same entries in opposite orders are both written', async () => {
+    await run(
+      Effect.forEach(['Spade', 'Rake head'], (title) => writeEntry({ type: 'note', title })),
+    )
+    const holdingType = execute("SELECT 1 FROM types WHERE name = 'note' FOR UPDATE")
+    const ended = await run(
+      whileLocked(holdingType, [
+        Effect.asVoid(
+          writeEntries([
+            { entry: 'spade', summary: 'Long handle.' },
+            { entry: 'rake-head', summary: 'Wide.' },
+          ]),
+        ),
+        Effect.asVoid(
+          writeEntries([
+            { entry: 'rake-head', summary: 'Wide, bent.' },
+            { entry: 'spade', summary: 'Long handle, split.' },
+          ]),
+        ),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
   })
 })
 
