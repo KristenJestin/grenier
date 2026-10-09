@@ -39,15 +39,22 @@ const Held = Schema.Struct({
 export type Held = typeof Held.Type
 const helds = rowsOf(Held)
 
-/** The links `part_of` of an entry that hold today, the oldest first. */
-export const placesToday = Effect.fn('placesToday')(function* (id: string) {
+/**
+ * The links `part_of` of an entry that hold today, the oldest first, but those to an entry of the
+ * `hiddenTypes`: a key never meets, and so never changes, a place it may not see.
+ */
+export const placesToday = Effect.fn('placesToday')(function* (
+  id: string,
+  hiddenTypes: ReadonlyArray<string>,
+) {
   const sql = yield* SqlClient.SqlClient
   const holding = yield* holdingToday
   return yield* helds(sql`
     SELECT l.target_id::text AS target, l.period, l.provenance, l.note,
       l.valid_from::text AS valid_from, l.valid_until::text AS valid_until, true AS holds
-    FROM links l
+    FROM links l JOIN entries p ON p.id = l.target_id
     WHERE l.source_id = ${id}::uuid AND l.relation = ${PART_OF} AND l.field = '' AND ${holding}
+      AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? p.type)
     ORDER BY ${sql.literal(OLDEST_FIRST)}`)
 })
 

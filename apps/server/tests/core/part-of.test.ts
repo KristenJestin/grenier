@@ -697,6 +697,73 @@ describe('a hidden entry that is part of two places', () => {
   })
 })
 
+describe('the parent shorthand never touches a place the key may not see', () => {
+  const plain = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    today(Effect.provideService(effect, Rights, ['read', 'write']))
+
+  beforeAll(() =>
+    run(
+      today(
+        Effect.gen(function* () {
+          yield* writeEntry({ type: 'diary', title: 'Locked drawer' })
+          yield* writeEntry({ type: 'note', title: 'Open drawer' })
+          yield* writeEntry({ type: 'note', title: 'Other drawer' })
+          yield* writeEntry({
+            type: 'note',
+            title: 'Two places key',
+            parent: 'locked-drawer',
+            provenance: inferred,
+          })
+          yield* link('two-places-key', 'open-drawer', 'part_of', '', '', {
+            provenance: 'inferred',
+          })
+          yield* writeEntry({
+            type: 'note',
+            title: 'One place key',
+            parent: 'open-drawer',
+            provenance: inferred,
+          })
+        }),
+      ),
+    ),
+  )
+
+  test('the place it names is the oldest it may see: naming it changes nothing, as for an entry with that place only', async () => {
+    const both = await run(plain(writeEntry({ entry: 'two-places-key', parent: 'open-drawer' })))
+    const only = await run(plain(writeEntry({ entry: 'one-place-key', parent: 'open-drawer' })))
+    expect(Object.keys(both)).toEqual(Object.keys(only))
+    expect((await run(today(readEntry('two-places-key')))).part_of).toEqual([
+      expect.objectContaining({ slug: 'locked-drawer', valid_until: null }),
+      expect.objectContaining({ slug: 'open-drawer', valid_until: null }),
+    ])
+  })
+
+  test('moving it closes the place it may see, never the hidden one, and the hidden one is not told', async () => {
+    const refusal = await run(
+      plain(refusalOf(writeEntry({ entry: 'two-places-key', parent: 'other-drawer' }))),
+    )
+    const twin = await run(
+      plain(refusalOf(writeEntry({ entry: 'one-place-key', parent: 'other-drawer' }))),
+    )
+    expect(refusal).toBe(twin)
+    await run(
+      on('2026-10-20')(
+        Effect.provideService(
+          writeEntry({ entry: 'two-places-key', parent: 'other-drawer', provenance: inferred }),
+          Rights,
+          ['read', 'write'],
+        ),
+      ),
+    )
+    const places = (await run(on('2026-10-20')(readEntry('two-places-key')))).part_of
+    expect(places.map(({ slug, valid_until }) => [slug, valid_until])).toEqual([
+      ['locked-drawer', null],
+      ['open-drawer', '2026-10-19'],
+      ['other-drawer', null],
+    ])
+  })
+})
+
 describe('the places of an entry are changed with the tree lock', () => {
   test('a link part_of, its removal and a write of parent each wait for the tree lock', async () => {
     await run(today(writeEntry({ type: 'note', title: 'Wall' })))

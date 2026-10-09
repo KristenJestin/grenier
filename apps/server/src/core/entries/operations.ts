@@ -870,8 +870,12 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // lock lets other writes still point to the entry (as a parent, through a foreign key).
         const existing =
           input.entry === undefined ? undefined : yield* entryNamed(input.entry, true)
-        // The place it is part of: the oldest of those that hold today, which `parent` names.
-        const place = existing === undefined ? undefined : (yield* placesToday(existing.id))[0]
+        // The place it is part of: the oldest of those that hold today that the caller may see,
+        // which `parent` names. A place the caller may not see is never named, closed or told.
+        const place =
+          existing === undefined
+            ? undefined
+            : (yield* placesToday(existing.id, (yield* sensitivity).hiddenTypes))[0]
         const {
           entry: _,
           fields = {},

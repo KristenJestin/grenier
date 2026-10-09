@@ -1977,7 +1977,7 @@
       "default": null,
       "generated": null,
       "identity": {
-        "type": "always",
+        "type": "byDefault",
         "name": "links_seq_seq",
         "increment": "1",
         "startWith": "1",

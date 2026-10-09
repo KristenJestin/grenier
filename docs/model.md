@@ -332,7 +332,10 @@ place that holds today as the entry's parent, and a place that is over among its
   write that names `parent`, `link` and `unlink` with `part_of`) takes the tree lock first, then
   the slugs, then the rows, so that two moves can never close a loop together.
 - **`path`** is the titles above an entry, through the oldest place that holds (the earliest
-  `valid_from`, none being the earliest, then the first link made) at each step. **`under`** (in a
+  `valid_from`, none being the earliest, then the first link made) at each step; a place the key
+  may not see keeps its place in it as `[hidden]`. The `parent` of a write names the oldest place
+  that holds *and that the key may see*: a key never closes a place it may not see, and is told
+  nothing of it, so for an entry whose oldest place is hidden, `path` and `parent` differ. **`under`** (in a
   search, a listing, `unverified` and `supposed`) follows the places that hold, at any depth, so an
   entry part of two places is under both. The tree of the read API and of the viewer shows an entry
   under each of its places; one with none is at the top.

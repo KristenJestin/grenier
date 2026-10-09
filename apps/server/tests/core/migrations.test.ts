@@ -601,6 +601,71 @@ describe('the parent becomes a dated part_of link', () => {
     expect(column).toEqual([{ column_name: 'parent_id' }])
   })
 
+  /** Links `part_of` made by hand before the tree was made of them: their relation was free. */
+  const handMade = Effect.gen(function* () {
+    yield* before
+    const sql = yield* SqlClient.SqlClient
+    yield* sql`INSERT INTO entries (type, title, slug, parent_id)
+      SELECT 'place', 'Lamp', 'lamp', id FROM entries WHERE slug = 'harbor'`
+    yield* sql`INSERT INTO links (source_id, target_id, relation, provenance, valid_from, valid_until)
+      SELECT s.id, t.id, 'part_of', 'inferred', l.valid_from::date, l.valid_until::date
+      FROM (VALUES
+        ('warehouse', 'lighthouse', NULL, NULL),
+        ('lamp', 'lighthouse', NULL, NULL),
+        ('lamp', 'harbor', NULL, NULL),
+        ('crane', 'pier', '2019-01-01', '2020-01-01'),
+        ('pier', 'harbor', '2999-01-01', NULL)
+      ) AS l(source, target, valid_from, valid_until)
+      JOIN entries s ON s.slug = l.source JOIN entries t ON t.slug = l.target`
+  })
+
+  test('with links part_of made by hand, the path of every entry is the same as before', async () => {
+    const [after, crane, lamp] = await onScratch(
+      Effect.gen(function* () {
+        yield* handMade
+        yield* migrate
+        const slugs = ['crane', 'harbor', 'lamp', 'lighthouse', 'pier', 'warehouse']
+        return [
+          yield* Effect.forEach(slugs, (slug) =>
+            Effect.map(readEntry(slug), ({ path }) => ({ slug, path })),
+          ),
+          yield* readEntry('crane'),
+          yield* readEntry('lamp'),
+        ] as const
+      }),
+    )
+    expect(after).toEqual([
+      { slug: 'crane', path: ['Harbor', 'Pier'] },
+      { slug: 'harbor', path: [] },
+      { slug: 'lamp', path: ['Harbor'] },
+      { slug: 'lighthouse', path: [] },
+      { slug: 'pier', path: ['Harbor'] },
+      { slug: 'warehouse', path: ['Harbor'] },
+    ])
+    // The link made by hand, over, is kept as it was, and the parent is a stay of its own.
+    expect(
+      crane.part_of.map(({ slug, valid_until, period }) => [slug, valid_until, period]),
+    ).toEqual([
+      ['pier', null, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)],
+      ['pier', '2020-01-01', null],
+    ])
+    // The parent that a link made by hand already holds is not doubled.
+    expect(lamp.part_of.map(({ slug }) => slug).toSorted()).toEqual(['harbor', 'lighthouse'])
+  })
+
+  test('a deleted type with a field named parent does not stop the migration', async () => {
+    const migrated = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO types (name, label, description, fields, deleted_at) VALUES
+          ('person', 'Person', 'A person.', '[{"name": "parent", "kind": "text"}]', now())`
+        return yield* migrate.pipe(Effect.as('migrated'))
+      }),
+    )
+    expect(migrated).toBe('migrated')
+  })
+
   test('a database migrated twice is left as it is', async () => {
     const [first, second] = await onScratch(
       Effect.gen(function* () {

@@ -178,7 +178,7 @@ export const links = pgTable(
     valid_from: date({ mode: 'string' }),
     valid_until: date({ mode: 'string' }),
     // The order the links were made in: of two places an entry has had as long, the first is its path.
-    seq: bigint({ mode: 'number' }).generatedAlwaysAsIdentity(),
+    seq: bigint({ mode: 'number' }).generatedByDefaultAsIdentity(),
   },
   (table) => [
     primaryKey({
