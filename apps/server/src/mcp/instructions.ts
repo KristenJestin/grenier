@@ -2,6 +2,8 @@ import { Effect } from 'effect'
 import { Instance } from '../core/instance.ts'
 import type { InstanceName } from '../core/instance.ts'
 import { Rights } from '../core/auth/index.ts'
+import { recentEntries } from '../core/entries/index.ts'
+import { Actor } from '../core/events/index.ts'
 import { instanceRulesText } from '../core/rules.ts'
 import { listTypes } from '../core/types/index.ts'
 
@@ -68,6 +70,63 @@ export const INBOX_STANDARD = [
   "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_read` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
 ].join('\n')
 
+/** An entry the key may see, changed recently: what the working memory says of it. */
+export interface RecentEntry {
+  readonly slug: string
+  readonly title: string
+  readonly type: string
+  /** When it last changed, ISO 8601 and UTC. */
+  readonly updated: string
+  /** The key that changed it last, if the event log knows it. */
+  readonly by: string | null
+}
+
+/** What a session is told of itself: the key it uses, and the entries changed most recently. */
+export interface WorkingMemory {
+  readonly key: string
+  readonly recent: ReadonlyArray<RecentEntry>
+}
+
+/** How many recent entries the working memory lists. */
+export const RECENT_LIMIT = 10
+
+/** The longest title the working memory gives whole. */
+const TITLE_LIMIT = 80
+
+/** A title on one line, cut when long: the working memory is a pointer, `read` gives the rest. */
+const oneLine = (title: string) => {
+  const line = title.replace(/\s+/g, ' ').trim()
+  return line.length > TITLE_LIMIT ? `${line.slice(0, TITLE_LIMIT - 1)}…` : line
+}
+
+/**
+ * The key the session works as and the entries changed most recently that it may see, newest
+ * first, each with its type, when and by which key. Built for each session as it starts: a
+ * session keeps what it was told, the next one is told what changed since.
+ */
+const workingMemory = ({ key, recent }: WorkingMemory, writes: boolean) =>
+  [
+    writes
+      ? `This session writes as the key \`${key}\`.`
+      : `This session reads with the key \`${key}\`.`,
+    ...(recent.length === 0
+      ? []
+      : [
+          `The entries changed most recently that this key may see, newest first:\n${recent
+            .map(
+              ({ slug, title, type, updated, by }) =>
+                `- \`${slug}\` (${type}) ${oneLine(title)}: ${updated.slice(0, 16)}Z${by === null ? '' : `, by \`${by}\``}`,
+            )
+            .join('\n')}`,
+        ]),
+  ].join('\n\n')
+
+/** How to find what the owner refers to without naming it (following neighbours is in `RECALL`). */
+const FINDING = [
+  'When the owner refers to something without naming it ("pick up where we were", "the music thing"), look first at the recently changed entries above and at what this key wrote, before searching words.',
+  'When several subjects fit, name them and ask, rather than guess.',
+].join(' ')
+
 /** Rules longer than this are given by their opening, and read whole with `instance_rules`. */
 const RULES_LIMIT = 4000
 
@@ -117,10 +176,12 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
 /**
  * What an agent is told when its session starts, what matters most first: what the instance is,
  * how to choose a type, the types of the instance with their descriptions (or only their names
- * when there are many); then what diagnostics ask of it when they are on, the rules its owner set
- * for every agent, if any, and, when it may write, how to write an entry and how an inbox item
- * becomes entries. A client may cut the instructions at 2,048 characters: the later parts are the
- * ones it can lose.
+ * when there are many); then its working memory (the key it uses, the entries changed most
+ * recently) and how to find what the owner refers to, then how to recall when it may read; what
+ * diagnostics ask of it when they are on,
+ * the rules its owner set for every agent, if any, and, when it may write, how to write an entry
+ * and how an inbox item becomes entries. A client may cut the instructions at 2,048 characters:
+ * the later parts are the ones it can lose.
  */
 export const instructionsFor = (
   types: ReadonlyArray<{ readonly name: string; readonly description: string }>,
@@ -128,11 +189,13 @@ export const instructionsFor = (
   rules: string | null = null,
   writes = false,
   reads = true,
+  memory: WorkingMemory | null = null,
 ) =>
   [
     INSTANCE[instance.name],
     HOW,
     listed(types),
+    ...(memory === null ? [] : [workingMemory(memory, writes), FINDING]),
     ...(reads ? [RECALL] : []),
     ...(instance.diagnostics ? [DIAGNOSTICS] : []),
     ...(rules === null ? [] : [rulesSaid(rules)]),
@@ -140,15 +203,18 @@ export const instructionsFor = (
   ].join('\n\n')
 
 /**
- * The instructions for a session starting now, from the instance, the rights of its key, and the
- * rules and the types in the database.
+ * The instructions for a session starting now, from the instance, the rights and the name of its
+ * key, and the rules, the types and the recent entries in the database. Built for each session,
+ * never kept: the entries it lists are those of this moment.
  */
 export const instructions = Effect.gen(function* () {
+  const key = yield* Actor
   return instructionsFor(
     yield* listTypes,
     yield* Instance,
     yield* instanceRulesText,
     (yield* Rights).includes('write'),
     (yield* Rights).includes('read'),
+    key === undefined ? null : { key, recent: yield* recentEntries(RECENT_LIMIT) },
   )
 })

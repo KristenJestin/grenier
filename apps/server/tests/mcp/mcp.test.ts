@@ -551,6 +551,22 @@ describe('each session starts with the types of the instance', () => {
   })
 })
 
+describe('each session starts with its working memory', () => {
+  test('a session names its key and lists the entries changed most recently, with the key that changed them', async () => {
+    await mcp().call('write', { type: 'gadget', title: 'Memory gadget' })
+    const url = await database.runPromise(scratchUrl)
+    const next = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-memory' })
+    try {
+      expect(next.instructions).toContain('This session writes as the key `agent-memory`.')
+      expect(next.instructions).toMatch(
+        /- `memory-gadget` \(gadget\) Memory gadget: \d{4}-\d\d-\d\dT\d\d:\d\dZ, by `agent-test`/,
+      )
+    } finally {
+      next.close()
+    }
+  })
+})
+
 describe('an agent tells the owner what waits for review', () => {
   test('it lists the unverified entries, and may not verify one', async () => {
     await mcp().call('define_type', {

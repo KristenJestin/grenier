@@ -841,6 +841,83 @@ describe('each MCP session starts with the types of the instance', () => {
   })
 })
 
+describe('each MCP session starts with its working memory', () => {
+  const linesOf = (instructions: string | undefined) =>
+    (instructions ?? '').split('\n').filter((line) => /^- `[^`]+` \(/.test(line))
+
+  test('an entry written after the first session started is the first of the next session, with when and by which key', async () => {
+    const memoryWriter = await createKey('agent-memory', ['read', 'write'])
+    const first = await connect(`${base}/mcp`, bearer(memoryWriter), '2025-11-25')
+    expect(first.instructions).toContain('This session writes as the key `agent-memory`.')
+    await first.call('define_type', {
+      name: 'topic',
+      label: 'Topic',
+      description: 'Use it for a subject to remember.',
+      fields: [],
+    })
+    await first.call('write', { type: 'topic', title: 'Memory of the first session' })
+    const second = await connect(`${base}/mcp`, bearer(memoryWriter), '2025-11-25')
+    expect(linesOf(second.instructions)[0]).toMatch(
+      /^- `memory-of-the-first-session` \(topic\) Memory of the first session: \d{4}-\d\d-\d\dT\d\d:\d\dZ, by `agent-memory`$/,
+    )
+    // The first session keeps what it was told; a third one is told what changed since.
+    await second.call('write', { type: 'topic', title: 'Written during the second session' })
+    expect(linesOf(first.instructions).join('\n')).not.toContain('written-during-the-second')
+    const third = await connect(`${base}/mcp`, bearer(memoryWriter), '2025-11-25')
+    expect(
+      linesOf(third.instructions)
+        .slice(0, 2)
+        .map((line) => line.split(' ')[1]),
+    ).toEqual(['`written-during-the-second-session`', '`memory-of-the-first-session`'])
+  })
+
+  test('at most 10 entries are listed, and they say which key changed them', async () => {
+    const lister = await createKey('agent-lister-memory', ['read', 'write'])
+    const agent = await connect(`${base}/mcp`, bearer(lister), '2025-11-25')
+    // One after the other: the newest is the last.
+    await Array.from({ length: 12 }, (_, index) => index).reduce<Promise<unknown>>(
+      (previous, index) =>
+        previous.then(() => agent.call('write', { type: 'topic', title: `Listed topic ${index}` })),
+      Promise.resolve(),
+    )
+    const next = await connect(`${base}/mcp`, bearer(lister), '2025-11-25')
+    expect(linesOf(next.instructions)).toHaveLength(10)
+    expect(linesOf(next.instructions)[0]).toContain('`listed-topic-11`')
+    expect(
+      linesOf(next.instructions).every((line) => line.endsWith('by `agent-lister-memory`')),
+    ).toBe(true)
+  })
+
+  test('an entry of a sensitive type is absent for a key without `sensitive`, present with it', async () => {
+    const trusted = await createKey('agent-memory-trusted', ['read', 'write', 'sensitive'])
+    const plain = await createKey('agent-memory-plain', ['read', 'write'])
+    const vault = await connect(`${base}/mcp`, bearer(trusted), '2025-11-25')
+    await vault.call('define_type', {
+      name: 'vaulted',
+      label: 'Vaulted',
+      description: 'Something kept out of sight.',
+      fields: [],
+      sensitive: true,
+    })
+    await vault.call('write', { type: 'vaulted', title: 'Hidden from most' })
+    expect(
+      linesOf((await connect(`${base}/mcp`, bearer(trusted), '2025-11-25')).instructions)[0],
+    ).toContain('`hidden-from-most`')
+    const told = (await connect(`${base}/mcp`, bearer(plain), '2025-11-25')).instructions ?? ''
+    expect(told).not.toContain('hidden-from-most')
+    expect(told).not.toContain('Hidden from most')
+  })
+
+  test('a key that only reads gets the working memory but not the writing standard', async () => {
+    const readOnly = await createKey('agent-memory-reader', ['read'])
+    const told = (await connect(`${base}/mcp`, bearer(readOnly), '2025-11-25')).instructions ?? ''
+    expect(told).toContain('This session reads with the key `agent-memory-reader`.')
+    expect(told).not.toContain('How to write an entry')
+    const writes = (await connect(`${base}/mcp`, bearer(writer), '2025-11-25')).instructions ?? ''
+    expect(writes).toContain('How to write an entry')
+  })
+})
+
 describe('what the server takes and gives back safely', () => {
   test('an HTML file is served sandboxed, so it runs nothing in the origin of Grenier', async () => {
     const agent = await connect(`${base}/mcp`, bearer(writer))
