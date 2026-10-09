@@ -21,12 +21,6 @@ export type Found = typeof Found.Type
 
 const found = rowsOf(Schema.Struct({ ...Found.fields, path: Schema.Null }))
 
-const Moment = Schema.String.check(
-  Schema.makeFilter((value) => isDate(value) || isDateTime(value), {
-    expected: 'a date such as `2026-10-05` or a date and time such as `2026-10-05T14:30:00Z`',
-  }),
-)
-
 /**
  * How a search is ordered and bounded by the last change of the entries, beside `SearchOptions`.
  * The HTTP API does not take them.
@@ -36,13 +30,13 @@ export const Recency = Schema.Struct({
     description:
       'The order: `relevance` (the default with a `query`) or `updated`, the most recently changed first (the default without a `query`).',
   }),
-  since: Schema.optionalKey(Moment).annotate({
+  since: Schema.optionalKey(Schema.String).annotate({
     description:
-      'Only the entries last changed on or after this date or date and time (UTC when it gives no offset); a date alone starts that day.',
+      'Only the entries last changed on or after this date, from the start of that day in UTC (`2026-10-05`), or this date and time (`2026-10-05T14:30:00Z`).',
   }),
-  until: Schema.optionalKey(Moment).annotate({
+  until: Schema.optionalKey(Schema.String).annotate({
     description:
-      'Only the entries last changed on or before this date or date and time; a date alone ends that day.',
+      'Only the entries last changed on or before this date, to the end of that day in UTC (`2026-10-05`), or this date and time (`2026-10-05T14:30:00Z`).',
   }),
   by: Schema.optionalKey(Schema.String).annotate({
     description: 'Only the entries the key of this name changed last.',
@@ -75,6 +69,15 @@ export const search = Effect.fn('search')(function* (
       message: 'Sorting by relevance needs a `query`: give one, or sort by `updated`.',
     })
   }
+  const problems = (['since', 'until'] as const).flatMap((key) => {
+    const value = options[key]
+    return value === undefined || isDate(value) || isDateTime(value)
+      ? []
+      : [
+          `The field \`${key}\` must be a date such as \`2026-10-05\` or a date and time such as \`2026-10-05T14:30:00Z\`.`,
+        ]
+  })
+  if (problems.length > 0) return yield* new Refused({ message: problems.join(' ') })
   const sql = yield* SqlClient.SqlClient
   const configuration = yield* searchConfiguration
   const { hiddenTypes, hiddenFields } = yield* sensitivity

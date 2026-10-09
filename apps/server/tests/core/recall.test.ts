@@ -374,6 +374,15 @@ describe('search without a query lists by recent change', () => {
     expect(future).toEqual([])
   })
 
+  test('a date that is not one is refused in a sentence', async () => {
+    const refusal = await plain(
+      Effect.flip(search(undefined, { since: 'last week', until: '2026-02-31' })),
+    )
+    expect(refusal.message).toBe(
+      'The field `since` must be a date such as `2026-10-05` or a date and time such as `2026-10-05T14:30:00Z`. The field `until` must be a date such as `2026-10-05` or a date and time such as `2026-10-05T14:30:00Z`.',
+    )
+  })
+
   test('a date alone covers its whole day, for since and for until', async () => {
     const today = new Date().toISOString().slice(0, 10)
     const day = await plain(search(undefined, { since: today, until: today, limit: 100 }))

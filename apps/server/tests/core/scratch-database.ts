@@ -1,6 +1,7 @@
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
+import type { Right } from '../../src/core/auth/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import { scratchDatabase } from '../../src/core/testing.ts'
 
@@ -29,3 +30,16 @@ export function useScratchDatabaseWith<A, E>(extra: Layer.Layer<A, E, Suite>) {
 
 /** A database of the suite's own, with nothing more. */
 export const useScratchDatabase = () => useScratchDatabaseWith(Layer.empty)
+
+/**
+ * A database of the suite's own, and the means to run on it with the rights of a key instead of
+ * the suite's: `as(['read', 'write'])` runs an effect without the right `sensitive`.
+ */
+export function useScratchDatabaseAs() {
+  const run = useScratchDatabase()
+  const as =
+    (rights: ReadonlyArray<Right>) =>
+    <B, F>(effect: Effect.Effect<B, F, Suite>): Promise<B> =>
+      run(Effect.provideService(effect, Rights, rights))
+  return { run, as }
+}
