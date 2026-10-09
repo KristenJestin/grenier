@@ -148,7 +148,7 @@ describe('Every access to the data goes through the core', () => {
   })
 
   test.each([
-    ['the server', "import { readEntry } from '@grenier/server/core'\n"],
+    ['the server', "import { readEntry } from '@hippocampe/server/core'\n"],
     [
       'a folder of an application',
       "import { x } from '../../../apps/server/src/core/refused.ts'\n",

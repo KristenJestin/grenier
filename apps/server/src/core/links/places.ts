@@ -1,4 +1,4 @@
-import { Place } from '@grenier/api/model'
+import { Place } from '@hippocampe/api/model'
 import { Effect, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import type { SqlError } from 'effect/sql'

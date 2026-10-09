@@ -13,6 +13,6 @@ export const Right = Schema.Literals(RIGHTS)
  * over stdio, those of `GRENIER_RIGHTS`. A caller no one gave rights to reads and writes, and
  * sees no sensitive value.
  */
-export const Rights = Context.Reference<ReadonlyArray<Right>>('@grenier/core/auth/Rights', {
+export const Rights = Context.Reference<ReadonlyArray<Right>>('@hippocampe/core/auth/Rights', {
   defaultValue: () => ['read', 'write'],
 })

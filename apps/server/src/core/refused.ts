@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { formatSchemaError } from '@grenier/api/schema'
+import { formatSchemaError } from '@hippocampe/api/schema'
 
 /**
  * A write the rules of Grenier do not allow. The message holds one sentence per problem, written

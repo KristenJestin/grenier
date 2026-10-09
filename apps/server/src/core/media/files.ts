@@ -192,7 +192,7 @@ export const isPrivateAddress = ({ address, family }: ResolvedAddress) =>
  */
 export const HostResolver = Context.Reference<
   (host: string) => Promise<ReadonlyArray<ResolvedAddress>>
->('@grenier/core/media/HostResolver', {
+>('@hippocampe/core/media/HostResolver', {
   defaultValue: () => (host) => lookup(host, { all: true }),
 })
 

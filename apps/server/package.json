@@ -1,5 +1,5 @@
 {
-  "name": "@grenier/server",
+  "name": "@hippocampe/server",
   "version": "0.0.0",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -21,7 +21,7 @@
     "@better-auth/api-key": "1.7.7",
     "@effect/platform-bun": "4.0.0",
     "@effect/sql-pg": "4.0.0",
-    "@grenier/api": "workspace:*",
+    "@hippocampe/api": "workspace:*",
     "better-auth": "1.7.7",
     "drizzle-orm": "1.0.0-rc.5-5935859",
     "effect": "4.0.0",

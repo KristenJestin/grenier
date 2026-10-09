@@ -42,7 +42,7 @@ const DATABASE_WIRING = `${DATABASE_LAYER}index.ts`
 export const CONTRACT = 'packages/api/'
 
 /** What the contract may not import: an application, or a Node or Bun API. */
-const OUTSIDE_THE_CONTRACT = /^(@grenier\/server|node:|bun(:|$)|(\.\.\/)+apps\/)/
+const OUTSIDE_THE_CONTRACT = /^(@hippocampe\/server|node:|bun(:|$)|(\.\.\/)+apps\/)/
 
 const STORAGE =
   /^(pg|postgres|drizzle-orm|drizzle-kit|kysely|@effect\/sql(-[a-z]+)?|effect\/sql)(\/|$)/

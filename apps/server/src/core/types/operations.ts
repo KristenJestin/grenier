@@ -9,7 +9,7 @@ import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Rights } from '../auth/rights.ts'
 import { Refused } from '../refused.ts'
-import { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 import { areSimilar } from './similar.ts'
 
 const STRICT = { errors: 'all', onExcessProperty: 'error' } as const

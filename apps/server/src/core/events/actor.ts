@@ -5,7 +5,7 @@ import { Refused } from '../refused.ts'
  * Who writes: an agent on a machine (`agent-laptop`) or a program (`importer`). The caller of a
  * write provides it; a write made without one is refused, so no event is ever anonymous.
  */
-export const Actor = Context.Reference<string | undefined>('@grenier/core/events/Actor', {
+export const Actor = Context.Reference<string | undefined>('@hippocampe/core/events/Actor', {
   defaultValue: () => undefined,
 })
 

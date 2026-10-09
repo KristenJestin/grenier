@@ -124,7 +124,7 @@ export class Auth extends Context.Service<
     /** The key of a request, by its secret; refused when missing, unknown, expired or revoked. */
     readonly verifyKey: (secret: string | undefined) => Effect.Effect<VerifiedKey, KeyRefused>
   }
->()('@grenier/core/auth/Auth') {
+>()('@hippocampe/core/auth/Auth') {
   static readonly layer = Layer.effect(
     Auth,
     Effect.gen(function* () {

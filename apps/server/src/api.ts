@@ -5,7 +5,7 @@ import {
   Invalid,
   NotFound,
   Unauthorized,
-} from '@grenier/api/http'
+} from '@hippocampe/api/http'
 import { Auth, Rights } from './core/auth/index.ts'
 import { filterEntries, listEntries, readEntry } from './core/entries/index.ts'
 import { cursorRefusal, historyPage } from './core/events/index.ts'

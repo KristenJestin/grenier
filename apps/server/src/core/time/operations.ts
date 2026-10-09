@@ -18,12 +18,12 @@ import { datesBetween, periodOf, ruleOf } from './occurrences.ts'
 import type { Rule } from './occurrences.ts'
 
 /** The time zone of the owner: that of the process (`TZ`), unless a test fixes it. */
-export const TimeZone = Context.Reference<string>('@grenier/core/time/TimeZone', {
+export const TimeZone = Context.Reference<string>('@hippocampe/core/time/TimeZone', {
   defaultValue: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
 })
 
 /** What day it is for the owner: the local date of the process (`TZ`), unless a test fixes it. */
-export const Today = Context.Reference<() => string>('@grenier/core/time/Today', {
+export const Today = Context.Reference<() => string>('@hippocampe/core/time/Today', {
   defaultValue: () => () => {
     const now = new Date()
     return [now.getFullYear(), now.getMonth() + 1, now.getDate()]

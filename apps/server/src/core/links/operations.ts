@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { asc, eq } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { Effect, Predicate, Schema } from 'effect'

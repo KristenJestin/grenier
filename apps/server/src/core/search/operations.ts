@@ -11,8 +11,8 @@ import { subtreeOf } from '../links/places.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
 import { searchConfiguration } from './language.ts'
-import { SearchResult } from '@grenier/api/model'
-import type { SearchOptions } from '@grenier/api/model'
+import { SearchResult } from '@hippocampe/api/model'
+import type { SearchOptions } from '@hippocampe/api/model'
 
 /** A search result with when its entry last changed and the key that changed it. */
 const Found = Schema.Struct({

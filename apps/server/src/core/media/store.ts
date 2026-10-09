@@ -1,4 +1,4 @@
-import { Medium } from '@grenier/api/model'
+import { Medium } from '@hippocampe/api/model'
 import { asc, eq, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { drizzle } from '../database/client.ts'

@@ -76,7 +76,7 @@ jobs:
         timeout-minutes: 40
         run: bunx turbo run test
       - name: Build the desktop app
-        run: bunx turbo run build --filter=@grenier/desktop
+        run: bunx turbo run build --filter=@hippocampe/desktop
 
   # The desktop app on Windows, its other platform: both binaries built (rustup installs the Rust
   # of rust-toolchain.toml).

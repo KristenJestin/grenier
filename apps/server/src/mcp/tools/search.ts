@@ -1,4 +1,4 @@
-import { SearchOptions } from '@grenier/api/model'
+import { SearchOptions } from '@hippocampe/api/model'
 import { neighborsOf } from '../../core/graph/index.ts'
 import { Recency, search } from '../../core/search/index.ts'
 import { Effect, Schema } from 'effect'

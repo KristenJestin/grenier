@@ -6,7 +6,7 @@
  *   bun src/openapi.ts ../../packages/api/openapi.json
  */
 import { writeFileSync } from 'node:fs'
-import { GrenierApi } from '@grenier/api/http'
+import { GrenierApi } from '@hippocampe/api/http'
 import { OpenApi } from 'effect/http-api'
 
 /** The document, as it is committed: two-space JSON and a final newline. */

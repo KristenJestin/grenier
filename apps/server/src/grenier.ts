@@ -1,4 +1,4 @@
-import { GrenierApi } from '@grenier/api/http'
+import { GrenierApi } from '@hippocampe/api/http'
 import { ApiRoutes, MAY_NOT_READ } from './api.ts'
 import { Auth, Rights } from './core/auth/index.ts'
 import { databaseReachable, databaseServices } from './core/database/index.ts'

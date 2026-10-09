@@ -53,7 +53,7 @@ export class Invalid extends Schema.TaggedError<Invalid>()(
 
 /** Every route is reached with a key with the right `read`, sent as `Authorization: Bearer <key>`. */
 export class Authorization extends HttpApiMiddleware.Service<Authorization>()(
-  '@grenier/api/http/Authorization',
+  '@hippocampe/api/http/Authorization',
   {
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },

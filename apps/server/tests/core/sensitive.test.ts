@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import type { PgClient } from '@effect/sql-pg'
 import { Effect } from 'effect'
 import type { SqlClient } from 'effect/sql'

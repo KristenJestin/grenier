@@ -8,7 +8,7 @@ import { migrate } from './database/migrate.ts'
 export class ScratchDatabase extends Context.Service<
   ScratchDatabase,
   { readonly name: string; readonly url: string }
->()('@grenier/core/testing/ScratchDatabase') {}
+>()('@hippocampe/core/testing/ScratchDatabase') {}
 
 /** Runs a statement on the server of `DATABASE_URL`, through a connection of its own. */
 const onServer = <A, E>(statement: Effect.Effect<A, E, SqlClient.SqlClient>) =>

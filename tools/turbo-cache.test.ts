@@ -40,13 +40,13 @@ const closureOf = (tasks: Map<string, PlannedTask>, id: string): Set<string> => 
 describe('the cache of the tests sees what the tests read', () => {
   test('a change in the contract invalidates the tests of the server', () => {
     const tasks = plan()
-    const closure = [...closureOf(tasks, '@grenier/server#test')]
-    expect(closure.some((id) => id.startsWith('@grenier/api#'))).toBe(true)
+    const closure = [...closureOf(tasks, '@hippocampe/server#test')]
+    expect(closure.some((id) => id.startsWith('@hippocampe/api#'))).toBe(true)
   }, 60_000)
 
   test('the root .env and the variables the tests read are part of their hash', () => {
     const tasks = plan()
-    for (const id of ['@grenier/server#test', '@grenier/api#test', '@grenier/tools#test']) {
+    for (const id of ['@hippocampe/server#test', '@hippocampe/api#test', '@hippocampe/tools#test']) {
       const { inputs, env } = tasks.get(id)!.resolvedTaskDefinition
       expect(inputs.some((input) => input.endsWith('.env') && !input.includes('*'))).toBe(true)
       expect(env).toEqual(expect.arrayContaining(['DATABASE_URL', 'SEARCH_LANGUAGE']))

@@ -1,4 +1,4 @@
-import { INSTANCES } from '@grenier/api/model'
+import { INSTANCES } from '@hippocampe/api/model'
 import { Config, Context, Effect, Schema } from 'effect'
 
 export const InstanceName = Schema.Literals(INSTANCES)
@@ -18,7 +18,7 @@ export type Instance = {
  * points read it from the environment at start-up; a program that sets none is a development
  * instance of an unknown version, without diagnostics.
  */
-export const Instance = Context.Reference<Instance>('@grenier/core/instance/Instance', {
+export const Instance = Context.Reference<Instance>('@hippocampe/core/instance/Instance', {
   defaultValue: () => ({
     name: 'development',
     label: null,

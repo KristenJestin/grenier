@@ -1,4 +1,4 @@
-import { TypeDefinition } from '@grenier/api/model'
+import { TypeDefinition } from '@hippocampe/api/model'
 import { addFields, defineType, findType } from '../../core/types/index.ts'
 import { Refused } from '../../core/refused.ts'
 import { Effect, Schema } from 'effect'

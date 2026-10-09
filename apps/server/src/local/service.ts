@@ -36,7 +36,7 @@ export class System extends Context.Service<
     ) => Effect.Effect<Ran>
     readonly answers: (url: string) => Effect.Effect<boolean>
   }
->()('@grenier/local/System') {}
+>()('@hippocampe/local/System') {}
 
 /** The real system: its processes and its network. */
 export const realSystem = Layer.succeed(System, {

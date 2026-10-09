@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "grenier",
+      "name": "hippocampe",
       "devDependencies": {
         "@oxlint/plugins": "1.85.0",
         "@semantic-release/commit-analyzer": "13.0.1",
@@ -19,17 +19,17 @@
       },
     },
     "apps/desktop": {
-      "name": "@grenier/desktop",
+      "name": "@hippocampe/desktop",
       "version": "0.0.0",
     },
     "apps/server": {
-      "name": "@grenier/server",
+      "name": "@hippocampe/server",
       "version": "0.0.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.7",
         "@effect/platform-bun": "4.0.0",
         "@effect/sql-pg": "4.0.0",
-        "@grenier/api": "workspace:*",
+        "@hippocampe/api": "workspace:*",
         "better-auth": "1.7.7",
         "drizzle-orm": "1.0.0-rc.5-5935859",
         "effect": "4.0.0",
@@ -46,14 +46,14 @@
       },
     },
     "packages/api": {
-      "name": "@grenier/api",
+      "name": "@hippocampe/api",
       "version": "0.0.0",
       "dependencies": {
         "effect": "4.0.0",
       },
     },
     "tools": {
-      "name": "@grenier/tools",
+      "name": "@hippocampe/tools",
       "version": "0.0.0",
     },
   },
@@ -158,13 +158,13 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
-    "@grenier/api": ["@grenier/api@workspace:packages/api"],
+    "@hippocampe/api": ["@hippocampe/api@workspace:packages/api"],
 
-    "@grenier/desktop": ["@grenier/desktop@workspace:apps/desktop"],
+    "@hippocampe/desktop": ["@hippocampe/desktop@workspace:apps/desktop"],
 
-    "@grenier/server": ["@grenier/server@workspace:apps/server"],
+    "@hippocampe/server": ["@hippocampe/server@workspace:apps/server"],
 
-    "@grenier/tools": ["@grenier/tools@workspace:tools"],
+    "@hippocampe/tools": ["@hippocampe/tools@workspace:tools"],
 
     "@img/colour": ["@img/colour@1.1.0", "", {}, "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ=="],
 

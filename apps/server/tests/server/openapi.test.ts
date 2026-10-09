@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { GrenierApi } from '@grenier/api/http'
+import { GrenierApi } from '@hippocampe/api/http'
 import { OpenApi } from 'effect/http-api'
 import { describe, expect, test } from 'vitest'
 import { openApiDocument } from '../../src/openapi.ts'

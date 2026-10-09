@@ -37,12 +37,12 @@ pull requests. The interfaces are in English; the content of an instance is in w
 it was written.
 
 ```
-packages/api      @grenier/api     The contract between the server and its clients: the HTTP
-                                   API (`@grenier/api/http`, an Effect `HttpApi`), the schemas
-                                   of what they exchange (`@grenier/api/model`), and their
-                                   conventions (`@grenier/api/schema`). No database, no Node
+packages/api      @hippocampe/api     The contract between the server and its clients: the HTTP
+                                   API (`@hippocampe/api/http`, an Effect `HttpApi`), the schemas
+                                   of what they exchange (`@hippocampe/api/model`), and their
+                                   conventions (`@hippocampe/api/schema`). No database, no Node
                                    or Bun API: a browser application may import it.
-apps/server       @grenier/server  Everything else, one program and its folders:
+apps/server       @hippocampe/server  Everything else, one program and its folders:
                                    `src/core`     the model, the database (Drizzle on Effect
                                                   SQL, migrations), validation, search, the event
                                                   log, authentication: the only folder that
@@ -50,11 +50,11 @@ apps/server       @grenier/server  Everything else, one program and its folders:
                                    `src/mcp`      the MCP tools, over stdio and over HTTP;
                                    the HTTP server, Effect's on Bun (no web framework), and
                                    the command lines.
-apps/desktop      @grenier/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
+apps/desktop      @hippocampe/desktop The desktop viewer, Rust and GPUI Kit, a Cargo workspace:
                                    `crates/api` (types generated from the OpenAPI document),
                                    `crates/ui` (screens), `crates/story` (their gallery),
                                    `crates/app` (the application). See its `AGENTS.md`.
-tools/            @grenier/tools   commit-message, branch-guard, install-hooks, boundaries, and
+tools/            @hippocampe/tools   commit-message, branch-guard, install-hooks, boundaries, and
                                    the vendored lint rules. TypeScript run by Bun, tested by
                                    Vitest.
 ```

@@ -1,4 +1,4 @@
-import { Entry, HIDDEN, SourceKept } from '@grenier/api/model'
+import { Entry, HIDDEN, SourceKept } from '@hippocampe/api/model'
 import { asc } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
 import { posix } from 'node:path'

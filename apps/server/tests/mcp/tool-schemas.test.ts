@@ -1,4 +1,4 @@
-import type { ToolInputSchema } from '@grenier/api/schema'
+import type { ToolInputSchema } from '@hippocampe/api/schema'
 import { Option, Schema } from 'effect'
 import { describe, expect, test } from 'vitest'
 import { DIAGNOSTICS_TOOLS, TOOLS } from '../../src/mcp/tools.ts'

@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { Effect, ManagedRuntime, Schema } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'

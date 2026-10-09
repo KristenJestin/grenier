@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { Cause, Effect, Schema } from 'effect'
 import { describe, expect, test, vi } from 'vitest'
 import { writeEntry } from '../../src/core/entries/index.ts'

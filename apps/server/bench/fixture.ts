@@ -1,4 +1,4 @@
-import type { TypeDefinition, WriteEntryInput } from '@grenier/api/model'
+import type { TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
 import { Auth, Rights } from '../src/core/auth/index.ts'
 import { slugOf, writeEntries, writeEntry } from '../src/core/entries/index.ts'
 import { Actor } from '../src/core/events/index.ts'
