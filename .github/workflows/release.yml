@@ -111,8 +111,9 @@ jobs:
   # of the viewer. Nothing is published before both tarballs are installed and answer /health with
   # the tag's version. Publication goes through npm's trusted publishing (OIDC, with provenance):
   # no token is kept; see docs/install.md for what the owner sets up once on npmjs.com. A version
-  # already on npm is skipped, so a re-run finishes what a failed run left; the launcher is never
-  # published without its executable.
+  # already on npm is skipped, so a re-run finishes what a failed run left, and a version older
+  # than the one `latest` names is published as `previous`, never moving `latest` back; the
+  # launcher is never published without its executable.
   npm:
     needs: release
     if: github.event_name == 'push' && needs.release.outputs.tag != ''
@@ -135,7 +136,7 @@ jobs:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.21.0
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
       - name: Pack both packages
@@ -148,9 +149,20 @@ jobs:
           publish() {
             if npm view "$1@$version" version >/dev/null 2>&1; then
               echo "$1@$version is on npm already: skipped."
-            else
-              npm publish "$2" --provenance --access public
+              return
             fi
+            # What `latest` names: nothing for a package never published (E404). A re-run of an
+            # older release must not move `latest` back, so a version older than it is published
+            # as `previous`; any other failure of the registry stops here.
+            if ! latest=$(npm view "$1" dist-tags.latest 2>"$RUNNER_TEMP/npm-view.err"); then
+              grep -q E404 "$RUNNER_TEMP/npm-view.err" || { cat "$RUNNER_TEMP/npm-view.err" >&2; return 1; }
+              latest=
+            fi
+            tag=latest
+            if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)" != "$version" ]; then
+              tag=previous
+            fi
+            npm publish "$2" --provenance --access public --tag "$tag"
           }
           publish @netsirk/grenier-linux-x64 "$RUNNER_TEMP/npm/netsirk-grenier-linux-x64-$version.tgz"
           # The registry may take a moment to show what was just published.

@@ -319,11 +319,13 @@ export const backup = Effect.fn('backup')(function* (home: Home, to: string | un
   const file =
     to ?? join(home.backups, `grenier-${new Date().toISOString().replaceAll(':', '-')}.tar.gz`)
   mkdirSync(dirname(file), { recursive: true })
+  // It holds the database: the file is there, readable by this user only, before `tar` writes a
+  // byte into it, even when `to` names a file that was readable.
+  writeFileSync(file, '', { mode: 0o600 })
+  chmodSync(file, 0o600)
   yield* systemctl('stop', SERVER_UNIT, DATABASE_UNIT)
   yield* must('tar', ['-czf', file, '-C', home.data, 'postgres', 'media']).pipe(
     Effect.ensuring(Effect.ignore(systemctl('start', SERVER_UNIT))),
   )
-  // It holds the database: readable by this user only.
-  chmodSync(file, 0o600)
   return `The database and the media are saved in ${file}.`
 })

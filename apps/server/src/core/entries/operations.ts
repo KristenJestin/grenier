@@ -285,7 +285,17 @@ export const identityOf = Effect.fn('identityOf')(function* (entry: {
 export const TREE_DEPTH = 1000
 
 /** Serialises the writes that move an entry, so that two moves cannot close a cycle together. */
-const TREE_LOCK = 7_418_309
+export const TREE_LOCK = 7_418_309
+
+/** Whether a write moves an entry: it names the parent of one that exists. */
+const movesAnEntry = (input: WriteEntryInput) =>
+  input.entry !== undefined && Predicate.isString(input.parent)
+
+/** Takes the tree lock, until the transaction ends; taken again, it is held already. */
+const lockTree = Effect.flatMap(
+  SqlClient.SqlClient,
+  (client) => client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`,
+)
 
 /** The entry and its ancestors, from the root down to the entry itself. */
 export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
@@ -772,15 +782,17 @@ const storedOf = Effect.fn('storedOf')(function* (entry: string | undefined) {
 
 /**
  * The slugs a write locks before any row: those its body names, before and after, when it changes
- * the body (a body sent as it is changes nothing it names); the entry's own when it is created or
- * renamed; and its aliases.
+ * the body (a body sent as it is changes nothing it names); those the stored body names when the
+ * slug changes (the rename rewrites that body, and links it again); the entry's own when it is
+ * created or renamed; and its aliases.
  */
 const slugsLockedBy = Effect.fn('slugsLockedBy')(function* (input: WriteEntryInput) {
   const stored = yield* storedOf(input.entry)
   const bodyChanges =
     input.edits !== undefined || (input.body !== undefined && input.body !== stored?.body)
+  const renames = stored !== undefined && input.slug !== undefined && input.slug !== stored.slug
   return [
-    ...(bodyChanges ? referencesIn(stored?.body ?? '') : []),
+    ...(bodyChanges || renames ? referencesIn(stored?.body ?? '') : []),
     ...(bodyChanges ? referencesIn(input.body ?? '') : []),
     ...(input.edits ?? []).flatMap(({ replace }) => referencesIn(replace)),
     ...(stored === undefined || input.slug === undefined ? [] : [stored.slug, input.slug]),
@@ -808,9 +820,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
       Effect.gen(function* () {
         // Taken before any row lock, and only by a move: the cycle check below reads a tree that
         // no other move changes until this one commits.
-        if (input.entry !== undefined && Predicate.isString(input.parent)) {
-          yield* client`SELECT pg_advisory_xact_lock(${TREE_LOCK}::bigint)`
-        }
+        if (movesAnEntry(input)) yield* lockTree
         // Before any row lock too, every slug the write will lock, in one sorted order (see
         // `slugsLockedBy`). Writes that cite, create, rename or alias the same slug then never
         // wait for each other in a circle.
@@ -926,6 +936,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         } else if (edits !== undefined && (existing === undefined || given.body !== undefined)) {
           problems.push(
             'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',
+          )
+        } else if ((append === true || prepend === true) && given.body?.trim() === '') {
+          problems.push(
+            `The field \`body\` is the part to ${append === true ? 'append' : 'prepend'}: give it some text, not only whitespace.`,
           )
         }
         problems.push(...edited.problems)
@@ -1555,6 +1569,29 @@ const orderOf = Effect.fn('orderOf')(function* (
 })
 
 /**
+ * Locks the rows a batch writes, as a single write takes them: the types by name, then the
+ * entries by id, whatever the order of the batch. Two batches of the same entries in two orders
+ * then never wait for each other in a circle.
+ */
+const lockRowsOf = Effect.fn('lockRowsOf')(function* (planned: ReadonlyArray<WriteEntryInput>) {
+  const db = yield* drizzle
+  const { hidesType } = yield* sensitivity
+  const found = (yield* Effect.forEach(
+    planned.flatMap(({ entry }) => (entry === undefined ? [] : [entry])),
+    (entry) => typed(db.select({ id: table.id, type: table.type }).from(table).where(named(entry))),
+  ))
+    .flat()
+    .filter(({ type }) => !hidesType(type))
+  const names = new Set([...found.map(({ type }) => type), ...planned.map(({ type }) => type)])
+  yield* Effect.forEach([...names].filter(Predicate.isString).toSorted(), (name) =>
+    findType(name, 'share'),
+  )
+  yield* Effect.forEach([...new Set(found.map(({ id }) => id))].toSorted(), (id) =>
+    entryNamed(id, true),
+  )
+})
+
+/**
  * Writes several entries in one transaction, each by the rules of `writeEntry`, and their bodies
  * may refer to one another as if all existed already. One refused entry refuses the batch: the
  * refusal names each refused entry with its sentences, and nothing is written.
@@ -1574,11 +1611,15 @@ export const writeEntries = Effect.fn('writeEntries')(function* (
         const { planned, order, deferred, known } = yield* planBatch(batch)
         // The bodies as they are, so that one sent unchanged is not linked again.
         const before = yield* Effect.forEach(planned, (input) => storedOf(input.entry))
-        // Every slug the whole batch locks, sorted, before the row of any of its entries: each
-        // write of it takes them again, which a transaction holding them does at once.
+        // The tree first, when the batch moves an entry, as a single write takes it; then every
+        // slug the whole batch locks, sorted, before the row of any of its entries; then the rows
+        // of its types and entries. Each write of the batch takes them again, which a transaction
+        // holding them does at once.
+        if (planned.some(movesAnEntry)) yield* lockTree
         yield* lockReferences(
           (yield* Effect.forEach(planned, (input) => slugsLockedBy(input))).flat(),
         )
+        yield* lockRowsOf(planned)
         // A refusal is kept as a value, so that every entry of the batch is checked; each entry
         // after those of the batch it names, then answered in the order given. A reference that
         // closes a loop waits for a second write, once every entry exists.

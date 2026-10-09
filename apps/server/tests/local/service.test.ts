@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -21,12 +22,19 @@ const binaries = join(scratch, 'native')
 /** Each command the service ran, as it ran it. */
 const ran: Array<string> = []
 
+/** The mode of the archive when `tar` started to write it, `null` while there was no file. */
+let archiveWhenTarRan: number | null = null
+
 /** A system that does what it is told and says so, without systemd or PostgreSQL. */
 const fakeSystem = Layer.succeed(service.System, {
   run: (command, args) =>
     Effect.sync(() => {
       ran.push([command, ...args].join(' '))
-      if (command === 'tar') writeFileSync(args[1] ?? '', 'an archive')
+      if (command === 'tar') {
+        const archive = args[1] ?? ''
+        archiveWhenTarRan = existsSync(archive) ? statSync(archive).mode & 0o777 : null
+        writeFileSync(archive, 'an archive')
+      }
       if (command.endsWith('initdb')) mkdirSync(args[1] ?? '', { recursive: true })
       if (command.endsWith('initdb')) writeFileSync(join(args[1] ?? '', 'PG_VERSION'), '18\n')
       const created = args.includes('key:create')
@@ -146,6 +154,19 @@ describe('the service is driven by systemd', () => {
     ])
     expect(said).toBe(`The database and the media are saved in ${file}.`)
     expect(statSync(file).mode & 0o777).toBe(0o600)
+  })
+
+  test('backup is private before tar writes a byte of the database, whether the file was there or not', async () => {
+    const fresh = join(scratch, 'private-fresh.tar.gz')
+    await run(service.backup(home, fresh))
+    expect(archiveWhenTarRan).toBe(0o600)
+    // An archive of an earlier backup, left readable: it is made private before it takes the copy.
+    const earlier = join(scratch, 'private-earlier.tar.gz')
+    writeFileSync(earlier, 'an earlier archive', { mode: 0o644 })
+    chmodSync(earlier, 0o644)
+    await run(service.backup(home, earlier))
+    expect(archiveWhenTarRan).toBe(0o600)
+    expect(statSync(earlier).mode & 0o777).toBe(0o600)
   })
 
   test('uninstall keeps the data; with purge, nothing is left', async () => {
