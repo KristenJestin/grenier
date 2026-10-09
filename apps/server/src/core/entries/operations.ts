@@ -1342,7 +1342,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             : [{ field: 'created', before: existing.created, after: redated }].filter(
                 (change) => change.before !== change.after,
               )
-        const move = yield* planPlace(existing?.id, place, parentId, placeProvenance)
+        const move = yield* planPlace(existing?.id, place, parentId, placeProvenance, state.parent)
         const changes = [
           ...changesBetween(
             existing === undefined ? {} : snapshotOf(existing),

@@ -13,6 +13,7 @@ import {
 import { TREE_LOCK } from '../../src/core/entries/operations.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
 import { neighborsOf, subgraphOf } from '../../src/core/graph/index.ts'
+import { markdownFiles } from '../../src/core/export/index.ts'
 import { link, unlink } from '../../src/core/links/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { Today } from '../../src/core/time/index.ts'
@@ -694,6 +695,109 @@ describe('a hidden entry that is part of two places', () => {
     expect((await run(today(readEntry('loose-sheet')))).part_of).toEqual([
       expect.objectContaining({ slug: 'secret-binder', valid_until: null }),
     ])
+  })
+})
+
+describe('two stays of an entry in one place never overlap', () => {
+  const sentence =
+    'A link `part_of` from `rope` to `hook-board` would overlap another stay of `rope` in `hook-board`: end that one (`valid_until`) before this one starts.'
+
+  beforeAll(() =>
+    run(
+      today(
+        Effect.gen(function* () {
+          yield* writeEntry({ type: 'note', title: 'Hook board' })
+          yield* writeEntry({
+            type: 'note',
+            title: 'Rope',
+            parent: 'hook-board',
+            provenance: inferred,
+          })
+        }),
+      ),
+    ),
+  )
+
+  test('a stay that overlaps one that holds is refused in one sentence, and the place is listed once everywhere', async () => {
+    expect(
+      await run(
+        today(
+          refusalOf(
+            link('rope', 'hook-board', 'part_of', '2026-10-20', '', {
+              provenance: 'inferred',
+              valid_from: '2026-10-20',
+            }),
+          ),
+        ),
+      ),
+    ).toBe(sentence)
+    const read = await run(today(readEntry('rope')))
+    expect(read.part_of).toHaveLength(1)
+    const tree = await run(today(listEntries()))
+    expect(tree.find(({ slug }) => slug === 'rope')?.part_of).toHaveLength(1)
+    const files = await run(today(markdownFiles))
+    const board = files.find(({ path }) => path === 'hook-board.md')
+    expect(board?.content).not.toContain('parts_elsewhere')
+    const rope = files.find(({ path }) => path === 'hook-board/rope.md')
+    expect(rope?.content).not.toContain('parts_elsewhere')
+  })
+
+  test('a later stay that starts after the other ended is accepted, an earlier one that ends before it starts too', async () => {
+    await run(
+      today(
+        link('rope', 'hook-board', 'part_of', '', '', {
+          provenance: 'inferred',
+          valid_until: '2026-10-19',
+        }),
+      ),
+    )
+    await run(
+      today(
+        link('rope', 'hook-board', 'part_of', '2026-10-20', '', {
+          provenance: 'inferred',
+          valid_from: '2026-10-20',
+        }),
+      ),
+    )
+    expect((await run(on('2026-10-21')(readEntry('rope')))).part_of).toHaveLength(2)
+    // Stretching the first stay over the second is refused as well.
+    expect(
+      await run(
+        today(
+          refusalOf(
+            link('rope', 'hook-board', 'part_of', '', '', {
+              provenance: 'inferred',
+              valid_until: '2026-10-25',
+            }),
+          ),
+        ),
+      ),
+    ).toBe(sentence)
+  })
+
+  test('write { parent } does not open a stay over one that starts later', async () => {
+    await run(today(writeEntry({ type: 'note', title: 'Peg board' })))
+    await run(
+      today(
+        writeEntry({ type: 'note', title: 'Wire', parent: 'hook-board', provenance: inferred }),
+      ),
+    )
+    await run(today(writeEntry({ entry: 'wire', parent: 'peg-board', provenance: inferred })))
+    await run(
+      today(
+        link('wire', 'hook-board', 'part_of', '2999-01-01', '', {
+          provenance: 'inferred',
+          valid_from: '2999-01-01',
+        }),
+      ),
+    )
+    expect(
+      await run(
+        today(refusalOf(writeEntry({ entry: 'wire', parent: 'hook-board', provenance: inferred }))),
+      ),
+    ).toBe(
+      'The field `parent` cannot be `hook-board`: the entry has a stay in it that starts later; end or move that one first.',
+    )
   })
 })
 

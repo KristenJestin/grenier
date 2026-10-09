@@ -4,6 +4,7 @@ import { SqlClient } from 'effect/sql'
 import type { SqlError } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import type { Change } from '../events/record.ts'
+import { Refused } from '../refused.ts'
 import { addDays, Today } from '../time/index.ts'
 import { About, endOf, fieldOf, PART_OF } from './store.ts'
 
@@ -80,6 +81,29 @@ const latestStay = Effect.fn('latestStay')(function* (id: string, place: string)
 const found = rowsOf(Schema.Struct({ found: Schema.Boolean }))
 
 /**
+ * Whether another stay of the entry in the same place (a link `part_of` of another `period`) holds
+ * on some day between `from` and `until` (none: unbounded): one place is never listed twice.
+ */
+export const overlapsAnotherStay = Effect.fn('overlapsAnotherStay')(function* (
+  id: string,
+  place: string,
+  period: string,
+  from: string | null,
+  until: string | null,
+) {
+  const sql = yield* SqlClient.SqlClient
+  const [row] = yield* found(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM links l
+      WHERE l.source_id = ${id}::uuid AND l.target_id = ${place}::uuid AND l.relation = ${PART_OF}
+        AND l.field = '' AND l.period <> ${period}
+        AND (l.valid_from IS NULL OR ${until}::date IS NULL OR l.valid_from <= ${until}::date)
+        AND (l.valid_until IS NULL OR ${from}::date IS NULL OR l.valid_until >= ${from}::date)
+    ) AS found`)
+  return row?.found === true
+})
+
+/**
  * Whether an entry is the place, or is part of it through the places that hold today: a link
  * `part_of` from it to that place would close a loop. The caller holds the tree lock.
  */
@@ -122,13 +146,14 @@ export const subtreeOf = Effect.fn('subtreeOf')(function* (under: string | null)
  * An entry that comes back to a place it left opens a new stay there (the day it began is its
  * period), so that no earlier stay is lost. The first place of an entry has no dates. A place the
  * entry holds already stays as it is, and says its provenance again when one is given. `id` is the
- * entry, if it exists.
+ * entry, if it exists; `named` is the place as the caller wrote it, for a refusal.
  */
 export const planPlace = Effect.fn('planPlace')(function* (
   id: string | undefined,
   current: Held | undefined,
   place: string | null,
   provenance: string | undefined,
+  named: string | null,
 ) {
   const sql = yield* SqlClient.SqlClient
   const today = (yield* Today)()
@@ -189,6 +214,11 @@ export const planPlace = Effect.fn('planPlace')(function* (
         const started = current !== undefined || held !== undefined ? today : null
         // A later stay in a place is named by the day it began.
         const period = held === undefined ? '' : today
+        if (id !== undefined && (yield* overlapsAnotherStay(id, place, period, started, null))) {
+          return yield* new Refused({
+            message: `The field \`parent\` cannot be \`${named ?? place}\`: the entry has a stay in it that starts later; end or move that one first.`,
+          })
+        }
         const after: About = {
           provenance,
           note: held?.note ?? null,

@@ -18,7 +18,7 @@ import { sensitivity } from '../sensitive.ts'
 import { Today } from '../time/index.ts'
 import { ruleOf } from '../time/occurrences.ts'
 import { findType } from '../types/operations.ts'
-import { closesLoop } from './places.ts'
+import { closesLoop, overlapsAnotherStay } from './places.ts'
 import { About, endOf, fieldOf, holdsOn, incoming, MENTIONS, outgoing, PART_OF } from './store.ts'
 
 const RELATION = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
@@ -242,6 +242,20 @@ export const link = Effect.fn('link')(function* (
         )
           return yield* new Refused({
             message: `A link \`part_of\` from \`${source.slug}\` to \`${target.slug}\` would close a loop: \`${target.slug}\` is \`${source.slug}\` or already part of it.`,
+          })
+        // One place is never listed twice: another stay in it never holds on the same days.
+        if (
+          relation === PART_OF &&
+          (yield* overlapsAnotherStay(
+            source.id,
+            target.id,
+            kept,
+            said.valid_from,
+            said.valid_until,
+          ))
+        )
+          return yield* new Refused({
+            message: `A link \`part_of\` from \`${source.slug}\` to \`${target.slug}\` would overlap another stay of \`${source.slug}\` in \`${target.slug}\`: end that one (\`valid_until\`) before this one starts.`,
           })
         return said
       })

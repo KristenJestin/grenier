@@ -331,6 +331,10 @@ place that holds today as the entry's parent, and a place that is over among its
   sentence. A place that is over, or has not begun, makes no loop. Every change of a place (a
   write that names `parent`, `link` and `unlink` with `part_of`) takes the tree lock first, then
   the slugs, then the rows, so that two moves can never close a loop together.
+- **One stay at a time.** Two stays of an entry in one place never hold on the same days, so a
+  place is listed once in a read, the tree and the export: a `link` whose dates overlap another
+  stay of the entry in that place, or a `parent` that would open a stay over one that starts later,
+  is refused in one sentence.
 - **`path`** is the titles above an entry, through the oldest place that holds (the earliest
   `valid_from`, none being the earliest, then the first link made) at each step; a place the key
   may not see keeps its place in it as `[hidden]`. The `parent` of a write names the oldest place
