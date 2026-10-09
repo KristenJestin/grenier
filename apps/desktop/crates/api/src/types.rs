@@ -942,7 +942,7 @@ pub struct SourceEntry {
 #[doc = "`SourceIdentifier`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceIdentifier {
-    #[doc = "An identifier outside Grenier, such as a ticket number or an ISBN."]
+    #[doc = "An identifier outside Hippocampe, such as a ticket number or an ISBN."]
     pub identifier: ::std::string::String,
     #[doc = "What the identifier names, such as `ticket`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]

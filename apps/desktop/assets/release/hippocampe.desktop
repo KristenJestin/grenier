@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Grenier
-Comment=Read what Grenier keeps
-Exec=grenier-desktop
-Icon=grenier
+Name=Hippocampe
+Comment=Read what Hippocampe keeps
+Exec=hippocampe-desktop
+Icon=hippocampe
 Categories=Office;
-StartupWMClass=grenier
+StartupWMClass=hippocampe

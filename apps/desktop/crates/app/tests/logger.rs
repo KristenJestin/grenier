@@ -7,13 +7,13 @@ use std::process::Command;
 
 #[test]
 fn an_error_logged_by_gpui_reaches_standard_error() {
-    let runtime = std::env::temp_dir().join(format!("grenier-logger-{}", std::process::id()));
+    let runtime = std::env::temp_dir().join(format!("hippocampe-logger-{}", std::process::id()));
     std::fs::create_dir_all(&runtime).unwrap();
-    let ran = Command::new(env!("CARGO_BIN_EXE_grenier-desktop"))
+    let ran = Command::new(env!("CARGO_BIN_EXE_hippocampe-desktop"))
         .env_remove("DISPLAY")
         .env_remove("RUST_LOG")
         .env("WAYLAND_SOCKET", "not-a-descriptor")
-        .env("WAYLAND_DISPLAY", "grenier-no-such-display")
+        .env("WAYLAND_DISPLAY", "hippocampe-no-such-display")
         .env("XDG_RUNTIME_DIR", &runtime)
         .env("HIPPOCAMPE_DESKTOP_CONFIG", runtime.join("desktop.json"))
         .output()

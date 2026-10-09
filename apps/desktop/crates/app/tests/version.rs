@@ -4,7 +4,7 @@ use std::process::Command;
 
 #[test]
 fn the_viewer_prints_its_version_and_opens_no_window() {
-    let printed = Command::new(env!("CARGO_BIN_EXE_grenier-desktop"))
+    let printed = Command::new(env!("CARGO_BIN_EXE_hippocampe-desktop"))
         .arg("--version")
         .output()
         .expect("the viewer runs");
@@ -12,7 +12,7 @@ fn the_viewer_prints_its_version_and_opens_no_window() {
     assert_eq!(
         String::from_utf8_lossy(&printed.stdout),
         format!(
-            "grenier-desktop {}\n",
+            "hippocampe-desktop {}\n",
             option_env!("HIPPOCAMPE_VERSION").unwrap_or("unknown")
         )
     );

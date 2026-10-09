@@ -107,7 +107,7 @@ fn right_unfolds_a_folder_and_left_goes_back_up_then_folds_it(cx: &mut TestAppCo
 fn a_reference_in_a_body_opens_its_entry_and_a_web_link_the_browser(cx: &mut TestAppContext) {
     let (_, cx, intents) = viewer(cx);
     cx.dispatch_action(FollowLink {
-        url: "grenier://plum-tart".into(),
+        url: "hippocampe://plum-tart".into(),
     });
     cx.dispatch_action(FollowLink {
         url: "https://example.org/".into(),
@@ -177,7 +177,7 @@ fn the_version_of_the_viewer_stands_beside_the_server(cx: &mut TestAppContext) {
     let (viewer, cx, _) = viewer(cx);
     cx.update(|_, cx| {
         viewer.update(cx, |viewer, cx| {
-            viewer.set_connection(Some("grenier.example:3000".into()), cx);
+            viewer.set_connection(Some("hippocampe.example:3000".into()), cx);
             viewer.set_version("1.2.3".into(), cx);
         })
     });

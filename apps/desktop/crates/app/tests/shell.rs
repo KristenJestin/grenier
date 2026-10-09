@@ -405,7 +405,7 @@ fn a_reference_to_a_heading_opens_the_entry_at_that_heading(cx: &mut TestAppCont
     // As from a link of a body, where the viewer hears it.
     cx.update(|window, cx| viewer.update(cx, |viewer, cx| viewer.focus_tree(window, cx)));
     cx.dispatch_action(FollowLink {
-        url: "grenier://orchard#pruning".into(),
+        url: "hippocampe://orchard#pruning".into(),
     });
     cx.run_until_parked();
     assert_eq!(opened(&viewer, cx).as_deref(), Some("orchard"));

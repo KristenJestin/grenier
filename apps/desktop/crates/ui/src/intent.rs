@@ -63,7 +63,7 @@ impl ListFilter {
 /// Where a screen sends what the user asks for: the viewer turns it into an event.
 pub type OnIntent = Rc<dyn Fn(Intent, &mut Window, &mut App)>;
 
-/// A link of a rendered body was activated: an entry when it starts with `grenier://`, else a web
+/// A link of a rendered body was activated: an entry when it starts with `hippocampe://`, else a web
 /// address.
 #[derive(Action, Clone, Debug, PartialEq, Deserialize)]
 #[action(namespace = viewer, no_json)]
@@ -74,7 +74,7 @@ pub struct FollowLink {
 actions!(viewer, [Back, Forward, FocusSearch]);
 
 /// The scheme of a `[[slug]]` reference once rendered as a link.
-pub const ENTRY_LINK: &str = "grenier://";
+pub const ENTRY_LINK: &str = "hippocampe://";
 
 /// What following a link means: an entry of the vault, at one of its headings when the link names
 /// one, or a web address.
@@ -207,7 +207,7 @@ mod tests {
                 "See [[plum-tart]] and `[[not-this]]`.\n```\n[[nor-this]]\n```\n",
                 known
             ),
-            "See [Plum tart](grenier://01a1-plum) and `[[not-this]]`.\n```\n[[nor-this]]\n```\n"
+            "See [Plum tart](hippocampe://01a1-plum) and `[[not-this]]`.\n```\n[[nor-this]]\n```\n"
         );
     }
 
@@ -226,17 +226,20 @@ mod tests {
                 "[[plum-tart|the tart]], [[plum-tart#method]], [[plum-tart#method|how]].",
                 known
             ),
-            "[the tart](grenier://01a1-plum), [Plum tart](grenier://01a1-plum#method), \
-             [how](grenier://01a1-plum#method)."
+            "[the tart](hippocampe://01a1-plum), [Plum tart](hippocampe://01a1-plum#method), \
+             [how](hippocampe://01a1-plum#method)."
         );
     }
 
     #[test]
     fn a_heading_with_spaces_goes_through_the_link_whole() {
         let linked = with_entry_links("[[plum-tart#Late pruning]].", known);
-        assert_eq!(linked, "[Plum tart](grenier://01a1-plum#Late%20pruning).");
         assert_eq!(
-            intent_of_link("grenier://01a1-plum#Late%20pruning"),
+            linked,
+            "[Plum tart](hippocampe://01a1-plum#Late%20pruning)."
+        );
+        assert_eq!(
+            intent_of_link("hippocampe://01a1-plum#Late%20pruning"),
             Intent::OpenAt {
                 entry: "01a1-plum".into(),
                 heading: "Late pruning".into()
@@ -248,14 +251,14 @@ mod tests {
     fn a_reference_with_spaces_inside_its_brackets_names_its_slug() {
         assert_eq!(
             with_entry_links("See [[ plum-tart ]].", known),
-            "See [Plum tart](grenier://01a1-plum)."
+            "See [Plum tart](hippocampe://01a1-plum)."
         );
     }
 
     #[test]
     fn a_link_to_a_heading_opens_the_entry_at_it() {
         assert_eq!(
-            intent_of_link("grenier://plum-tart#method"),
+            intent_of_link("hippocampe://plum-tart#method"),
             Intent::OpenAt {
                 entry: "plum-tart".into(),
                 heading: "method".into()
@@ -266,7 +269,7 @@ mod tests {
     #[test]
     fn a_link_opens_an_entry_or_a_web_address() {
         assert_eq!(
-            intent_of_link("grenier://plum-tart"),
+            intent_of_link("hippocampe://plum-tart"),
             Intent::Open("plum-tart".into())
         );
         assert_eq!(
