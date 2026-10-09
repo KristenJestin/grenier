@@ -388,11 +388,20 @@ title, summary, the path of ancestors, an excerpt with the matched words in `<ma
 its rank; 20 results by default. The language comes from `SEARCH_LANGUAGE` (a PostgreSQL text
 search configuration, `simple` by default) and accents never matter.
 
-## MCP tools (first set)
+## MCP tools
 
-`define_type`, `write`, `read` (section by section for long entries), `search` (titles, tags and
-summaries first, then full text), `link`, `history`, then `upcoming` and `briefing`. Each tool
-decodes its input with an Effect schema and declares it through `toToolInputSchema`.
+The tools are listed, with the right each needs, in `apps/server/src/mcp/README.md`: `define_type`,
+`write`, `read` (section by section for long entries), `search` (titles, tags and summaries
+first, then full text), `link`, `history`, `upcoming`, `briefing`, the inbox, and the rest. Each
+tool decodes its input with an Effect schema and declares it through `toToolInputSchema`: every
+parameter described, and `additionalProperties: false`, since a key the schema does not name is
+refused.
+
+A key lists only the tools its rights allow, in one fixed order; a tool not listed is refused as
+unknown. `confirm_proposal` needs the right `owner`, which no key given to an agent has. Each tool
+carries the MCP annotations: `readOnlyHint` for the tools that read, `destructiveHint` where a
+write may overwrite what is there, `idempotentHint` where the same call again leaves the same
+state, and `openWorldHint: false` for all but `attach_media`, which may fetch a `url`.
 
 ## Instances
 
