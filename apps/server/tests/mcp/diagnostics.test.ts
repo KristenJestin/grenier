@@ -16,15 +16,15 @@ let off: Awaited<ReturnType<typeof startServer>> | undefined
 beforeAll(async () => {
   on = await startServer({
     DATABASE_URL: await withDiagnostics.runPromise(urlOf),
-    GRENIER_ACTOR: 'agent-tester',
-    GRENIER_DIAGNOSTICS: 'on',
-    GRENIER_VERSION: '1.2.3',
-    GRENIER_COMMIT: 'abc1234',
+    HIPPOCAMPE_ACTOR: 'agent-tester',
+    HIPPOCAMPE_DIAGNOSTICS: 'on',
+    HIPPOCAMPE_VERSION: '1.2.3',
+    HIPPOCAMPE_COMMIT: 'abc1234',
   })
   off = await startServer({
     DATABASE_URL: await withoutDiagnostics.runPromise(urlOf),
-    GRENIER_ACTOR: 'agent-tester',
-    GRENIER_DIAGNOSTICS: 'off',
+    HIPPOCAMPE_ACTOR: 'agent-tester',
+    HIPPOCAMPE_DIAGNOSTICS: 'off',
   })
 }, 60_000)
 
@@ -55,51 +55,51 @@ const report = {
   expected: 'The entry `garden-shed`.',
 }
 
-describe('diagnostics are off unless GRENIER_DIAGNOSTICS is on', () => {
+describe('diagnostics are off unless HIPPOCAMPE_DIAGNOSTICS is on', () => {
   test('without diagnostics the two tools are absent, and a stale call is refused and writes nothing', async () => {
     const tools = await toolsOf(off)
-    expect(tools).not.toContain('grenier_report')
-    expect(tools).not.toContain('grenier_reports')
+    expect(tools).not.toContain('report')
+    expect(tools).not.toContain('reports')
     const { result, error } = await started(off).request('tools/call', {
-      name: 'grenier_report',
+      name: 'report',
       arguments: report,
     })
     expect(error ?? result).toBeDefined()
-    expect(JSON.stringify(error ?? result)).toMatch(/grenier_report/)
+    expect(JSON.stringify(error ?? result)).toMatch(/report/)
     expect(
       (await withoutDiagnostics.runPromise(listFindings({ limit: 10, offset: 0 }))).total,
     ).toBe(0)
   })
 
-  test('with diagnostics both tools are listed, and the instructions say so after the instance', async () => {
-    expect(await toolsOf(on)).toEqual(expect.arrayContaining(['grenier_report', 'grenier_reports']))
+  test('with diagnostics both tools are listed, and the instructions say so after the types', async () => {
+    expect(await toolsOf(on)).toEqual(expect.arrayContaining(['report', 'reports']))
     const instructions = started(on).instructions ?? ''
     expect(instructions.startsWith('This is the shared DEVELOPMENT instance')).toBe(true)
-    expect(instructions.indexOf('Diagnostics are on')).toBeGreaterThan(0)
-    expect(instructions.indexOf('Diagnostics are on')).toBeLessThan(
-      instructions.indexOf('Grenier keeps entries'),
+    expect(instructions.indexOf('Hippocampe keeps entries')).toBeGreaterThan(0)
+    expect(instructions.indexOf('Diagnostics are on')).toBeGreaterThan(
+      instructions.indexOf('Hippocampe keeps entries'),
     )
   })
 
   test('a value other than on or off stops the server, in one sentence', async () => {
     const { code, stderr } = await startAndExit({
       DATABASE_URL: await withoutDiagnostics.runPromise(urlOf),
-      GRENIER_ACTOR: 'agent-tester',
-      GRENIER_INSTANCE: 'development',
-      GRENIER_DIAGNOSTICS: 'yes',
+      HIPPOCAMPE_ACTOR: 'agent-tester',
+      HIPPOCAMPE_INSTANCE: 'development',
+      HIPPOCAMPE_DIAGNOSTICS: 'yes',
     })
     expect(code).toBe(1)
-    expect(stderr.trim()).toBe('GRENIER_DIAGNOSTICS must be `on` or `off`: `yes` is not one.')
+    expect(stderr.trim()).toBe('HIPPOCAMPE_DIAGNOSTICS must be `on` or `off`: `yes` is not one.')
   })
 })
 
-describe('an agent reports what goes wrong with Grenier', () => {
+describe('an agent reports what goes wrong with Hippocampe', () => {
   test('a report creates a finding, a similar one adds an occurrence, another place another finding', async () => {
-    expect(await started(on).call('grenier_report', report)).toMatchObject({
+    expect(await started(on).call('report', report)).toMatchObject({
       result: { finding: { number: 1, occurrences: 1 }, new: true },
     })
     expect(
-      await started(on).call('grenier_report', {
+      await started(on).call('report', {
         ...report,
         title: 'search misses entries by alias',
         severity: 'blocks',
@@ -107,13 +107,13 @@ describe('an agent reports what goes wrong with Grenier', () => {
     ).toMatchObject({
       result: { finding: { number: 1, occurrences: 2, severity: 'blocks' }, new: false },
     })
-    expect(await started(on).call('grenier_report', { ...report, place: 'read' })).toMatchObject({
+    expect(await started(on).call('report', { ...report, place: 'read' })).toMatchObject({
       result: { finding: { number: 2 }, new: true },
     })
   })
 
-  test('grenier_reports lists the findings by page, with no occurrence detail', async () => {
-    const listed = await started(on).call('grenier_reports', { limit: 1 })
+  test('reports lists the findings by page, with no occurrence detail', async () => {
+    const listed = await started(on).call('reports', { limit: 1 })
     expect(listed).toMatchObject({
       result: {
         total: 2,
@@ -130,7 +130,7 @@ describe('an agent reports what goes wrong with Grenier', () => {
       },
     })
     expect(JSON.stringify(listed)).not.toContain('garden-shed')
-    expect(await started(on).call('grenier_reports', { offset: 1 })).toMatchObject({
+    expect(await started(on).call('reports', { offset: 1 })).toMatchObject({
       result: { findings: [{ number: 2 }] },
     })
   })
@@ -146,9 +146,10 @@ describe('an agent reports what goes wrong with Grenier', () => {
       type: 'locker',
       title: 'Gym locker',
       fields: { code: '0042' },
+      provenance: { code: 'inferred' },
     })
     expect(
-      await started(on).call('grenier_report', {
+      await started(on).call('report', {
         ...report,
         title: 'A key without sensitive cannot keep a locker code',
         kind: 'unclear_refusal',
@@ -179,8 +180,8 @@ describe('an unexpected error of a tool becomes a finding when diagnostics are o
       ),
     )
     try {
-      expect(await started(on).call('list_proposals', {})).toHaveProperty('error')
-      expect(await started(off).call('list_proposals', {})).toHaveProperty('error')
+      expect(await started(on).call('types', { proposals: true })).toHaveProperty('error')
+      expect(await started(off).call('types', { proposals: true })).toHaveProperty('error')
     } finally {
       await Promise.all(
         [withDiagnostics, withoutDiagnostics].map((runtime) =>
@@ -188,13 +189,11 @@ describe('an unexpected error of a tool becomes a finding when diagnostics are o
         ),
       )
     }
-    const [recorded] = await withDiagnostics.runPromise(
-      findingsWithOccurrences({ place: 'list_proposals' }),
-    )
-    expect(recorded?.finding).toMatchObject({ kind: 'bug', place: 'list_proposals' })
+    const [recorded] = await withDiagnostics.runPromise(findingsWithOccurrences({ place: 'types' }))
+    expect(recorded?.finding).toMatchObject({ kind: 'bug', place: 'types' })
     expect(recorded?.finding.title).toMatch(/^Unexpected error: /)
     expect(recorded?.occurrences).toMatchObject([
-      { origin: 'server', call_tool: 'list_proposals', key_name: 'agent-tester' },
+      { origin: 'server', call_tool: 'types', key_name: 'agent-tester' },
     ])
     expect(
       (await withoutDiagnostics.runPromise(listFindings({ limit: 10, offset: 0 }))).total,

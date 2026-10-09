@@ -74,11 +74,13 @@ pub enum Pane {
     List(ListData),
 }
 
-/// One line of the tree as the keyboard walks it: the entry, its parent, and whether it holds
-/// others.
+/// One line of the tree as the keyboard walks it: the entry, where the line stands (the entries
+/// above it, which tell apart an entry drawn under two places), its parent line, and whether it
+/// holds others.
 struct Line {
     id: SharedString,
-    parent: Option<SharedString>,
+    at: String,
+    parent: Option<(SharedString, String)>,
     folder: bool,
 }
 
@@ -88,6 +90,8 @@ pub struct Viewer {
     tree_load: Load<()>,
     expanded: HashSet<SharedString>,
     selected: Option<SharedString>,
+    /// Which line of the selected entry the keyboard is on, when it is drawn under several places.
+    selected_at: Option<String>,
     search: Entity<InputState>,
     pane: Pane,
     /// How many panes were shown: each new one comes in.
@@ -144,6 +148,7 @@ impl Viewer {
             tree_load: Load::Loading,
             expanded: HashSet::new(),
             selected: None,
+            selected_at: None,
             search,
             pane: Pane::Entry(Box::new(Load::Empty)),
             shown: 0,
@@ -306,6 +311,7 @@ impl Viewer {
             self.expanded.extend(path);
         }
         self.selected = Some(id.clone());
+        self.selected_at = None;
         cx.notify();
     }
 
@@ -395,22 +401,32 @@ impl Viewer {
     }
 
     /// The lines of the tree in the order they are shown: each top-level folder as a group with
-    /// what it holds, then the entries filed nowhere; folded folders hide what they hold.
+    /// what it holds, then the entries filed nowhere; folded folders hide what they hold. A line
+    /// stands at the entries above it, as the elements of the tree are named.
     fn lines(&self) -> Vec<Line> {
         fn walk(
             nodes: &[TreeNode],
-            parent: Option<&SharedString>,
+            parent: Option<(&SharedString, &str)>,
+            at: &str,
             expanded: &HashSet<SharedString>,
             lines: &mut Vec<Line>,
         ) {
             for node in nodes {
+                let here = format!("{at}/{}", node.id);
                 lines.push(Line {
                     id: node.id.clone(),
-                    parent: parent.cloned(),
+                    at: here.clone(),
+                    parent: parent.map(|(id, at)| (id.clone(), at.to_string())),
                     folder: !node.children.is_empty(),
                 });
                 if expanded.contains(&node.id) {
-                    walk(&node.children, Some(&node.id), expanded, lines);
+                    walk(
+                        &node.children,
+                        Some((&node.id, &here)),
+                        &here,
+                        expanded,
+                        lines,
+                    );
                 }
             }
         }
@@ -418,10 +434,17 @@ impl Viewer {
         for group in self.nodes.iter().filter(|node| !node.children.is_empty()) {
             lines.push(Line {
                 id: group.id.clone(),
+                at: group.id.to_string(),
                 parent: None,
                 folder: false,
             });
-            walk(&group.children, Some(&group.id), &self.expanded, &mut lines);
+            walk(
+                &group.children,
+                Some((&group.id, &group.id)),
+                &group.id,
+                &self.expanded,
+                &mut lines,
+            );
         }
         let loose: Vec<TreeNode> = self
             .nodes
@@ -429,35 +452,47 @@ impl Viewer {
             .filter(|node| node.children.is_empty())
             .cloned()
             .collect();
-        walk(&loose, None, &self.expanded, &mut lines);
+        walk(&loose, None, "", &self.expanded, &mut lines);
         lines
+    }
+
+    /// The line the keyboard is on: the occurrence of the selected entry last chosen, else its
+    /// first line.
+    fn current(&self, lines: &[Line]) -> Option<usize> {
+        let id = self.selected.as_ref()?;
+        self.selected_at
+            .as_ref()
+            .and_then(|at| {
+                lines
+                    .iter()
+                    .position(|line| &line.id == id && &line.at == at)
+            })
+            .or_else(|| lines.iter().position(|line| &line.id == id))
+    }
+
+    /// Selects an entry at one of the places the tree draws it.
+    fn select_at(&mut self, id: &SharedString, at: String, cx: &mut Context<Self>) {
+        self.select(id, cx);
+        self.selected_at = Some(at);
     }
 
     fn step(&mut self, by: isize, cx: &mut Context<Self>) {
         let lines = self.lines();
-        let at = self
-            .selected
-            .as_ref()
-            .and_then(|id| lines.iter().position(|line| &line.id == id));
-        let next = match at {
+        let next = match self.current(&lines) {
             Some(at) => at
                 .saturating_add_signed(by)
                 .min(lines.len().saturating_sub(1)),
             None => 0,
         };
         if let Some(line) = lines.get(next) {
-            let id = line.id.clone();
-            self.select(&id, cx);
+            let (id, at) = (line.id.clone(), line.at.clone());
+            self.select_at(&id, at, cx);
         }
     }
 
     fn fold(&mut self, open: bool, cx: &mut Context<Self>) {
         let lines = self.lines();
-        let Some(line) = self
-            .selected
-            .as_ref()
-            .and_then(|id| lines.iter().find(|line| &line.id == id))
-        else {
+        let Some(line) = self.current(&lines).and_then(|at| lines.get(at)) else {
             return;
         };
         let is_open = self.expanded.contains(&line.id);
@@ -470,8 +505,8 @@ impl Viewer {
                 self.expanded.remove(&line.id);
             }
             (false, _, _) => {
-                if let Some(parent) = line.parent.clone() {
-                    self.select(&parent, cx);
+                if let Some((parent, at)) = line.parent.clone() {
+                    self.select_at(&parent, at, cx);
                 }
             }
             _ => {}
@@ -480,11 +515,11 @@ impl Viewer {
     }
 
     /// A click on a line: it opens, and a folder folds or unfolds.
-    fn clicked(&mut self, id: &SharedString, folder: bool, cx: &mut Context<Self>) {
+    fn clicked(&mut self, id: &SharedString, at: &str, folder: bool, cx: &mut Context<Self>) {
         if folder && !self.expanded.remove(id) {
             self.expanded.insert(id.clone());
         }
-        self.select(id, cx);
+        self.select_at(id, at.to_string(), cx);
     }
 
     fn sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -550,7 +585,7 @@ impl Viewer {
                         div()
                             .flex_1()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(words::GRENIER),
+                            .child(words::HIPPOCAMPE),
                     )
                     .child(toggle),
             )
@@ -666,7 +701,7 @@ impl Viewer {
             .enumerate()
         {
             let header = self.group_title(group, index == 0, window, cx);
-            let items = self.items(&group.children, Some(&group.title), window, cx);
+            let items = self.items(&group.children, Some(&group.title), &group.id, window, cx);
             groups.push(v_flex().child(header).children(items).into_any_element());
         }
         let loose: Vec<TreeNode> = self
@@ -676,7 +711,7 @@ impl Viewer {
             .cloned()
             .collect();
         if !loose.is_empty() {
-            let items = self.items(&loose, None, window, cx);
+            let items = self.items(&loose, None, "", window, cx);
             groups.push(
                 v_flex()
                     .child(group_label(words::UNFILED, groups.is_empty(), cx))
@@ -724,11 +759,14 @@ impl Viewer {
         )
     }
 
-    /// The lines of a list of entries, each folder followed by what it holds, which unfolds.
+    /// The lines of a list of entries, each folder followed by what it holds, which unfolds. `at`
+    /// is where the list stands (the entries above it), so that an entry drawn under two places has
+    /// an element of its own under each.
     fn items(
         &self,
         nodes: &[TreeNode],
         parent: Option<&str>,
+        at: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
@@ -736,13 +774,14 @@ impl Viewer {
         for node in nodes {
             let folder = !node.children.is_empty();
             let open = self.expanded.contains(&node.id);
-            items.push(self.item(node, parent, folder, open, window, cx));
+            let here = format!("{at}/{}", node.id);
+            items.push(self.item(node, parent, &here, window, cx));
             if folder {
-                let children = self.items(&node.children, Some(&node.title), window, cx);
+                let children = self.items(&node.children, Some(&node.title), &here, window, cx);
                 let guide = cx.theme().border;
                 items.push(
                     reveal(
-                        SharedString::from(format!("under-{}", node.id)),
+                        SharedString::from(format!("under-{here}")),
                         open,
                         v_flex()
                             .ml(px(19.))
@@ -762,12 +801,15 @@ impl Viewer {
         &self,
         node: &TreeNode,
         parent: Option<&str>,
-        folder: bool,
-        open: bool,
+        here: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let selected = self.selected.as_ref() == Some(&node.id);
+        let folder = !node.children.is_empty();
+        let open = self.expanded.contains(&node.id);
+        // Of an entry drawn under several places, the line the keyboard or the click chose.
+        let selected = self.selected.as_ref() == Some(&node.id)
+            && self.selected_at.as_ref().is_none_or(|at| at == here);
         let theme = cx.theme();
         let (muted, foreground, accent, over) = (
             theme.muted_foreground,
@@ -783,19 +825,20 @@ impl Viewer {
         };
         let chevron = folder.then(|| {
             Icon::new(IconName::ChevronRight).xsmall().with_spring(
-                SharedString::from(format!("chevron-{}", node.id)),
+                SharedString::from(format!("chevron-{here}")),
                 SpringAnimation::new(SPRING).to(open),
                 |icon, turn| icon.rotate(radians(turn.0 * FRAC_PI_2)),
             )
         });
         let id = node.id.clone();
+        let at = here.to_string();
         let click =
-            cx.listener(move |viewer, _: &ClickEvent, _, cx| viewer.clicked(&id, folder, cx));
+            cx.listener(move |viewer, _: &ClickEvent, _, cx| viewer.clicked(&id, &at, folder, cx));
         // The beginning it shares with its parent dropped; whole on hover, and in the entry.
         let title = SharedString::from(short_title(&node.title, parent).to_string());
         let whole = node.title.clone();
         hoverable(
-            SharedString::from(format!("item-{}", node.id)),
+            SharedString::from(format!("item-{here}")),
             window,
             cx,
             move |element, hover| {
@@ -883,7 +926,7 @@ impl Viewer {
             ))
             .child(div().flex_1());
         if let Some(slug) = self.opened_entry().map(|data| data.read.entry.slug.clone()) {
-            let link = format!("grenier://{slug}");
+            let link = format!("hippocampe://{slug}");
             bar = bar.child(ghost(
                 "copy-link",
                 IconName::Link,

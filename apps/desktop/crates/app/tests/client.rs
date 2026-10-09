@@ -36,7 +36,7 @@ fn answering(status: &str, body: &str) -> (String, mpsc::Receiver<String>) {
 fn the_tree_is_read_with_the_key_sent_as_a_bearer() {
     let (server, request) = answering(
         "200 OK",
-        r#"{"entries":[{"id":"1","slug":"kitchen","type":"area","title":"Kitchen","parent_id":null,"in_parent":false}]}"#,
+        r#"{"entries":[{"id":"1","slug":"kitchen","type":"area","title":"Kitchen","part_of":[]}]}"#,
     );
     let tree = Client::new(server, Key::new("secret-of-test"))
         .tree()

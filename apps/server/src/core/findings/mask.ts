@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { eq, or, sql } from 'drizzle-orm'
 import { Effect, Predicate, Schema } from 'effect'
 import { Rights } from '../auth/rights.ts'

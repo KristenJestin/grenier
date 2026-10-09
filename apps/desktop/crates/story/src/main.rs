@@ -29,7 +29,7 @@ fn main() {
             ui::theme::set_dark(dark, cx);
             gpui_kit::open_window(
                 WindowOptions {
-                    app_id: Some("grenier-story".into()),
+                    app_id: Some("hippocampe-story".into()),
                     ..WindowOptions::default()
                 },
                 cx,

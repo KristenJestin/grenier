@@ -9,7 +9,7 @@ import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import type { Snapshot } from '../events/record.ts'
 import { Rights } from '../auth/rights.ts'
 import { Refused } from '../refused.ts'
-import { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 import { areSimilar } from './similar.ts'
 
 const STRICT = { errors: 'all', onExcessProperty: 'error' } as const
@@ -18,6 +18,34 @@ const decodeType = (input: typeof TypeDefinition.Encoded) =>
   Schema.decodeUnknownEffect(TypeDefinition)(input, STRICT).pipe(
     Effect.mapError(Refused.fromSchemaError),
   )
+
+/**
+ * Refuses a field named `body`, `summary` or `parent`: the first two are the body and the summary
+ * of every entry, and the keys under which `provenance` says whether those are known or supposed;
+ * the third is the key under which it says whether the place the entry is part of is.
+ */
+export const refuseReservedNames = (names: ReadonlyArray<string>) => {
+  const taken = names.filter((name) => name === 'body' || name === 'summary')
+  const place = names.includes('parent')
+  return taken.length === 0 && !place
+    ? Effect.void
+    : Effect.fail(
+        new Refused({
+          message: [
+            ...(taken.length === 0
+              ? []
+              : [
+                  `${taken.map((name) => `The field \`${name}\``).join(' and ')} cannot be named so: \`body\` and \`summary\` are the body and the summary of every entry, and the keys of their \`provenance\`. Choose another name.`,
+                ]),
+            ...(place
+              ? [
+                  'The field `parent` cannot be named so: `parent` is the place an entry is part of, and the key of its `provenance`. Choose another name.',
+                ]
+              : []),
+          ].join(' '),
+        }),
+      )
+}
 
 const Row = Schema.Struct({
   name: Schema.String,
@@ -131,6 +159,7 @@ export const defineType = Effect.fn('defineType')(function* (input: typeof TypeD
   const db = yield* drizzle
   const actor = yield* currentActor
   const type = yield* decodeType(input)
+  yield* refuseReservedNames(type.fields.map(({ name }) => name))
   return yield* client.withTransaction(
     Effect.gen(function* () {
       // Deleted and merged types keep their name: it stays taken.
@@ -183,6 +212,7 @@ export const addField = Effect.fn('addField')(function* (
           message: `The field \`${input.name}\` cannot be required when it is added to an existing type: add it as optional.`,
         })
       }
+      yield* refuseReservedNames([input.name])
       const extended = yield* decodeType({ ...type, fields: [...type.fields, input] })
       yield* checkAcceptedTypes(extended)
       yield* db
@@ -200,17 +230,37 @@ export const addField = Effect.fn('addField')(function* (
   )
 })
 
+/** Adds optional fields to an existing type, one after the other: all of them or none. */
+export const addFields = Effect.fn('addFields')(function* (
+  typeName: string,
+  inputs: ReadonlyArray<typeof FieldDefinition.Encoded>,
+) {
+  const client = yield* SqlClient.SqlClient
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      yield* Effect.forEach(inputs, (input) => addField(typeName, input))
+      return yield* getType(typeName)
+    }),
+  )
+})
+
 /**
  * What a change of a type as a whole says: its label, its description (what tells agents when to
- * use it), whether all its entries are sensitive, and whether its entries filed under one of the
- * same type are read in their parent. What it does not give stays.
+ * use it), whether all its entries are sensitive, and whether its entries that are part of one of the
+ * same type are read in that entry. What it does not give stays.
  */
 export const ChangeTypeInput = Schema.Struct({
-  type: Schema.String,
+  type: Schema.String.annotate({ description: 'The name of the type to change.' }),
   label: Schema.optionalKey(TypeDefinition.fields.label),
   description: Schema.optionalKey(TypeDefinition.fields.description),
-  sensitive: Schema.optionalKey(Schema.Boolean),
-  read_in_parent: Schema.optionalKey(Schema.Boolean),
+  sensitive: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make every entry of the type sensitive (shown only to a key with the right `sensitive`). Only the owner lifts it, from the command line.',
+  }),
+  read_in_parent: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Entries of the type that are part of an entry of the same type are read as the parts of that entry, in its page.',
+  }),
 })
 export type ChangeTypeInput = typeof ChangeTypeInput.Type
 
@@ -236,7 +286,7 @@ export const changeType = Effect.fn('changeType')(function* (
       const inParent = input.read_in_parent ?? type.read_in_parent === true
       if (type.sensitive === true && !sensitive && !rights.includes('owner')) {
         return yield* new Refused({
-          message: `Only the owner of Grenier may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
+          message: `Only the owner of Hippocampe may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
         })
       }
       const { sensitive: _, read_in_parent: __, ...rest } = type

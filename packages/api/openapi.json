@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Grenier",
+    "title": "Hippocampe",
     "version": "0.0.0"
   },
   "paths": {
@@ -124,7 +124,19 @@
             "required": false
           },
           {
-            "name": "verified",
+            "name": "supposed",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "unstated",
             "in": "query",
             "schema": {
               "type": "string",
@@ -443,7 +455,8 @@
             "name": "type",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Only the entries of this type, by its name."
             },
             "required": false
           },
@@ -451,7 +464,8 @@
             "name": "under",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Only the entries that are part of this entry, at any depth (through the places they are part of today): its slug or id."
             },
             "required": false
           },
@@ -474,12 +488,25 @@
               "type": "array",
               "items": {
                 "type": "string"
-              }
+              },
+              "description": "Only the entries that carry every one of these tags."
             },
             "required": false
           },
           {
-            "name": "verified",
+            "name": "supposed",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "unstated",
             "in": "query",
             "schema": {
               "type": "string",
@@ -642,6 +669,13 @@
           "summary": {
             "type": "string"
           },
+          "summary_provenance": {
+            "type": "string",
+            "enum": [
+              "inferred",
+              "ambiguous"
+            ]
+          },
           "path": {
             "type": "array",
             "items": {
@@ -653,6 +687,12 @@
           },
           "rank": {
             "type": "number"
+          },
+          "supposed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Supposed"
+            }
           }
         },
         "required": [
@@ -664,6 +704,49 @@
           "path",
           "excerpt",
           "rank"
+        ],
+        "additionalProperties": false
+      },
+      "Supposed": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "inferred",
+              "ambiguous",
+              "unstated"
+            ]
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "when": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "what",
+          "provenance",
+          "by",
+          "when"
         ],
         "additionalProperties": false
       },
@@ -696,6 +779,12 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "part_of": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Place"
             }
           },
           "references": {
@@ -821,6 +910,7 @@
         "required": [
           "entry",
           "path",
+          "part_of",
           "references",
           "ancestors",
           "links",
@@ -900,6 +990,15 @@
               }
             ]
           },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "extracted",
+              "inferred",
+              "ambiguous",
+              "unstated"
+            ]
+          },
           "note": {
             "anyOf": [
               {
@@ -944,6 +1043,7 @@
           "relation",
           "period",
           "field",
+          "provenance",
           "note",
           "valid_from",
           "valid_until",
@@ -1037,6 +1137,79 @@
         ],
         "additionalProperties": false
       },
+      "Place": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "extracted",
+              "inferred",
+              "unstated"
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "title",
+          "period",
+          "provenance",
+          "note",
+          "valid_from",
+          "valid_until"
+        ],
+        "additionalProperties": false
+      },
       "Entry": {
         "type": "object",
         "properties": {
@@ -1064,16 +1237,6 @@
               "type": "string"
             }
           },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "fields": {
             "type": "object"
           },
@@ -1084,7 +1247,8 @@
               "enum": [
                 "extracted",
                 "inferred",
-                "ambiguous"
+                "ambiguous",
+                "unstated"
               ]
             }
           },
@@ -1099,9 +1263,6 @@
           },
           "summary": {
             "type": "string"
-          },
-          "verified": {
-            "type": "boolean"
           },
           "created": {
             "type": "string"
@@ -1167,13 +1328,11 @@
           "slug",
           "aliases",
           "tags",
-          "parent_id",
           "fields",
           "provenance",
           "sources",
           "body",
           "summary",
-          "verified",
           "created",
           "updated",
           "valid_from",
@@ -1190,6 +1349,9 @@
             "$ref": "#/components/schemas/SourceEntry"
           },
           {
+            "$ref": "#/components/schemas/SourceSaid"
+          },
+          {
             "$ref": "#/components/schemas/SourceUrl"
           },
           {
@@ -1204,13 +1366,16 @@
         "type": "object",
         "properties": {
           "source": {
-            "type": "string"
+            "type": "string",
+            "description": "Where the item came from: `inbox` for an item of the inbox."
           },
           "item": {
-            "type": "string"
+            "type": "string",
+            "description": "The id of the inbox item."
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1223,13 +1388,16 @@
         "type": "object",
         "properties": {
           "identifier": {
-            "type": "string"
+            "type": "string",
+            "description": "An identifier outside Hippocampe, such as a ticket number or an ISBN."
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "description": "What the identifier names, such as `ticket`."
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1241,14 +1409,44 @@
         "type": "object",
         "properties": {
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "The address of the page the entry comes from."
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
           "url"
+        ],
+        "additionalProperties": false
+      },
+      "SourceSaid": {
+        "type": "object",
+        "properties": {
+          "said_by": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "on": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "A few words on what this source gave."
+          }
+        },
+        "required": [
+          "said_by",
+          "slug",
+          "title",
+          "on"
         ],
         "additionalProperties": false
       },
@@ -1265,7 +1463,8 @@
             "type": "string"
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1439,18 +1638,11 @@
           "title": {
             "type": "string"
           },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "in_parent": {
-            "type": "boolean"
+          "part_of": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TreePlace"
+            }
           }
         },
         "required": [
@@ -1458,7 +1650,22 @@
           "slug",
           "type",
           "title",
-          "parent_id",
+          "part_of"
+        ],
+        "additionalProperties": false
+      },
+      "TreePlace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "in_parent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
           "in_parent"
         ],
         "additionalProperties": false
@@ -1482,15 +1689,18 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The name of the type, in lowercase kebab-case such as `bank-account`."
           },
           "label": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "The name of the type as people read it."
           },
           "description": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "What the type is and when to use it, in the words a user would say: agents choose a type from it."
           },
           "sensitive": {
             "type": "boolean",
@@ -1498,13 +1708,14 @@
           },
           "read_in_parent": {
             "type": "boolean",
-            "description": "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
+            "description": "Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
           },
           "fields": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/FieldDefinition"
-            }
+            },
+            "description": "The fields of the type; none is a type with a title and a body only."
           }
         },
         "required": [
@@ -1519,7 +1730,8 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The name of the field, in snake_case such as `monthly_cost`."
           },
           "kind": {
             "type": "string",
@@ -1535,10 +1747,12 @@
               "money",
               "url",
               "entry"
-            ]
+            ],
+            "description": "What the field holds. `enum` needs its `values`; `entry` points to other entries (see `types`); `date` may carry `due` or `recurs`."
           },
           "required": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "A write must give a value for the field (at least one when it is `many`)."
           },
           "values": {
             "type": "array",
@@ -1547,10 +1761,12 @@
               "minLength": 1
             },
             "minItems": 1,
-            "uniqueItems": true
+            "uniqueItems": true,
+            "description": "For an `enum` field only: the values it accepts, at least one, without repeats."
           },
           "sensitive": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "The values of the field are shown and written only by a key with the right `sensitive`."
           },
           "types": {
             "type": "array",
@@ -1569,13 +1785,15 @@
             "type": "object",
             "properties": {
               "notice": {
-                "type": "string"
+                "type": "string",
+                "description": "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."
               }
             },
             "required": [
               "notice"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "For a `date` field only: the date is a deadline, told as coming `notice` before it."
           },
           "recurs": {
             "type": "object",
@@ -1586,24 +1804,28 @@
                   "yearly",
                   "monthly",
                   "weekly"
-                ]
+                ],
+                "description": "How often the date comes back."
               },
               "notice": {
-                "type": "string"
+                "type": "string",
+                "description": "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."
               }
             },
             "required": [
               "every",
               "notice"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "For a `date` field only: the date comes back, `every` year, month or week, told as coming `notice` before each time."
           }
         },
         "required": [
           "name",
           "kind"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "A field of a type: its name, its kind and the rules a value of it follows."
       },
       "About": {
         "type": "object",
@@ -1657,7 +1879,7 @@
   "tags": [
     {
       "name": "About",
-      "description": "Which Grenier this is: production or development, its version and commit."
+      "description": "Which Hippocampe this is: production or development, its version and commit."
     },
     {
       "name": "Types",

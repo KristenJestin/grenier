@@ -1,0 +1,1 @@
+CREATE INDEX "entries_aliases" ON "entries" USING gin ("aliases");

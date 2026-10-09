@@ -1,17 +1,17 @@
 import { Schema } from 'effect'
-import { ISO_DURATION, PROVENANCES } from '@grenier/api/model'
-import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import { ISO_DURATION, STORED_PROVENANCES } from '@hippocampe/api/model'
+import type { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 
 /** Text with what it must be, said both when it is not text and when its content is wrong. */
 const textThat = (expected: string, isValid: (value: string) => boolean) =>
   Schema.String.annotate({ expected }).check(Schema.makeFilter(isValid, { expected }))
 
-const isDate = (value: string) =>
+export const isDate = (value: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
   new Date(`${value}T00:00:00Z`).toISOString().startsWith(value)
 
-const isDateTime = (value: string) =>
+export const isDateTime = (value: string) =>
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(value) &&
   !Number.isNaN(Date.parse(value))
 
@@ -25,8 +25,12 @@ export const Slug = textThat('lowercase kebab-case text such as `internet-at-hom
   /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value),
 )
 
+/**
+ * A provenance as the entry keeps it. A write may say only the first three: `unstated`, which
+ * what was written before writers were asked is kept as, is refused apart, in the write.
+ */
 export const Provenance = textThat('one of `extracted`, `inferred`, `ambiguous`', (value) =>
-  PROVENANCES.some((provenance) => provenance === value),
+  STORED_PROVENANCES.some((provenance) => provenance === value),
 )
 
 type Value = Schema.Codec<Schema.Json, Schema.Json>

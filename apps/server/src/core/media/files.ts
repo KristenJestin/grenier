@@ -13,7 +13,7 @@ import { Refused } from '../refused.ts'
 
 /** Where files live: `MEDIA_DIR` (`/data/media` in the container), else a folder of the system's. */
 export const mediaDirectory = Config.String('MEDIA_DIR').pipe(
-  Config.withDefault(join(tmpdir(), 'grenier-media')),
+  Config.withDefault(join(tmpdir(), 'hippocampe-media')),
 )
 
 export const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
@@ -132,7 +132,7 @@ export const typeOf = Effect.fn('typeOf')(function* (bytes: Uint8Array) {
   const kind = KINDS.find(([prefix]) => mime.startsWith(prefix))?.[1]
   if (kind === undefined) {
     return yield* new Refused({
-      message: `The file is \`${mime}\`, which Grenier does not keep: ${KEPT}`,
+      message: `The file is \`${mime}\`, which Hippocampe does not keep: ${KEPT}`,
     })
   }
   return { mime, kind }
@@ -192,7 +192,7 @@ export const isPrivateAddress = ({ address, family }: ResolvedAddress) =>
  */
 export const HostResolver = Context.Reference<
   (host: string) => Promise<ReadonlyArray<ResolvedAddress>>
->('@grenier/core/media/HostResolver', {
+>('@hippocampe/core/media/HostResolver', {
   defaultValue: () => (host) => lookup(host, { all: true }),
 })
 
@@ -303,7 +303,7 @@ export const fetchFile = Effect.fn('fetchFile')(function* (address: string) {
     }
     if (reachesPrivate && !allowPrivate) {
       return yield* refuse(
-        `The URL \`${current}\` leads to a private address: Grenier fetches only from the Internet.`,
+        `The URL \`${current}\` leads to a private address: Hippocampe fetches only from the Internet.`,
       )
     }
     const into = yield* incomingPath()

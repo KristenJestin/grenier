@@ -1,4 +1,4 @@
-# The version of Grenier, decided by what was merged.
+# The version of Hippocampe, decided by what was merged.
 #
 # `package.json` stays at 0.0.0 and nobody edits a version by hand: the tag semantic-release
 # puts on a branch is the version. No plugin here writes a commit, so the history of a branch is
@@ -6,7 +6,7 @@
 #
 # Only `main` publishes: merging `dev` into `main` (a merge commit, never a squash) publishes
 # `vX.Y.Z`, read from the subjects of the squashed pull requests it brings. `dev` publishes
-# nothing: it is the integration branch. Grenier starts in `0.x`. Breaking changes move the minor: a
+# nothing: it is the integration branch. Hippocampe starts in `0.x`. Breaking changes move the minor: a
 # 2.0 is a decision, not something a commit message brings about.
 
 name: release
@@ -96,7 +96,7 @@ jobs:
             libx11-xcb-dev libssl-dev libzstd-dev libasound2-dev libvulkan1
       # rustup installs the Rust of rust-toolchain.toml.
       - name: Build the viewer, which takes its version from the tag
-        run: GRENIER_VERSION="${TAG#v}" cargo build --locked --release -p app
+        run: HIPPOCAMPE_VERSION="${TAG#v}" cargo build --locked --release -p app
       - name: Pack it with its checksum
         id: pack
         run: echo "archive=$(scripts/package.sh "${TAG#v}" ${{ matrix.platform }})" >> "$GITHUB_OUTPUT"
@@ -107,12 +107,13 @@ jobs:
         run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
 
   # The npm package of the tag: the executable of Linux x64, then the launcher that needs it
-  # (`npm i -g @netsirk/grenier`). Only a release from a push to `main` publishes, never the dry run
+  # (`npm i -g @netsirk/hippocampe`). Only a release from a push to `main` publishes, never the dry run
   # of the viewer. Nothing is published before both tarballs are installed and answer /health with
   # the tag's version. Publication goes through npm's trusted publishing (OIDC, with provenance):
   # no token is kept; see docs/install.md for what the owner sets up once on npmjs.com. A version
-  # already on npm is skipped, so a re-run finishes what a failed run left; the launcher is never
-  # published without its executable.
+  # already on npm is skipped, so a re-run finishes what a failed run left, and a version older
+  # than the one `latest` names is published as `previous`, never moving `latest` back; the
+  # launcher is never published without its executable.
   npm:
     needs: release
     if: github.event_name == 'push' && needs.release.outputs.tag != ''
@@ -135,7 +136,7 @@ jobs:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.21.0
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
       - name: Pack both packages
@@ -148,14 +149,25 @@ jobs:
           publish() {
             if npm view "$1@$version" version >/dev/null 2>&1; then
               echo "$1@$version is on npm already: skipped."
-            else
-              npm publish "$2" --provenance --access public
+              return
             fi
+            # What `latest` names: nothing for a package never published (E404). A re-run of an
+            # older release must not move `latest` back, so a version older than it is published
+            # as `previous`; any other failure of the registry stops here.
+            if ! latest=$(npm view "$1" dist-tags.latest 2>"$RUNNER_TEMP/npm-view.err"); then
+              grep -q E404 "$RUNNER_TEMP/npm-view.err" || { cat "$RUNNER_TEMP/npm-view.err" >&2; return 1; }
+              latest=
+            fi
+            tag=latest
+            if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)" != "$version" ]; then
+              tag=previous
+            fi
+            npm publish "$2" --provenance --access public --tag "$tag"
           }
-          publish @netsirk/grenier-linux-x64 "$RUNNER_TEMP/npm/netsirk-grenier-linux-x64-$version.tgz"
+          publish @netsirk/hippocampe-linux-x64 "$RUNNER_TEMP/npm/netsirk-hippocampe-linux-x64-$version.tgz"
           # The registry may take a moment to show what was just published.
           tries=0
-          until npm view "@netsirk/grenier-linux-x64@$version" version >/dev/null 2>&1; do
+          until npm view "@netsirk/hippocampe-linux-x64@$version" version >/dev/null 2>&1; do
             tries=$((tries + 1))
             if [ "$tries" -gt 30 ]; then
               echo "::error::The executable of $version is not on npm: the launcher is not published."
@@ -163,4 +175,4 @@ jobs:
             fi
             sleep 5
           done
-          publish @netsirk/grenier "$RUNNER_TEMP/npm/netsirk-grenier-$version.tgz"
+          publish @netsirk/hippocampe "$RUNNER_TEMP/npm/netsirk-hippocampe-$version.tgz"

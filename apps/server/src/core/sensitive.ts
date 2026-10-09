@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { Effect } from 'effect'
 import type { Schema } from 'effect'
 import { Rights } from './auth/rights.ts'

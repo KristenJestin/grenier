@@ -1,11 +1,11 @@
 import {
   Authorization,
   Forbidden,
-  GrenierApi,
+  HippocampeApi,
   Invalid,
   NotFound,
   Unauthorized,
-} from '@grenier/api/http'
+} from '@hippocampe/api/http'
 import { Auth, Rights } from './core/auth/index.ts'
 import { filterEntries, listEntries, readEntry } from './core/entries/index.ts'
 import { cursorRefusal, historyPage } from './core/events/index.ts'
@@ -19,7 +19,7 @@ import { HttpApiBuilder } from 'effect/http-api'
 
 /** The sentence a key without the right `read` is refused with, over HTTP as over MCP. */
 export const MAY_NOT_READ =
-  'This key may not read: ask the owner of Grenier for a key with the right `read`.'
+  'This key may not read: ask the owner of Hippocampe for a key with the right `read`.'
 
 /** The key of a request, verified by Better Auth: it must hold the right `read`. */
 const AuthorizationLayer = Layer.effect(
@@ -40,7 +40,7 @@ const AuthorizationLayer = Layer.effect(
   }),
 )
 
-const about = HttpApiBuilder.group(GrenierApi, 'about', (handlers) =>
+const about = HttpApiBuilder.group(HippocampeApi, 'about', (handlers) =>
   Effect.gen(function* () {
     const { name, label, version, commit } = yield* Instance
     return handlers.handle('about', () =>
@@ -49,7 +49,7 @@ const about = HttpApiBuilder.group(GrenierApi, 'about', (handlers) =>
   }),
 )
 
-const types = HttpApiBuilder.group(GrenierApi, 'types', (handlers) =>
+const types = HttpApiBuilder.group(HippocampeApi, 'types', (handlers) =>
   Effect.succeed(
     handlers.handle('list', () =>
       listTypes.pipe(
@@ -60,7 +60,7 @@ const types = HttpApiBuilder.group(GrenierApi, 'types', (handlers) =>
   ),
 )
 
-const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
+const entries = HttpApiBuilder.group(HippocampeApi, 'entries', (handlers) =>
   Effect.succeed(
     handlers
       .handle('list', ({ query }) =>
@@ -106,7 +106,7 @@ const entries = HttpApiBuilder.group(GrenierApi, 'entries', (handlers) =>
   ),
 )
 
-const searching = HttpApiBuilder.group(GrenierApi, 'search', (handlers) =>
+const searching = HttpApiBuilder.group(HippocampeApi, 'search', (handlers) =>
   Effect.succeed(
     handlers.handle('search', ({ query: { q, ...options } }) =>
       search(q, options).pipe(
@@ -125,6 +125,6 @@ const searching = HttpApiBuilder.group(GrenierApi, 'search', (handlers) =>
  * The read API, its OpenAPI document at `/api/openapi.json`, behind the keys of Better Auth. It
  * runs on the database and the authentication the server provides once.
  */
-export const ApiRoutes = HttpApiBuilder.layer(GrenierApi, {
+export const ApiRoutes = HttpApiBuilder.layer(HippocampeApi, {
   openapiPath: '/api/openapi.json',
 }).pipe(Layer.provide([about, types, entries, searching]), Layer.provide(AuthorizationLayer))

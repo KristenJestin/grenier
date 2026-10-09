@@ -1,6 +1,6 @@
 //! Invented data for the stories: no real person, place, amount or document.
 
-use api::{EntryRead, SearchResult, TypeDefinition};
+use api::{EntryProvenanceValue, EntryRead, LinkProvenance, SearchResult, TypeDefinition};
 use serde_json::{Value, json};
 use ui::entry::EntryData;
 use ui::load::Load;
@@ -13,8 +13,8 @@ fn read(value: Value) -> EntryRead {
 fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
     let mut base = json!({
         "id": id, "type": type_name, "title": title, "slug": id,
-        "aliases": [], "tags": [], "parent_id": null, "fields": {}, "provenance": {},
-        "sources": [], "body": "", "summary": "", "verified": true,
+        "aliases": [], "tags": [], "fields": {}, "provenance": {},
+        "sources": [], "body": "", "summary": "",
         "created": "2026-09-01T08:00:00.000Z", "updated": "2026-10-01T08:00:00.000Z",
         "valid_from": null, "valid_until": null, "superseded_by": null, "archived_at": null, "archived_reason": null
     });
@@ -26,7 +26,7 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
 
 fn around(entry: Value, extra: Value) -> Value {
     let mut base = json!({
-        "entry": entry, "path": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
+        "entry": entry, "path": [], "part_of": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
         "children": [], "hidden_children": 0, "cited_by": [], "titles": {}
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
@@ -69,7 +69,6 @@ pub fn contract() -> EntryData {
                 "contract",
                 json!({
                     "aliases": ["internet"], "tags": ["maison", "abonnement"],
-                    "parent_id": "maison", "verified": false,
                     "summary": "La fibre, la box et la ligne fixe de la maison.",
                     "fields": {
                         "provider": "Opérateur Lumière", "start": "2024-03-15", "renewal": "tacite",
@@ -87,17 +86,22 @@ pub fn contract() -> EntryData {
             ),
             json!({
                 "path": ["Maison", "Abonnements"],
+                "part_of": [{
+                    "id": "abonnements", "slug": "abonnements", "title": "Abonnements",
+                    "period": null, "provenance": "extracted", "note": null,
+                    "valid_from": null, "valid_until": null
+                }],
                 "ancestors": [{ "id": "maison", "title": "Maison" }, { "id": "abonnements", "title": "Abonnements" }],
                 "references": [
                     { "reference": "box-du-salon", "id": "box-du-salon", "title": "Box du salon" },
                     { "reference": "facture-de-septembre", "id": "facture-de-septembre", "title": "Facture de septembre" }
                 ],
                 "links": [
-                    { "relation": "mentions", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "box-du-salon", "slug": "box-du-salon", "title": "Box du salon" },
-                    { "relation": "signed_by", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "camille-exemple", "slug": "camille-exemple", "title": "Camille Exemple" }
+                    { "relation": "mentions", "provenance": "extracted", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "box-du-salon", "slug": "box-du-salon", "title": "Box du salon" },
+                    { "relation": "signed_by", "provenance": "extracted", "period": null, "field": null, "note": null, "valid_from": null, "valid_until": null, "id": "camille-exemple", "slug": "camille-exemple", "title": "Camille Exemple" }
                 ],
                 "backlinks": [
-                    { "relation": "fulfills", "period": "2026-09", "field": "start", "note": null, "valid_from": null, "valid_until": null, "id": "facture-de-septembre", "slug": "facture-de-septembre", "title": "Facture de septembre" }
+                    { "relation": "fulfills", "provenance": "extracted", "period": "2026-09", "field": "start", "note": null, "valid_from": null, "valid_until": null, "id": "facture-de-septembre", "slug": "facture-de-septembre", "title": "Facture de septembre" }
                 ],
                 "children": [
                     { "id": "facture-de-septembre", "slug": "facture-de-septembre", "type": "invoice", "title": "Facture de septembre", "summary": "", "in_parent": false },
@@ -129,6 +133,30 @@ fn item_type() -> TypeDefinition {
         ]
     }))
     .expect("a fixture type")
+}
+
+/// The same contract as a writer left it when it was not sure of everything: the summary, the
+/// body, the renewal and a link only supposed, the customer area on which sources disagree, the
+/// provider known, and the seats written before writers were asked, which carry no mark.
+pub fn supposed() -> EntryData {
+    let mut data = contract();
+    data.read.entry.provenance = [
+        ("provider", EntryProvenanceValue::Extracted),
+        ("renewal", EntryProvenanceValue::Inferred),
+        ("customer_area", EntryProvenanceValue::Ambiguous),
+        ("seats", EntryProvenanceValue::Unstated),
+        ("summary", EntryProvenanceValue::Inferred),
+        ("body", EntryProvenanceValue::Inferred),
+    ]
+    .into_iter()
+    .map(|(name, provenance)| (name.to_string(), provenance))
+    .collect();
+    for link in &mut data.read.links {
+        if link.relation == "signed_by" {
+            link.provenance = LinkProvenance::Inferred;
+        }
+    }
+    data
 }
 
 /// A machine and its parts, one of them with a value the key may not see; and a note beside them.
@@ -189,7 +217,7 @@ fn person_type() -> TypeDefinition {
 /// role and the dates they held between.
 pub fn person() -> EntryData {
     let link = |relation: &str, id: &str, title: &str, note: Value, from: Value, until: Value| {
-        json!({ "relation": relation, "period": null, "field": null, "note": note,
+        json!({ "relation": relation, "provenance": "extracted", "period": null, "field": null, "note": note,
                 "valid_from": from, "valid_until": until, "id": id, "slug": id, "title": title })
     };
     EntryData {
@@ -270,7 +298,7 @@ pub fn long() -> EntryData {
                 "carnet",
                 "Carnet de bord de la longue traversée, avec un titre qui ne tient pas sur une seule ligne de l'écran",
                 "journal",
-                json!({ "fields": fields, "body": body, "verified": false }),
+                json!({ "fields": fields, "body": body }),
             ),
             json!({
                 "path": ["Archives", "Voyages", "Traversées", "Carnets", "Deuxième série", "Volume trois"],
@@ -397,6 +425,24 @@ pub fn tree() -> Vec<TreeNode> {
     ]
 }
 
+/// A screen shared by two computers: it is part of both, so the tree draws it under both.
+pub fn shared_tree() -> Vec<TreeNode> {
+    let screen = || node("ecran-partage", "Écran partagé", "item", vec![]);
+    vec![
+        node(
+            "poste-du-bureau",
+            "Poste du bureau",
+            "item",
+            vec![
+                node("clavier-du-bureau", "Clavier du bureau", "item", vec![]),
+                screen(),
+            ],
+        ),
+        node("poste-du-salon", "Poste du salon", "item", vec![screen()]),
+        node("idee", "Une idée", "note", vec![]),
+    ]
+}
+
 /// A deep tree with long titles.
 pub fn deep_tree() -> Vec<TreeNode> {
     let mut level = node(
@@ -450,7 +496,7 @@ fn project_type() -> TypeDefinition {
 
 /// A link of a fixture, as the API returns it.
 fn a_link(relation: &str, id: &str, title: &str, note: Value, from: Value) -> Value {
-    json!({ "relation": relation, "period": null, "field": null, "note": note,
+    json!({ "relation": relation, "provenance": "extracted", "period": null, "field": null, "note": note,
             "valid_from": from, "valid_until": null, "id": id, "slug": id, "title": title })
 }
 
@@ -524,7 +570,6 @@ pub fn many_links() -> EntryData {
                 json!({
                     "summary": "Le projet qui relie tout le reste.",
                     "tags": ["projet", "infrastructure"],
-                    "verified": false,
                     "fields": { "owner": "camille-exemple", "hosts": ["serveur-atlas", "serveur-borée"] }
                 }),
             ),
@@ -621,7 +666,7 @@ pub fn listed() -> ui::list::ListData {
     .map(|(id, title)| {
         serde_json::from_value(json!({
             "id": id, "slug": id, "type": "contract", "title": title,
-            "parent_id": null, "in_parent": false
+            "part_of": []
         }))
         .expect("a fixture listing")
     })
@@ -630,7 +675,7 @@ pub fn listed() -> ui::list::ListData {
         filter: ui::intent::ListFilter {
             type_name: Some(("contract".into(), "Contrat".into())),
             tag: Some("maison".into()),
-            unverified: false,
+            supposed: false,
         },
         type_labels: [("contract".to_string(), "Contrat".to_string())].into(),
         entries: Load::Ready(entries),

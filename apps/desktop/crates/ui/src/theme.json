@@ -1,10 +1,10 @@
 {
-  "name": "Grenier",
-  "author": "Grenier",
+  "name": "Hippocampe",
+  "author": "Hippocampe",
   "themes": [
     {
       "is_default": false,
-      "name": "Grenier Dark",
+      "name": "Hippocampe Dark",
       "mode": "dark",
       "radius": 8,
       "font.size": 14,
@@ -67,7 +67,7 @@
     },
     {
       "is_default": false,
-      "name": "Grenier Light",
+      "name": "Hippocampe Light",
       "mode": "light",
       "radius": 8,
       "font.size": 14,

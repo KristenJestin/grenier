@@ -1,7 +1,7 @@
 import { ConfigProvider, Effect, Layer } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { grenierAuthAdapter } from '../../src/core/auth/adapter.ts'
+import { hippocampeAuthAdapter } from '../../src/core/auth/adapter.ts'
 import {
   Auth,
   AuthSecretMissing,
@@ -36,7 +36,7 @@ const auth = Effect.gen(function* () {
 
 /** Every row of the table of keys, as Better Auth's adapter reads it. */
 const keyRows = Effect.gen(function* () {
-  const adapter = grenierAuthAdapter(yield* sqlBridge)(authSchemaOptions())
+  const adapter = hippocampeAuthAdapter(yield* sqlBridge)(authSchemaOptions())
   return yield* Effect.promise(() =>
     adapter.findMany<Record<string, string | number | boolean | Date | null>>({
       model: 'auth_apikey',
@@ -59,14 +59,14 @@ describe('keys are created on the command line', () => {
       expires_at: null,
       revoked: false,
     })
-    expect(secret).toMatch(/^grenier_/)
+    expect(secret).toMatch(/^hippocampe_/)
     expect(await run(Effect.flatMap(auth, (service) => service.verifyKey(secret)))).toEqual({
       name: 'agent-laptop',
       rights: ['read', 'write'],
     })
     const stored = JSON.stringify(await run(keyRows))
     expect(stored).not.toContain(secret)
-    expect(stored).not.toContain(secret.slice('grenier_'.length))
+    expect(stored).not.toContain(secret.slice('hippocampe_'.length))
   })
 
   test('the owner is created once', async () => {
@@ -76,7 +76,7 @@ describe('keys are created on the command line', () => {
           Effect.flatMap(auth, (service) => service.createOwner('other@example.org', 'Other')),
         ),
       ),
-    ).toBe('The owner already exists: `owner@example.org`. Grenier has one owner.')
+    ).toBe('The owner already exists: `owner@example.org`. Hippocampe has one owner.')
   })
 
   test('a key with a used name, an unknown right or a bad name is refused', async () => {
@@ -121,8 +121,8 @@ describe('a request without a valid key is refused', () => {
   })
 
   test('a wrong key', async () => {
-    expect(await verify('grenier_not-a-key')).toBe(
-      'This key is not known to Grenier: check it, or ask the owner for one.',
+    expect(await verify('hippocampe_not-a-key')).toBe(
+      'This key is not known to Hippocampe: check it, or ask the owner for one.',
     )
   })
 
@@ -132,7 +132,7 @@ describe('a request without a valid key is refused', () => {
     )
     await run(Effect.flatMap(auth, (service) => service.revokeKey('agent-old')))
     expect(await verify(secret)).toBe(
-      'This key was revoked: ask the owner of Grenier for a new one.',
+      'This key was revoked: ask the owner of Hippocampe for a new one.',
     )
     const keys = await run(Effect.flatMap(auth, (service) => service.listKeys))
     expect(keys.find(({ name }) => name === 'agent-old')?.revoked).toBe(true)
@@ -153,7 +153,7 @@ describe('a request without a valid key is refused', () => {
       ),
     )
     expect(await verify(secret)).toBe(
-      'This key has expired: ask the owner of Grenier for a new one.',
+      'This key has expired: ask the owner of Hippocampe for a new one.',
     )
     const keys = await run(Effect.flatMap(auth, (service) => service.listKeys))
     expect(keys.find(({ name }) => name === 'agent-brief')?.expires_at).toBe(

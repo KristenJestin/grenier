@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
- * The Grenier MCP server on stdio, for an agent that starts it as a subprocess:
+ * The Hippocampe MCP server on stdio, for an agent that starts it as a subprocess:
  *
- *   GRENIER_ACTOR=agent-laptop bun run --cwd apps/server mcp
+ *   HIPPOCAMPE_ACTOR=agent-laptop bun run --cwd apps/server mcp
  *
- * `DATABASE_URL` names the database; `GRENIER_ACTOR`, required, names the agent every write is
- * recorded under; `GRENIER_RIGHTS` lists its rights, `read,write` unless told (add `sensitive`
- * to see and write sensitive values); `GRENIER_INSTANCE`, required, says whether this is the
+ * `DATABASE_URL` names the database; `HIPPOCAMPE_ACTOR`, required, names the agent every write is
+ * recorded under; `HIPPOCAMPE_RIGHTS` lists its rights, `read,write` unless told (add `sensitive`
+ * to see and write sensitive values); `HIPPOCAMPE_INSTANCE`, required, says whether this is the
  * `production` or the `development` instance. The database is brought to the latest version before the first request.
  */
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
@@ -15,26 +15,27 @@ import { Right, RIGHTS, Rights } from '../core/auth/index.ts'
 import { layer as database, migrate } from '../core/database/index.ts'
 import { Actor } from '../core/events/index.ts'
 import { Instance, instanceFromEnvironment, mcpServerName } from '../core/instance.ts'
+import { refuseLegacyVariables } from '../core/legacy-variables.ts'
 import { Config, Effect, Layer, Logger, Schema } from 'effect'
 import { McpServer } from 'effect/ai'
 import { instructions } from './instructions.ts'
 import { PROTOCOLS } from './protocols.ts'
-import { GrenierServer } from './tools.ts'
+import { HippocampeServer } from './tools.ts'
 
 class ActorMissing extends Schema.TaggedError<ActorMissing>()('ActorMissing', {}) {
   override readonly message =
-    'The environment variable GRENIER_ACTOR is missing: set it to the name of the agent that writes, such as `agent-laptop`.'
+    'The environment variable HIPPOCAMPE_ACTOR is missing: set it to the name of the agent that writes, such as `agent-laptop`.'
 }
 
 class RightsUnknown extends Schema.TaggedError<RightsUnknown>()('RightsUnknown', {
   right: Schema.String,
 }) {
   override get message() {
-    return `GRENIER_RIGHTS must list rights among ${RIGHTS.map((right) => `\`${right}\``).join(', ')}, separated by commas: \`${this.right}\` is not one.`
+    return `HIPPOCAMPE_RIGHTS must list rights among ${RIGHTS.map((right) => `\`${right}\``).join(', ')}, separated by commas: \`${this.right}\` is not one.`
   }
 }
 
-/** The rights of `GRENIER_RIGHTS`, `read,write` when it is not set. */
+/** The rights of `HIPPOCAMPE_RIGHTS`, `read,write` when it is not set. */
 const rightsOf = (listed: string) =>
   Effect.forEach(
     listed.split(',').map((right) => right.trim()),
@@ -45,11 +46,12 @@ const rightsOf = (listed: string) =>
   )
 
 const program = Effect.gen(function* () {
-  const actor = yield* Config.String('GRENIER_ACTOR').pipe(
+  yield* refuseLegacyVariables
+  const actor = yield* Config.String('HIPPOCAMPE_ACTOR').pipe(
     Effect.mapError(() => new ActorMissing()),
   )
   const rights = yield* rightsOf(
-    yield* Config.String('GRENIER_RIGHTS').pipe(Config.withDefault('read,write')),
+    yield* Config.String('HIPPOCAMPE_RIGHTS').pipe(Config.withDefault('read,write')),
   )
   const instance = yield* instanceFromEnvironment
   yield* migrate
@@ -60,10 +62,11 @@ const program = Effect.gen(function* () {
     instructions: yield* instructions.pipe(
       Effect.provideService(Instance, instance),
       Effect.provideService(Rights, rights),
+      Effect.provideService(Actor, actor),
     ),
     protocols: PROTOCOLS,
   }).pipe(Layer.provide(BunStdio.layer))
-  return yield* Layer.launch(GrenierServer.pipe(Layer.provide(server))).pipe(
+  return yield* Layer.launch(HippocampeServer.pipe(Layer.provide(server))).pipe(
     Effect.provideService(Actor, actor),
     Effect.provideService(Rights, rights),
     Effect.provideService(Instance, instance),

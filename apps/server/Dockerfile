@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-# The Grenier server, run by Bun from its sources (no build step), as a non-root user. Built from
+# The Hippocampe server, run by Bun from its sources (no build step), as a non-root user. Built from
 # the root of the repository: `docker build -f apps/server/Dockerfile .`, with its version and
-# commit as build arguments (`--build-arg GRENIER_VERSION=1.4.0 --build-arg GRENIER_COMMIT=$(git
+# commit as build arguments (`--build-arg HIPPOCAMPE_VERSION=1.4.0 --build-arg HIPPOCAMPE_COMMIT=$(git
 # rev-parse --short HEAD)`); both are `unknown` when not given.
 
 FROM oven/bun:1.4.2-slim AS base
@@ -22,11 +22,11 @@ FROM oven/bun:1.4.2-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
-ARG GRENIER_VERSION=unknown
-ARG GRENIER_COMMIT=unknown
+ARG HIPPOCAMPE_VERSION=unknown
+ARG HIPPOCAMPE_COMMIT=unknown
 # Every interface inside the container: compose publishes the port, on 127.0.0.1 unless told.
-ENV NODE_ENV=production GRENIER_HOST=0.0.0.0 PORT=3000 MEDIA_DIR=/data/media \
-    GRENIER_VERSION=${GRENIER_VERSION} GRENIER_COMMIT=${GRENIER_COMMIT}
+ENV NODE_ENV=production HIPPOCAMPE_HOST=0.0.0.0 PORT=3000 MEDIA_DIR=/data/media \
+    HIPPOCAMPE_VERSION=${HIPPOCAMPE_VERSION} HIPPOCAMPE_COMMIT=${HIPPOCAMPE_COMMIT}
 WORKDIR /app
 COPY --from=dependencies /app ./
 COPY packages/api/src packages/api/src

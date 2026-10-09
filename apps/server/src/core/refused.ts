@@ -1,8 +1,8 @@
 import { Schema } from 'effect'
-import { formatSchemaError } from '@grenier/api/schema'
+import { formatSchemaError } from '@hippocampe/api/schema'
 
 /**
- * A write the rules of Grenier do not allow. The message holds one sentence per problem, written
+ * A write the rules of Hippocampe do not allow. The message holds one sentence per problem, written
  * for the agent or the person who has to fix it.
  */
 export class Refused extends Schema.TaggedError<Refused>()('Refused', {

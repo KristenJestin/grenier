@@ -24,13 +24,13 @@ const ToolResult = Schema.Struct({
 })
 
 /**
- * Starts the Grenier MCP server as a client would, as a process speaking newline-delimited
+ * Starts the Hippocampe MCP server as a client would, as a process speaking newline-delimited
  * JSON-RPC on its standard input and output, and initializes the session. It is the development
  * instance unless `env` says otherwise.
  */
 export async function startServer(env: Readonly<Record<string, string>>) {
   const server = spawn(process.execPath, [MAIN], {
-    env: { PATH: process.env['PATH'] ?? '', GRENIER_INSTANCE: 'development', ...env },
+    env: { PATH: process.env['PATH'] ?? '', HIPPOCAMPE_INSTANCE: 'development', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   const waiting = new Map<number, (response: Response) => void>()
@@ -50,7 +50,7 @@ export async function startServer(env: Readonly<Record<string, string>>) {
   const { result: initialized } = await request('initialize', {
     protocolVersion: '2025-06-18',
     capabilities: {},
-    clientInfo: { name: 'grenier-tests', version: '0.0.0' },
+    clientInfo: { name: 'hippocampe-tests', version: '0.0.0' },
   })
   send({ jsonrpc: '2.0', method: 'notifications/initialized' })
 

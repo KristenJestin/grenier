@@ -8,7 +8,7 @@ import { migrate } from './database/migrate.ts'
 export class ScratchDatabase extends Context.Service<
   ScratchDatabase,
   { readonly name: string; readonly url: string }
->()('@grenier/core/testing/ScratchDatabase') {}
+>()('@hippocampe/core/testing/ScratchDatabase') {}
 
 /** Runs a statement on the server of `DATABASE_URL`, through a connection of its own. */
 const onServer = <A, E>(statement: Effect.Effect<A, E, SqlClient.SqlClient>) =>
@@ -24,6 +24,37 @@ export const scratchDatabaseExists = (name: string) =>
     }),
   )
 
+/** The URL of a database of that name on the server of `DATABASE_URL`. */
+export const urlOfScratchDatabase = (name: string) =>
+  Effect.map(databaseUrl, (url) => {
+    const server = new URL(Redacted.value(url))
+    server.pathname = `/${name}`
+    return server.toString()
+  })
+
+/**
+ * Creates the database `name` on the server of `DATABASE_URL`, empty, or as a copy of `template`
+ * (which no one may be connected to); returns its URL. For a program that keeps its databases
+ * apart from a suite's own, such as the bench: it drops them with `dropScratchDatabase`.
+ */
+export const createScratchDatabase = (name: string, template?: string) =>
+  onServer(
+    Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      template === undefined
+        ? sql`CREATE DATABASE ${sql(name)}`
+        : sql`CREATE DATABASE ${sql(name)} TEMPLATE ${sql(template)}`,
+    ),
+  ).pipe(Effect.andThen(urlOfScratchDatabase(name)))
+
+/** Drops the database `name`, connections to it included; nothing if there is none. */
+export const dropScratchDatabase = (name: string) =>
+  onServer(
+    Effect.flatMap(
+      SqlClient.SqlClient,
+      (sql) => sql`DROP DATABASE IF EXISTS ${sql(name)} WITH (FORCE)`,
+    ),
+  ).pipe(Effect.asVoid)
+
 /**
  * An empty database of a test suite's own, never one that holds real data: created with a unique
  * name on the server of `DATABASE_URL`, and dropped when the layer is released, whether the
@@ -32,7 +63,7 @@ export const scratchDatabaseExists = (name: string) =>
 export const emptyScratchDatabase = Layer.unwrap(
   Effect.gen(function* () {
     const server = new URL(Redacted.value(yield* databaseUrl))
-    const name = `grenier_test_${crypto.randomUUID().replaceAll('-', '')}`
+    const name = `hippocampe_test_${crypto.randomUUID().replaceAll('-', '')}`
     yield* Effect.acquireRelease(
       onServer(Effect.flatMap(SqlClient.SqlClient, (sql) => sql`CREATE DATABASE ${sql(name)}`)),
       () =>

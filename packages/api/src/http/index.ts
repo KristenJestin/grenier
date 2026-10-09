@@ -1,6 +1,6 @@
 /**
- * Grenier's HTTP API, as its clients see it: the routes, what they take and return, and how a key
- * is sent. The server implements it; `HttpApiClient.make(GrenierApi)` derives a typed client from
+ * Hippocampe's HTTP API, as its clients see it: the routes, what they take and return, and how a key
+ * is sent. The server implements it; `HttpApiClient.make(HippocampeApi)` derives a typed client from
  * it, and the OpenAPI document is generated from it.
  */
 import { Schema } from 'effect'
@@ -23,7 +23,7 @@ import {
   TypeDefinition,
 } from '../model/index.ts'
 
-/** A request without a key, or with a key Grenier does not accept. */
+/** A request without a key, or with a key Hippocampe does not accept. */
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   'Unauthorized',
   { message: Schema.String },
@@ -44,7 +44,7 @@ export class NotFound extends Schema.TaggedError<NotFound>()(
   { httpApiStatus: 404 },
 ) {}
 
-/** A request the rules of Grenier refuse, with one sentence per problem. */
+/** A request the rules of Hippocampe refuse, with one sentence per problem. */
 export class Invalid extends Schema.TaggedError<Invalid>()(
   'Invalid',
   { message: Schema.String },
@@ -53,7 +53,7 @@ export class Invalid extends Schema.TaggedError<Invalid>()(
 
 /** Every route is reached with a key with the right `read`, sent as `Authorization: Bearer <key>`. */
 export class Authorization extends HttpApiMiddleware.Service<Authorization>()(
-  '@grenier/api/http/Authorization',
+  '@hippocampe/api/http/Authorization',
   {
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },
@@ -66,7 +66,7 @@ const about = HttpApiGroup.make('about')
   .annotateMerge(
     OpenApi.annotations({
       title: 'About',
-      description: 'Which Grenier this is: production or development, its version and commit.',
+      description: 'Which Hippocampe this is: production or development, its version and commit.',
     }),
   )
 
@@ -152,11 +152,11 @@ const search = HttpApiGroup.make('search')
     }),
   )
 
-/** The read API of Grenier. Writing goes through MCP. */
-export class GrenierApi extends HttpApi.make('grenier')
+/** The read API of Hippocampe. Writing goes through MCP. */
+export class HippocampeApi extends HttpApi.make('hippocampe')
   .add(about)
   .add(types)
   .add(entries)
   .add(search)
   .middleware(Authorization)
-  .annotateMerge(OpenApi.annotations({ title: 'Grenier', version: '0.0.0' })) {}
+  .annotateMerge(OpenApi.annotations({ title: 'Hippocampe', version: '0.0.0' })) {}

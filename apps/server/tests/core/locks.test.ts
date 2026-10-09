@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
 import { readEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
+import { TREE_LOCK } from '../../src/core/entries/operations.ts'
 import {
   addToInbox,
   finishItem,
@@ -45,10 +46,21 @@ beforeAll(() =>
 describe('concurrent writes never lose a change', () => {
   test('an entry renamed while a body that cites it is edited keeps the edit, named consistently', async () => {
     await run(writeEntry({ type: 'note', title: 'Apple', slug: 'apple' }))
-    const citing = await run(writeEntry({ type: 'note', title: 'Orchard', body: 'See [[apple]].' }))
+    const citing = await run(
+      writeEntry({
+        type: 'note',
+        title: 'Orchard',
+        body: 'See [[apple]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     const ended = await run(
       whileLocked(execute('SELECT 1 FROM entries WHERE id = $1::uuid FOR UPDATE', citing.id), [
-        writeEntry({ entry: 'orchard', body: 'See [[apple]], twice.' }),
+        writeEntry({
+          entry: 'orchard',
+          body: 'See [[apple]], twice.',
+          provenance: { body: 'inferred' },
+        }),
         writeEntry({ entry: 'apple', slug: 'pear' }),
       ]),
     )
@@ -132,6 +144,12 @@ describe('a link fulfills names a period of the form its date comes back by', ()
             checked_on: '2026-01-05',
             pay_by: '2026-11-30',
           },
+          provenance: {
+            due_on: 'inferred',
+            renew_on: 'inferred',
+            checked_on: 'inferred',
+            pay_by: 'inferred',
+          },
         })
         yield* writeEntry({ type: 'note', title: 'Payment' })
       }),
@@ -139,7 +157,11 @@ describe('a link fulfills names a period of the form its date comes back by', ()
   )
 
   const fulfills = (period: string, field: string) =>
-    run(Effect.result(link('payment', 'water-bill', 'fulfills', period, field))).then(outcomeOf)
+    run(
+      Effect.result(
+        link('payment', 'water-bill', 'fulfills', period, field, { provenance: 'inferred' }),
+      ),
+    ).then(outcomeOf)
 
   test('a period of the wrong form is refused, naming the form expected', async () => {
     expect(await fulfills('2026', 'due_on')).toBe(
@@ -168,13 +190,20 @@ describe('a link fulfills names a period of the form its date comes back by', ()
 
 describe('references and renames at the same moment', () => {
   const holdingSlug = (slug: string) =>
-    execute(`SELECT pg_advisory_xact_lock(hashtext('grenier.reference ' || $1))`, slug)
+    execute(`SELECT pg_advisory_xact_lock(hashtext('hippocampe.reference ' || $1))`, slug)
 
   test('an entry created while another one cites it is linked, never left pending', async () => {
     const ended = await run(
       whileLocked(holdingSlug('quince-tree'), [
         Effect.asVoid(writeEntry({ type: 'note', title: 'Quince tree' })),
-        Effect.asVoid(writeEntry({ type: 'note', title: 'Grafts', body: 'From [[quince-tree]].' })),
+        Effect.asVoid(
+          writeEntry({
+            type: 'note',
+            title: 'Grafts',
+            body: 'From [[quince-tree]].',
+            provenance: { body: 'inferred' },
+          }),
+        ),
       ]),
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
@@ -188,7 +217,14 @@ describe('references and renames at the same moment', () => {
     const ended = await run(
       whileLocked(holdingSlug('medlar'), [
         Effect.asVoid(writeEntry({ entry: 'medlar', slug: 'medlar-tree' })),
-        Effect.asVoid(writeEntry({ type: 'note', title: 'Jelly', body: 'Of [[medlar]].' })),
+        Effect.asVoid(
+          writeEntry({
+            type: 'note',
+            title: 'Jelly',
+            body: 'Of [[medlar]].',
+            provenance: { body: 'inferred' },
+          }),
+        ),
       ]),
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
@@ -211,8 +247,22 @@ describe('slug locks come before row locks: concurrent writes never deadlock', (
   test('two entries created at once, each citing the other, are both written and linked', async () => {
     const ended = await run(
       whileLocked(holdingType, [
-        Effect.asVoid(writeEntry({ type: 'note', title: 'Alder', body: 'Beside [[birch]].' })),
-        Effect.asVoid(writeEntry({ type: 'note', title: 'Birch', body: 'Beside [[alder]].' })),
+        Effect.asVoid(
+          writeEntry({
+            type: 'note',
+            title: 'Alder',
+            body: 'Beside [[birch]].',
+            provenance: { body: 'inferred' },
+          }),
+        ),
+        Effect.asVoid(
+          writeEntry({
+            type: 'note',
+            title: 'Birch',
+            body: 'Beside [[alder]].',
+            provenance: { body: 'inferred' },
+          }),
+        ),
       ]),
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
@@ -225,7 +275,13 @@ describe('slug locks come before row locks: concurrent writes never deadlock', (
     const ended = await run(
       whileLocked(holdingType, [
         Effect.asVoid(writeEntry({ entry: 'hornbeam', aliases: ['charmille'] })),
-        Effect.asVoid(writeEntry({ entry: 'hornbeam', body: 'Also [[charmille]].' })),
+        Effect.asVoid(
+          writeEntry({
+            entry: 'hornbeam',
+            body: 'Also [[charmille]].',
+            provenance: { body: 'inferred' },
+          }),
+        ),
       ]),
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
@@ -233,10 +289,21 @@ describe('slug locks come before row locks: concurrent writes never deadlock', (
 
   test('a batch that leaves a body as it is, while the entry it cites is renamed: both written', async () => {
     await run(writeEntry({ type: 'note', title: 'Rowan' }))
-    await run(writeEntry({ type: 'note', title: 'Berries', body: 'Of [[rowan]].' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Berries',
+        body: 'Of [[rowan]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     const ended = await run(
       whileLocked(holdingType, [
-        Effect.asVoid(writeEntries([{ entry: 'berries', summary: 'Red ones.' }])),
+        Effect.asVoid(
+          writeEntries([
+            { entry: 'berries', summary: 'Red ones.', provenance: { summary: 'inferred' } },
+          ]),
+        ),
         Effect.asVoid(writeEntry({ entry: 'rowan', slug: 'rowan-tree' })),
       ]),
     )
@@ -248,7 +315,7 @@ describe('a batch takes every slug lock before any row lock', () => {
   // The new slug held: the single write waits for it before any row, the batch, without the
   // fix, only after the row of the entry it edits.
   const holdingSlug = execute(
-    `SELECT pg_advisory_xact_lock(hashtext('grenier.reference wisteria'))`,
+    `SELECT pg_advisory_xact_lock(hashtext('hippocampe.reference wisteria'))`,
   )
 
   test('a batch that edits an entry and creates one, while a write of that entry cites the new one', async () => {
@@ -257,11 +324,17 @@ describe('a batch takes every slug lock before any row lock', () => {
       whileLocked(holdingSlug, [
         Effect.asVoid(
           writeEntries([
-            { entry: 'pergola', summary: 'Wood, painted.' },
+            { entry: 'pergola', summary: 'Wood, painted.', provenance: { summary: 'inferred' } },
             { type: 'note', title: 'Wisteria' },
           ]),
         ),
-        Effect.asVoid(writeEntry({ entry: 'pergola', body: 'Under the [[wisteria]].' })),
+        Effect.asVoid(
+          writeEntry({
+            entry: 'pergola',
+            body: 'Under the [[wisteria]].',
+            provenance: { body: 'inferred' },
+          }),
+        ),
       ]),
     )
     expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
@@ -269,9 +342,106 @@ describe('a batch takes every slug lock before any row lock', () => {
   })
 })
 
+describe('a rename locks every slug the stored body cites, before any row', () => {
+  test('an entry renamed without a body, while another write holds a slug its body cites and waits for the entry', async () => {
+    const elder = await run(
+      writeEntry({
+        type: 'note',
+        title: 'Elder',
+        body: 'About [[elder]] and [[hazel]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
+    // The entry's row is held while both start. The rename queues for it first and, with the row,
+    // wants `hazel`; the other write holds `hazel` as an alias and waits for the same row.
+    const ended = await run(
+      whileLocked(execute('SELECT 1 FROM entries WHERE id = $1::uuid FOR UPDATE', elder.id), [
+        Effect.asVoid(writeEntry({ entry: elder.id, slug: 'elderberry' })),
+        Effect.asVoid(writeEntry({ entry: elder.id, aliases: ['hazel'] })).pipe(
+          Effect.delay('300 millis'),
+        ),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    expect((await run(readEntry('elderberry'))).entry).toMatchObject({
+      body: 'About [[elderberry]] and [[hazel]].',
+      aliases: ['hazel'],
+    })
+  })
+})
+
+describe('a batch that moves an entry takes the tree lock before its slug locks', () => {
+  test('write_many moving an entry and citing a slug, while a write moves another and cites it too', async () => {
+    await run(
+      Effect.forEach(['Drawer', 'Shelf', 'Cabinet', 'Closet'], (title) =>
+        writeEntry({ type: 'note', title }),
+      ),
+    )
+    // The tree lock held while both start. The write that moves one entry queues for it first,
+    // holding nothing; the batch, without the fix, takes `lichen` before it queues.
+    const ended = await run(
+      whileLocked(execute('SELECT pg_advisory_xact_lock($1::bigint)', String(TREE_LOCK)), [
+        Effect.asVoid(
+          writeEntry({
+            entry: 'shelf',
+            parent: 'closet',
+            body: 'Grows [[lichen]].',
+            provenance: { parent: 'inferred', body: 'inferred' },
+          }),
+        ),
+        Effect.asVoid(
+          writeEntries([
+            {
+              entry: 'drawer',
+              parent: 'cabinet',
+              body: 'Grows [[lichen]] too.',
+              provenance: { parent: 'inferred', body: 'inferred' },
+            },
+          ]),
+        ).pipe(Effect.delay('300 millis')),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+    expect((await run(readEntry('drawer'))).path).toEqual(['Cabinet'])
+  })
+})
+
+describe('the rows of a batch are locked in one order', () => {
+  test('two batches of the same entries in opposite orders are both written', async () => {
+    await run(
+      Effect.forEach(['Spade', 'Rake head'], (title) => writeEntry({ type: 'note', title })),
+    )
+    const holdingType = execute("SELECT 1 FROM types WHERE name = 'note' FOR UPDATE")
+    const ended = await run(
+      whileLocked(holdingType, [
+        Effect.asVoid(
+          writeEntries([
+            { entry: 'spade', summary: 'Long handle.', provenance: { summary: 'inferred' } },
+            { entry: 'rake-head', summary: 'Wide.', provenance: { summary: 'inferred' } },
+          ]),
+        ),
+        Effect.asVoid(
+          writeEntries([
+            { entry: 'rake-head', summary: 'Wide, bent.', provenance: { summary: 'inferred' } },
+            { entry: 'spade', summary: 'Long handle, split.', provenance: { summary: 'inferred' } },
+          ]),
+        ),
+      ]),
+    )
+    expect(ended.map(outcomeOf)).toEqual(['written', 'written'])
+  })
+})
+
 describe('a body sent as it is changes nothing it names', () => {
   test('a batch that sends a body unchanged does not wait for the slugs it cites', async () => {
-    await run(writeEntry({ type: 'note', title: 'Arbour', body: 'Beside the [[sundial]].' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Arbour',
+        body: 'Beside the [[sundial]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     const outcome = await run(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient
@@ -280,7 +450,7 @@ describe('a body sent as it is changes nothing it names', () => {
         // Another transaction holds the slug the body cites, until the batch is done.
         const holder = yield* Effect.forkChild(
           sql.withTransaction(
-            execute(`SELECT pg_advisory_xact_lock(hashtext('grenier.reference sundial'))`).pipe(
+            execute(`SELECT pg_advisory_xact_lock(hashtext('hippocampe.reference sundial'))`).pipe(
               Effect.andThen(Deferred.succeed(held, undefined)),
               Effect.andThen(Deferred.await(release)),
             ),
@@ -288,7 +458,12 @@ describe('a body sent as it is changes nothing it names', () => {
         )
         yield* Deferred.await(held)
         const written = yield* writeEntries([
-          { entry: 'arbour', body: 'Beside the [[sundial]].', summary: 'Shady.' },
+          {
+            entry: 'arbour',
+            body: 'Beside the [[sundial]].',
+            summary: 'Shady.',
+            provenance: { body: 'inferred', summary: 'inferred' },
+          },
         ]).pipe(
           Effect.timeout('3 seconds'),
           Effect.as('written'),

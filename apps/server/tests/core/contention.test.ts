@@ -43,7 +43,11 @@ describe('writes lock a type before its entries', () => {
           }),
         )
         const write = Effect.delay(
-          writeEntry({ entry: 'apple-crate', fields: { size: 'large' } }),
+          writeEntry({
+            entry: 'apple-crate',
+            fields: { size: 'large' },
+            provenance: { size: 'inferred' },
+          }),
           '100 millis',
         )
         const [reached] = yield* Effect.all([change, write], { concurrency: 2 })

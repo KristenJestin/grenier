@@ -1,11 +1,11 @@
 # The nightly Markdown export
 
-Nothing depends on Grenier alone: every night, the server writes everything it holds as plain
+Nothing depends on Hippocampe alone: every night, the server writes everything it holds as plain
 Markdown into a git repository, commits what changed, and pushes it. A backup anyone can read
 without the application, and a history of what changed day by day.
 
 ```
-bun run grenier export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]
+bun run hippo export:markdown <folder> [--include-sensitive] [--remote <url>] [--deploy-key <file>]
 ```
 
 ## When it runs
@@ -25,20 +25,29 @@ The command line does the same once, as the owner, for a try or a private copy.
 ```
 _types/recipe.md                  each type: its definition in the front matter, its description
 kitchen.md                        an entry at the root
-kitchen/plum-tart.md              an entry filed under `kitchen`, beside its parent's file
+kitchen/plum-tart.md              an entry part of `kitchen`, beside its place's file
 kitchen/plum-tart/shortcrust.md   and one below it
 _rules.md                         the rules of the instance, as the owner wrote them, when set
 ```
 
-- One file per entry, `<slug>.md`, in the folder of its parent: `<parent slug>/`, beside the
-  parent's own `<parent slug>.md`. An entry's file never moves when it gets children; it moves
-  only when the entry is filed elsewhere or its slug changes.
+- One file per entry, `<slug>.md`, in the folder of the oldest place it is part of today (a link
+  `part_of` that holds, the one with the earliest `valid_from`, none being the earliest, then the
+  first made): `<place slug>/`, beside the place's own `<place slug>.md`. An entry part of several
+  places has still one file, in that one folder, never a copy: every other place lists it in its
+  own file, in `parts_elsewhere` (the `slug` of the entry and the `file` to open, a path relative
+  to the folder of the place's own file). A place that is over, or has not begun, files and lists
+  nothing; the entry's own file still says it, among its `links`. An entry's file never moves when
+  it gets children; it moves only when its oldest place changes (the entry is moved, or the place
+  it is part of is) or its slug changes.
 - The front matter holds the base fields (`id`, `type`, `title`, `slug`, `aliases`, `tags`,
   `summary`, `created`, `updated`, `valid_from`, `valid_until`, `superseded_by` as a slug,
-  `verified`, `archived_at`, `sources`), the values of the type's `fields` and their
-  `provenance` as they are stored (a field that is `many` as a list), the outgoing `links`
-  (relation and target slug, with the period and the field of a link `fulfills`, and the `note`,
-  `valid_from` and `valid_until` of a link that has them), and the `media` (hash, file under the media folder, kind,
+  `archived_at`, `sources`), the values of the type's `fields` and their
+  `provenance` as they are stored (`extracted` is known, `inferred` supposed; the keys `body` and
+  `summary` are the provenance of the body and the summary; a field that is `many` as a list), the
+  entries that are part of it and filed elsewhere (`parts_elsewhere`), the outgoing `links`
+  (relation and target slug, with its `provenance`, the period and the field of a link `fulfills`,
+  and the `note`, `valid_from` and `valid_until` of a link that has them; the places the entry is
+  or was part of are its links `part_of`), and the `media` (hash, file under the media folder, kind,
   type, size, description). Media files are not copied.
 - Then the body, as it is stored, `[[slug]]` references left as they are.
 - Archived entries are exported where they are filed, with their `archived_at`.
@@ -51,7 +60,8 @@ _rules.md                         the rules of the instance, as the owner wrote 
 ## Sensitive data
 
 Left out by default: a sensitive field is written `[hidden]`, an entry of a sensitive type is not
-written, and an entry whose parent is left out stands at the root. The id of an entry left out is
+written, and an entry whose places are all left out stands at the root (one of several places left
+out is no place: the entry is filed under the oldest of the others). The id of an entry left out is
 written nowhere: a source or an entry field naming one says `[hidden]`. `--include-sensitive` writes
 everything, for an export the owner keeps private and encrypted. The repository of the nightly
 export must be private all the same.
@@ -61,16 +71,18 @@ in a folder that has a remote, and in the folder of the nightly export (`EXPORT_
 holds one kind of export for good (a mark in its `.git`, never committed): the other kind is
 refused there, so a nightly export never commits on top of a sensitive one and pushes it. A folder
 with commits but no mark (an export made before folders were marked) is refused until the owner
-marks it: `echo plain > <folder>/.git/grenier-export` when it holds no sensitive data. The folder
+marks it: `echo plain > <folder>/.git/hippocampe-export` when it holds no sensitive data. The folder
 of the nightly export is recognised through any link to it. A field
 made sensitive later stays as it was in the commits already made, and pushed: rewriting that
-history is the owner's call, outside Grenier.
+history is the owner's call, outside Hippocampe. A folder marked under the name the mark had
+before Hippocampe was renamed (`.git/grenier-export`) keeps its mark: it is renamed on the next
+export, and the history and the remote of the folder stay as they are.
 
 ## The git side
 
 The folder is the export's: a file it did not write is removed. A folder that holds files but is
-not a git repository is refused. A commit is made only when something changed, by `Grenier
-<grenier@localhost>`, with a summary: `Export of 2026-10-07: 3 created, 2 updated, 1 archived`
+not a git repository is refused. A commit is made only when something changed, by `Hippocampe
+<hippocampe@localhost>`, with a summary: `Export of 2026-10-07: 3 created, 2 updated, 1 archived`
 (then, when there are some, the entries no longer exported and the types changed), counted
 against the last commit, whatever a run stopped in the middle left in the folder. The push never
 forces; when it fails, the commit stays and the next export pushes it with its own, and the

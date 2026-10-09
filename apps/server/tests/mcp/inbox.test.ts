@@ -12,7 +12,7 @@ beforeAll(async () => {
       return (yield* ScratchDatabase).url
     }),
   )
-  server = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-inbox' })
+  server = await startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-inbox' })
   await server.call('define_type', {
     name: 'note',
     label: 'Note',
@@ -66,16 +66,16 @@ const PIXEL =
 const LONG = `${'A line of the journal, long enough to weigh.\n'.repeat(2000)}`
 
 describe('answers carry the entry, not its content', () => {
-  test('write, archive and inbox_done answer with the entry’s identity and summary, not its body', async () => {
+  test('write (an entry, or its archiving) and inbox_finish answer with the entry’s identity and summary, not its body', async () => {
     const written = await answerOf('write', {
       type: 'note',
       title: 'Long journal',
       parent: 'garden',
       summary: 'A year in the garden.',
       body: LONG,
+      provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
     })
     expect(written).toEqual({
-      heads_up: [],
       pending_references: [],
       entry: {
         id: expect.any(String),
@@ -89,7 +89,11 @@ describe('answers carry the entry, not its content', () => {
 
     const id = await added(LONG)
     await answerOf('inbox_take', { id })
-    const done = await answerOf('inbox_done', { id, entries: ['long-journal'] })
+    const done = await answerOf('inbox_finish', {
+      id,
+      outcome: 'done',
+      entries: ['long-journal'],
+    })
     expect(JSON.stringify(done).length).toBeLessThan(2000)
     expect(done).toMatchObject({
       item: {
@@ -99,8 +103,7 @@ describe('answers carry the entry, not its content', () => {
       },
     })
 
-    expect(await answerOf('archive', { entry: 'long-journal' })).toEqual({
-      heads_up: [],
+    expect(await answerOf('write', { entry: 'long-journal', archive: {} })).toEqual({
       entry: {
         id: expect.any(String),
         slug: 'long-journal',
@@ -127,9 +130,9 @@ describe('agents plan a batch of the inbox before taking it', () => {
     expect(plain.find((item) => item.id === id)).not.toHaveProperty('preview')
   })
 
-  test('inbox_peek returns an item’s content without taking it', async () => {
+  test('inbox_list with an id returns an item’s content without taking it', async () => {
     const id = await added('Ask the neighbour about the hedge.')
-    expect(await answerOf('inbox_peek', { id })).toMatchObject({
+    expect(await answerOf('inbox_list', { id })).toMatchObject({
       item: { id, status: 'pending', text: 'Ask the neighbour about the hedge.' },
     })
     expect(await answerOf('inbox_take', { id })).toMatchObject({
@@ -144,7 +147,7 @@ describe('agents plan a batch of the inbox before taking it', () => {
     expect(await answerOf('inbox_take', { ids: ['not-an-item', first] })).toEqual({
       error: 'There is no item `not-an-item`.',
     })
-    expect(await answerOf('inbox_peek', { id: first })).toMatchObject({
+    expect(await answerOf('inbox_list', { id: first })).toMatchObject({
       item: { status: 'pending' },
     })
     const taken = itemsOf(await answerOf('inbox_take', { ids: [first, second, third] }))
@@ -189,7 +192,7 @@ describe('six agents work the inbox in parallel', () => {
     expect((await pageOf({ origin_prefix: 'wiki/', status: 'taken' })).items).toEqual([])
   })
 
-  test('an item of 260 KB is read in parts: the first with the take, the rest with inbox_read', async () => {
+  test('an item of 260 KB is read in parts: the first with the take, the rest with inbox_list', async () => {
     const journal = Array.from({ length: 5200 }, (_, line) => `Day ${line}: rain, then sun.`).join(
       '\n',
     )
@@ -205,26 +208,25 @@ describe('six agents work the inbox in parallel', () => {
     const Part = Schema.Struct({ text: Schema.String, next_offset: Schema.NullOr(Schema.Number) })
     const rest = async (offset: number | null, read: string): Promise<string> => {
       if (offset === null) return read
-      const part = Schema.decodeUnknownSync(Part)(await answerOf('inbox_read', { id, offset }))
+      const part = Schema.decodeUnknownSync(Part)(await answerOf('inbox_list', { id, offset }))
       return rest(part.next_offset, read + part.text)
     }
     expect(await rest(taken.item.next_offset, taken.item.text)).toBe(big)
   })
 
-  test('inbox_release gives back an item taken, which waits again', async () => {
+  test('inbox_finish released gives back an item taken, which waits again', async () => {
     const id = await added('Sort the seeds.')
     await answerOf('inbox_take', { id })
-    expect(await answerOf('inbox_release', { id })).toMatchObject({
+    expect(await answerOf('inbox_finish', { id, outcome: 'released' })).toMatchObject({
       item: { id, status: 'pending' },
     })
-    expect(await answerOf('inbox_peek', { id })).toMatchObject({ item: { status: 'pending' } })
+    expect(await answerOf('inbox_list', { id })).toMatchObject({ item: { status: 'pending' } })
   })
 
-  test('inbox_done answers with the item’s id and status and the entries’ identities only', async () => {
+  test('inbox_finish done answers with the item’s id and status and the entries’ identities only', async () => {
     const id = await added('The greenhouse needs a new pane.')
     await answerOf('inbox_take', { id })
-    expect(await answerOf('inbox_done', { id, entries: ['garden'] })).toEqual({
-      heads_up: [],
+    expect(await answerOf('inbox_finish', { id, outcome: 'done', entries: ['garden'] })).toEqual({
       item: {
         id,
         status: 'processed',
@@ -243,15 +245,16 @@ describe('six agents work the inbox in parallel', () => {
     })
   })
 
-  test('inbox_done attaches the file of the item to the entry given with attach', async () => {
+  test('inbox_finish done attaches the file of the item to the entry given with attach', async () => {
     const { item } = Schema.decodeUnknownSync(Added)(
       await answerOf('inbox_add', { kind: 'file', name: 'pane.png', data: PIXEL }),
     )
     // A file item is taken with its image, beside the text the other calls answer.
     await mcp().request('tools/call', { name: 'inbox_take', arguments: { id: item.id } })
     expect(
-      await answerOf('inbox_done', {
+      await answerOf('inbox_finish', {
         id: item.id,
+        outcome: 'done',
         entries: [{ entry: 'garden', attach: { alt: 'Cracked pane' } }],
       }),
     ).toMatchObject({

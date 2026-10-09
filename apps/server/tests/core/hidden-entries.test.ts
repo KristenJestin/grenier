@@ -21,7 +21,7 @@ import {
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
-const directory = mkdtempSync(join(tmpdir(), 'grenier-hidden-'))
+const directory = mkdtempSync(join(tmpdir(), 'hippocampe-hidden-'))
 
 type Database = SqlClient.SqlClient | PgClient.PgClient
 
@@ -58,16 +58,27 @@ beforeAll(async () => {
         description: 'A card filed somewhere.',
         fields: [{ name: 'kept_in', kind: 'entry' }],
       })
-      const page = yield* writeEntry({ type: 'diary', title: 'Secret page', body: 'Dawn.' })
+      const page = yield* writeEntry({
+        type: 'diary',
+        title: 'Secret page',
+        body: 'Dawn.',
+        provenance: { body: 'inferred' },
+      })
       yield* writeEntry({ type: 'folder', title: 'Spare folder' })
       yield* writeEntry({
         type: 'folder',
         title: 'Loose page',
         parent: 'secret-page',
+        provenance: { parent: 'inferred' },
         superseded_by: 'secret-page',
         sources: [{ entry: 'secret-page' }],
       })
-      yield* writeEntry({ type: 'card', title: 'Library card', fields: { kept_in: 'secret-page' } })
+      yield* writeEntry({
+        type: 'card',
+        title: 'Library card',
+        fields: { kept_in: 'secret-page' },
+        provenance: { kept_in: 'inferred' },
+      })
       return page.id
     }),
   )
@@ -77,15 +88,29 @@ afterAll(() => rmSync(directory, { recursive: true, force: true }))
 
 describe('a key without the right sensitive works around what it may not see', () => {
   test('it updates a visible entry that points to hidden entries, and the references stay', async () => {
-    const updated = await plain(writeEntry({ entry: 'loose-page', body: 'Torn at the corner.' }))
+    const updated = await plain(
+      writeEntry({
+        entry: 'loose-page',
+        body: 'Torn at the corner.',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(updated.body).toBe('Torn at the corner.')
     const { entry } = await trusted(readEntry('loose-page'))
     expect(entry).toMatchObject({
-      parent_id: secret,
       superseded_by: secret,
       sources: [{ entry: secret }],
     })
-    await plain(writeEntry({ entry: 'library-card', summary: 'The town library.' }))
+    expect((await trusted(readEntry('loose-page'))).part_of).toEqual([
+      expect.objectContaining({ id: secret }),
+    ])
+    await plain(
+      writeEntry({
+        entry: 'library-card',
+        summary: 'The town library.',
+        provenance: { summary: 'inferred' },
+      }),
+    )
     expect((await trusted(readEntry('library-card'))).entry.fields).toEqual({ kept_in: secret })
   })
 
@@ -141,8 +166,17 @@ describe('the history hides a value recorded under a field’s former name', () 
           description: 'A locker.',
           fields: [{ name: 'pin', kind: 'text' }],
         })
-        yield* writeEntry({ type: 'locker', title: 'Gym locker', fields: { pin: 'zebra-1234' } })
-        yield* writeEntry({ entry: 'gym-locker', fields: { pin: 'zebra-5678' } })
+        yield* writeEntry({
+          type: 'locker',
+          title: 'Gym locker',
+          fields: { pin: 'zebra-1234' },
+          provenance: { pin: 'inferred' },
+        })
+        yield* writeEntry({
+          entry: 'gym-locker',
+          fields: { pin: 'zebra-5678' },
+          provenance: { pin: 'inferred' },
+        })
         yield* changeField({ type: 'locker', field: 'pin', rename: 'code' })
         yield* changeField({ type: 'locker', field: 'code', sensitive: true })
       }),
@@ -169,7 +203,12 @@ describe('the history hides a value recorded under a field’s former name', () 
           description: 'A pass.',
           fields: [{ name: 'serial', kind: 'text', sensitive: true }],
         })
-        yield* writeEntry({ type: 'badge', title: 'Office badge', fields: { number: 'zebra-77' } })
+        yield* writeEntry({
+          type: 'badge',
+          title: 'Office badge',
+          fields: { number: 'zebra-77' },
+          provenance: { number: 'inferred' },
+        })
         const proposal = yield* proposeTypeMerge('badge', 'pass', { number: 'serial' })
         yield* confirmProposal(proposal.id)
       }),
@@ -194,8 +233,14 @@ describe('a key without the right sensitive cannot tell that a hidden entry exis
       plain(Effect.flip(effect)).then(({ message }) => message.replace('secret-page', 'X'))
     const missing = (effect: Effect.Effect<unknown, { readonly message: string }, Database>) =>
       plain(Effect.flip(effect)).then(({ message }) => message.replace('no-such-page', 'X'))
-    expect(await refusalOf(link('spare-folder', 'secret-page', 'about'))).toBe(
-      await missing(link('spare-folder', 'no-such-page', 'about')),
+    expect(
+      await refusalOf(
+        link('spare-folder', 'secret-page', 'about', '', '', { provenance: 'inferred' }),
+      ),
+    ).toBe(
+      await missing(
+        link('spare-folder', 'no-such-page', 'about', '', '', { provenance: 'inferred' }),
+      ),
     )
     expect(await refusalOf(unlink('spare-folder', 'secret-page', 'about'))).toBe(
       await missing(unlink('spare-folder', 'no-such-page', 'about')),
@@ -203,12 +248,12 @@ describe('a key without the right sensitive cannot tell that a hidden entry exis
   })
 
   test('the links of a visible entry leave out those to a hidden one', async () => {
-    await trusted(link('spare-folder', 'secret-page', 'about'))
+    await trusted(link('spare-folder', 'secret-page', 'about', '', '', { provenance: 'inferred' }))
     expect(await plain(linksOf('spare-folder'))).toEqual([])
     expect((await trusted(linksOf('spare-folder'))).map(({ slug }) => slug)).toEqual([
       'secret-page',
     ])
-    await trusted(link('secret-page', 'spare-folder', 'about'))
+    await trusted(link('secret-page', 'spare-folder', 'about', '', '', { provenance: 'inferred' }))
     expect(await plain(backlinksOf('spare-folder'))).toEqual([])
   })
 })
@@ -217,9 +262,21 @@ describe('the ancestors of an entry, for a breadcrumb', () => {
   test('an archived ancestor is there with its id; a hidden one without', async () => {
     const top = await trusted(writeEntry({ type: 'folder', title: 'Attic' }))
     const middle = await trusted(
-      writeEntry({ type: 'folder', title: 'Old trunk', parent: 'attic' }),
+      writeEntry({
+        type: 'folder',
+        title: 'Old trunk',
+        parent: 'attic',
+        provenance: { parent: 'inferred' },
+      }),
     )
-    await trusted(writeEntry({ type: 'folder', title: 'Letters', parent: 'old-trunk' }))
+    await trusted(
+      writeEntry({
+        type: 'folder',
+        title: 'Letters',
+        parent: 'old-trunk',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await trusted(archiveEntry('old-trunk'))
     expect((await plain(readEntry('letters'))).ancestors).toEqual([
       { id: top.id, title: 'Attic' },

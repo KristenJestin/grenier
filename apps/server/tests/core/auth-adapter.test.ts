@@ -2,14 +2,14 @@ import { memoryAdapter } from '@better-auth/memory-adapter'
 import type { BetterAuthOptions } from 'better-auth'
 import type { DBAdapter, Where } from 'better-auth/adapters'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { grenierAuthAdapter } from '../../src/core/auth/adapter.ts'
+import { hippocampeAuthAdapter } from '../../src/core/auth/adapter.ts'
 import { authSchemaOptions } from '../../src/core/auth/index.ts'
 import { sqlBridge } from '../../src/core/auth/bridge.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
 const run = useScratchDatabase()
 
-/** The options of Grenier's instance, with ids that follow one another, so both adapters agree. */
+/** The options of Hippocampe's instance, with ids that follow one another, so both adapters agree. */
 const optionsWithIds = (): BetterAuthOptions => {
   let next = 0
   return {
@@ -380,7 +380,7 @@ const SCRIPT: ReadonlyArray<Step> = [
           name: 'agent-laptop',
           start: 'gre',
           referenceId: 'id-001',
-          prefix: 'grenier_',
+          prefix: 'hippocampe_',
           key: 'hashed-1',
           enabled: true,
           rateLimitEnabled: false,
@@ -392,7 +392,7 @@ const SCRIPT: ReadonlyArray<Step> = [
           expiresAt: null,
           createdAt: day(7),
           updatedAt: day(7),
-          permissions: '{"grenier":["read","write"]}',
+          permissions: '{"hippocampe":["read","write"]}',
           metadata: null,
         },
       }),
@@ -489,7 +489,7 @@ describe('the adapter answers as Better Auth’s memory adapter', () => {
   let memory: DBAdapter
   beforeAll(async () => {
     const bridge = await run(sqlBridge)
-    sql = grenierAuthAdapter(bridge)(optionsWithIds())
+    sql = hippocampeAuthAdapter(bridge)(optionsWithIds())
     memory = memoryAdapter({
       auth_user: [],
       auth_session: [],
@@ -509,14 +509,14 @@ describe('the adapter answers as Better Auth’s memory adapter', () => {
 
 describe('the adapter refuses what is not Better Auth’s', () => {
   test('a table outside the authentication tables is refused', async () => {
-    const adapter = grenierAuthAdapter(await run(sqlBridge))(optionsWithIds())
+    const adapter = hippocampeAuthAdapter(await run(sqlBridge))(optionsWithIds())
     await expect(adapter.findOne({ model: 'entries', where: [] })).rejects.toThrow()
   })
 
   test('AND conditions and OR conditions are grouped as Better Auth’s SQL adapters group them', async () => {
     // The memory adapter folds the conditions from left to right; Kysely and Drizzle, the SQL
     // adapters of Better Auth, read them as (every AND) and (any OR). This adapter is a SQL one.
-    const adapter = grenierAuthAdapter(await run(sqlBridge))(withRandomIds())
+    const adapter = hippocampeAuthAdapter(await run(sqlBridge))(withRandomIds())
     const found = await adapter.findMany<{ readonly name: string }>({
       model: 'user',
       where: [
@@ -529,7 +529,7 @@ describe('the adapter refuses what is not Better Auth’s', () => {
   })
 
   test('a transaction that fails leaves nothing behind', async () => {
-    const adapter = grenierAuthAdapter(await run(sqlBridge))(withRandomIds())
+    const adapter = hippocampeAuthAdapter(await run(sqlBridge))(withRandomIds())
     await expect(
       adapter.transaction(async (trx) => {
         await trx.create(user(20, 'Rolled', 'rolled@example.org', false, null))
@@ -545,7 +545,7 @@ describe('the adapter refuses what is not Better Auth’s', () => {
   })
 
   test('two consumers of one row: exactly one gets it', async () => {
-    const adapter = grenierAuthAdapter(await run(sqlBridge))(withRandomIds())
+    const adapter = hippocampeAuthAdapter(await run(sqlBridge))(withRandomIds())
     await adapter.create({
       model: 'verification',
       data: {

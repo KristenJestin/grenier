@@ -1,4 +1,6 @@
-import { readEntry } from '../../core/entries/index.ts'
+import { readEntry, slugsOf } from '../../core/entries/index.ts'
+import { fieldHistoryPage, historyPage } from '../../core/events/index.ts'
+import { GRAPH_CAP, MAX_DEPTH, subgraphOf } from '../../core/graph/index.ts'
 import { Refused } from '../../core/refused.ts'
 import { Effect, Schema } from 'effect'
 import { headingsOf, sectionOf } from '../sections.ts'
@@ -14,10 +16,49 @@ const PARTS = [
   'references',
   'cited_by',
   'path',
+  'part_of',
+  'history',
 ] as const
 
-type Read = Effect.Success<ReturnType<typeof readEntry>>
 type Part = (typeof PARTS)[number]
+
+/** The parts of a read without a `parts`: everything but the body and the history, which are long and paged. */
+const CONCISE = PARTS.filter((part) => part !== 'body' && part !== 'history')
+
+/**
+ * A read as an agent is given it: the entries it names by slug, the id kept beside. The successor
+ * of the entry (`superseded_by` is a slug, `superseded_by_id` its id; a write takes either) and the
+ * titles of the entries its fields name (its children's too), which the core keys by id: here by
+ * slug, each with its id.
+ */
+const namedBySlug = Effect.fn('namedBySlug')(function* (
+  read: Effect.Success<ReturnType<typeof readEntry>>,
+) {
+  const { superseded_by, ...entry } = read.entry
+  const slugs = yield* slugsOf([
+    ...(superseded_by === null ? [] : [superseded_by]),
+    ...Object.keys(read.titles),
+    ...read.children.flatMap(({ titles }) => Object.keys(titles ?? {})),
+  ])
+  const slugOfId = (id: string | null) => (id === null ? null : (slugs[id] ?? id))
+  const titled = (titles: { readonly [id: string]: string }) =>
+    Object.fromEntries(
+      Object.entries(titles).map(([id, title]) => [slugs[id] ?? id, { id, title }]),
+    )
+  return {
+    ...read,
+    entry: {
+      ...entry,
+      superseded_by: slugOfId(superseded_by),
+      superseded_by_id: superseded_by,
+    },
+    titles: titled(read.titles),
+    children: read.children.map(({ titles, ...child }) =>
+      titles === undefined ? child : { ...child, titles: titled(titles) },
+    ),
+  }
+})
+type Read = Effect.Success<ReturnType<typeof namedBySlug>>
 
 /** What each part adds beside the entry. */
 const BESIDE: Record<Part, ReadonlyArray<Exclude<keyof Read, 'entry'>>> = {
@@ -29,11 +70,13 @@ const BESIDE: Record<Part, ReadonlyArray<Exclude<keyof Read, 'entry'>>> = {
   references: ['references'],
   cited_by: ['cited_by'],
   path: ['path', 'ancestors'],
+  part_of: ['part_of'],
+  history: [],
 }
 
 /** The keys of the entry that come only with a part: its body, its fields. */
 const WITHIN: Partial<Record<Part, ReadonlyArray<string>>> = {
-  body: ['body'],
+  body: ['body', 'provenance'],
   fields: ['fields', 'provenance', 'sources'],
 }
 
@@ -51,8 +94,7 @@ const partsOf = (read: Read, parts: ReadonlyArray<Part>) => {
 
 export const readTool = defineTool({
   name: 'read',
-  description:
-    'Reads an entry with its place in the tree, its children and its links both ways, each link with its relation, its note and its dates (`valid_from`, `valid_until`). `titles` gives the titles of the entries its `entry` fields name, by id. A long entry is read in parts: `parts` to have only some of it (the entry then comes without its body unless `body` is asked), `headings` for the headings of its body, then `section` for the text under one of them.',
+  description: `Reads an entry with its place in the tree (\`path\`, through the oldest place it is part of today, and \`part_of\`, every place it is or was part of, with its dates and whether it is known or supposed), its children and its links both ways, each link with its relation, whether it is known or supposed (\`provenance\`), its note and its dates (\`valid_from\`, \`valid_until\`), but without its body: ask for it with \`parts: ["body"]\`. The successor is given by slug (\`superseded_by\`) with its id beside (\`superseded_by_id\`); \`titles\` gives the titles of the entries its \`entry\` fields name, by slug with their id. \`parts: ["history"]\` gives its history instead, newest first, a page at a time (\`limit\`, 20 by default and 100 at most; then \`cursor\` with the \`next_cursor\` given): a long text, such as a body, comes as its size and an excerpt, and \`field\` reads the changes of that one field whole. A long entry is read in parts: \`parts\` to have only some of it, \`headings\` for the headings of its body, then \`section\` for the text under one of them. \`depth\` 2 or 3 adds a \`graph\`: the entries within that many edges (places, links, \`entry\` fields) with the edges between them, at most ${GRAPH_CAP} entries, nearest first, \`cut: true\` when there were more. Follow it as far as it helps.`,
   input: Schema.Struct({
     entry: Reference,
     headings: Schema.optionalKey(Schema.Boolean).annotate({
@@ -63,12 +105,37 @@ export const readTool = defineTool({
     }),
     parts: Schema.optionalKey(Schema.Array(Schema.Literals(PARTS))).annotate({
       description:
-        'Only these parts, with the entry itself: `fields` (with its sources and the titles of the entries its fields name), `body`, `links` (both ways), `media`, `children`, `references`, `cited_by`, `path` (with its ancestors).',
+        'Only these parts, with the entry itself: `fields` (with their `provenance`, known or supposed, that of the `body` and the `summary` too, its sources and the titles of the entries its fields name), `body`, `links` (both ways), `media`, `children`, `references`, `cited_by`, `path` (with its ancestors), `part_of`, `history`. Without `parts`, all of them but `body` and `history`.',
+    }),
+    depth: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_DEPTH })),
+    ).annotate({
+      description: `How far to follow the edges around the entry: 1 (the default) is the entry alone, 2 and 3 add a \`graph\` of the entries that far, with the edges between them. ${MAX_DEPTH} at most.`,
+    }),
+    field: Schema.optionalKey(Schema.String).annotate({
+      description:
+        'For the part `history`: only the changes of this field, whole: `title`, `body`, `fields.provider`…',
+    }),
+    limit: Schema.optionalKey(Schema.Int).annotate({
+      description: 'For the part `history`: how many events, 20 by default and 100 at most.',
+    }),
+    cursor: Schema.optionalKey(Schema.String).annotate({
+      description:
+        'For the part `history`: the `next_cursor` of the previous page, to read the next one.',
     }),
   }),
   right: 'read',
-  run: ({ entry, headings, section, parts }) =>
+  run: ({ entry, headings, section, parts, depth, field, limit, cursor }) =>
     Effect.gen(function* () {
+      const wanted = parts ?? CONCISE
+      const stray = Object.entries({ field, limit, cursor }).flatMap(([key, value]) =>
+        value === undefined ? [] : [`\`${key}\``],
+      )
+      if (!wanted.includes('history') && stray.length > 0) {
+        return yield* new Refused({
+          message: `Only the part \`history\` takes ${stray.join(', ')}: ask for \`parts: ["history"]\`.`,
+        })
+      }
       const read = yield* readEntry(entry)
       if (section !== undefined) {
         const found = sectionOf(read.entry.body, section)
@@ -80,6 +147,18 @@ export const readTool = defineTool({
         return { section: found }
       }
       if (headings === true) return { headings: headingsOf(read.entry.body) }
-      return parts === undefined ? read : partsOf(read, parts)
+      const answer = partsOf(yield* namedBySlug(read), wanted)
+      const withHistory = wanted.includes('history')
+        ? {
+            ...answer,
+            history:
+              field === undefined
+                ? yield* historyPage(entry, { limit, cursor })
+                : yield* fieldHistoryPage(entry, field, { limit, cursor }),
+          }
+        : answer
+      return depth === undefined || depth === 1
+        ? withHistory
+        : { ...withHistory, graph: yield* subgraphOf(entry, depth) }
     }),
 })

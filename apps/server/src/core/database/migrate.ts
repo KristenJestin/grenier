@@ -23,7 +23,7 @@ const local = readMigrationFiles({ migrationsFolder })
 /** Where Drizzle records the migrations it applied. */
 const JOURNAL = 'drizzle.__drizzle_migrations'
 
-/** The table and the last migration of the migrations Grenier was made with before Drizzle. */
+/** The table and the last migration of the migrations Hippocampe was made with before Drizzle. */
 const EFFECT_JOURNAL = 'effect_sql_migrations'
 const EFFECT_LAST = 12
 
@@ -31,7 +31,7 @@ export class MigrationsBehind extends Schema.TaggedError<MigrationsBehind>()('Mi
   version: Schema.Number,
 }) {
   override get message() {
-    return `This database stands at migration ${this.version} of the migrations before Drizzle, not ${EFFECT_LAST}: migrate it with the previous version of Grenier first.`
+    return `This database stands at migration ${this.version} of the migrations before Drizzle, not ${EFFECT_LAST}: migrate it with the previous version of Hippocampe first.`
   }
 }
 
@@ -65,7 +65,7 @@ const applied = Effect.gen(function* () {
 })
 
 /**
- * Takes over a database made by the migrations Grenier had before Drizzle: when it stands at the
+ * Takes over a database made by the migrations Hippocampe had before Drizzle: when it stands at the
  * last of them, its schema is the baseline's, so the baseline is recorded as applied. Nothing
  * else changes; the next migrations apply on top. The former journal stays as it is, so the
  * previous release still starts on the database; Drizzle's journal tells the takeover is done.

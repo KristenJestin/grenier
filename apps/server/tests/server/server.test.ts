@@ -7,9 +7,17 @@ import { createServer, connect as connectTcp } from 'node:net'
 import type { Server, Socket } from 'node:net'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { TOOL_NAMES } from '../../src/mcp/tools.ts'
-import { Auth } from '../../src/core/auth/index.ts'
-import { HIDDEN, TreeEntry } from '@grenier/api/model'
-import { Authorization, Forbidden, GrenierApi, NotFound, Unauthorized } from '@grenier/api/http'
+import { Auth, Rights } from '../../src/core/auth/index.ts'
+import { Actor } from '../../src/core/events/index.ts'
+import { confirmProposal } from '../../src/core/types/index.ts'
+import { HIDDEN, TreeEntry } from '@hippocampe/api/model'
+import {
+  Authorization,
+  Forbidden,
+  HippocampeApi,
+  NotFound,
+  Unauthorized,
+} from '@hippocampe/api/http'
 import { Validator } from '@seriousme/openapi-schema-validator'
 import { ConfigProvider, Effect, Layer, ManagedRuntime, Predicate, Schema } from 'effect'
 import { FetchHttpClient, HttpClientRequest } from 'effect/http'
@@ -40,7 +48,7 @@ const createKey = (name: string, rights: ReadonlyArray<string>) =>
 
 const bearer = (secret: string) => ({ authorization: `Bearer ${secret}` })
 let writer = ''
-const mediaDirectory = mkdtempSync(join(tmpdir(), 'grenier-server-media-'))
+const mediaDirectory = mkdtempSync(join(tmpdir(), 'hippocampe-server-media-'))
 
 /** A TCP proxy to the database, which the test can cut to take the database down. */
 function proxyTo(target: URL) {
@@ -119,10 +127,10 @@ beforeAll(async () => {
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
       MEDIA_DIR: mediaDirectory,
-      GRENIER_INSTANCE: 'development',
-      GRENIER_INSTANCE_LABEL: 'Test bench',
-      GRENIER_VERSION: '1.2.3-test',
-      GRENIER_COMMIT: 'abc1234',
+      HIPPOCAMPE_INSTANCE: 'development',
+      HIPPOCAMPE_INSTANCE_LABEL: 'Test bench',
+      HIPPOCAMPE_VERSION: '1.2.3-test',
+      HIPPOCAMPE_COMMIT: 'abc1234',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -157,7 +165,24 @@ describe('the MCP tools over HTTP', () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
     const { result } = await client.request('tools/list', {})
     const { tools } = Schema.decodeUnknownSync(Tools)(result)
-    expect(tools.map(({ name }) => name).toSorted()).toEqual([...TOOL_NAMES].toSorted())
+    // In the fixed order.
+    expect(tools.map(({ name }) => name)).toEqual(TOOL_NAMES)
+  })
+
+  test('each key lists the tools of its rights, on a session and without one', async () => {
+    const readerKey = bearer(await createKey('agent-lister-reader', ['read']))
+    const namesOf = (listed: Schema.Json | undefined) =>
+      Schema.decodeUnknownSync(Tools)(listed).tools.map(({ name }) => name)
+    const sessioned = await connect(`${base}/mcp`, readerKey)
+    const stateless = connectStateless(`${base}/mcp`, readerKey)
+    const reads = namesOf((await sessioned.request('tools/list', {})).result)
+    expect(reads).toEqual(namesOf((await stateless.request('tools/list', {})).result))
+    expect(reads).toContain('search')
+    expect(reads).not.toContain('write')
+    // Another key, with more rights, is not served the first one's list.
+    const wide = await connect(`${base}/mcp`, bearer(writer))
+    expect(namesOf((await wide.request('tools/list', {})).result)).toContain('write')
+    expect(namesOf((await sessioned.request('tools/list', {})).result)).toEqual(reads)
   })
 
   test('define a type, write an entry, read it back, and get a refusal in sentences', async () => {
@@ -174,11 +199,17 @@ describe('the MCP tools over HTTP', () => {
     expect(await client.call('read', { entry: 'over-the-wire' })).toMatchObject({
       result: { entry: { title: 'Over the wire' }, path: [] },
     })
-    expect(await client.call('history', { entry: 'over-the-wire' })).toMatchObject({
-      result: { events: [{ actor: 'agent-laptop', action: 'create' }] },
-    })
+    expect(await client.call('read', { entry: 'over-the-wire', parts: ['history'] })).toMatchObject(
+      {
+        result: { history: { events: [{ actor: 'agent-laptop', action: 'create' }] } },
+      },
+    )
     expect(
-      await client.call('write', { type: 'note', title: 'Odd', fields: { colour: 'red' } }),
+      await client.call('write', {
+        type: 'note',
+        title: 'Odd',
+        fields: { colour: 'red' },
+      }),
     ).toEqual({
       error: 'The field `fields.colour` is not expected.',
     })
@@ -213,9 +244,9 @@ describe('only known agents use the server', () => {
       status: 401,
       body: { error: 'A key is required: send it as `Authorization: Bearer <key>`.' },
     })
-    expect(await statusOf(bearer('grenier_wrong'))).toEqual({
+    expect(await statusOf(bearer('hippocampe_wrong'))).toEqual({
       status: 401,
-      body: { error: 'This key is not known to Grenier: check it, or ask the owner for one.' },
+      body: { error: 'This key is not known to Hippocampe: check it, or ask the owner for one.' },
     })
     const revoked = await createKey('agent-revoked', ['read'])
     await database.runPromise(
@@ -225,7 +256,7 @@ describe('only known agents use the server', () => {
     )
     expect(await statusOf(bearer(revoked))).toEqual({
       status: 401,
-      body: { error: 'This key was revoked: ask the owner of Grenier for a new one.' },
+      body: { error: 'This key was revoked: ask the owner of Hippocampe for a new one.' },
     })
   })
 
@@ -235,13 +266,13 @@ describe('only known agents use the server', () => {
         response.headers.get('www-authenticate'),
       )
     expect(await challengeOf({})).toBe(
-      'Bearer realm="grenier", error_description="A key is required: send it as `Authorization: Bearer <key>`."',
+      'Bearer realm="hippocampe", error_description="A key is required: send it as `Authorization: Bearer <key>`."',
     )
-    expect(await challengeOf(bearer('grenier_wrong'))).toBe(
-      'Bearer realm="grenier", error="invalid_token", error_description="This key is not known to Grenier: check it, or ask the owner for one."',
+    expect(await challengeOf(bearer('hippocampe_wrong'))).toBe(
+      'Bearer realm="hippocampe", error="invalid_token", error_description="This key is not known to Hippocampe: check it, or ask the owner for one."',
     )
     expect(await challengeOf(bearer(await revokedKey('agent-revoked-challenge')))).toBe(
-      'Bearer realm="grenier", error="invalid_token", error_description="This key was revoked: ask the owner of Grenier for a new one."',
+      'Bearer realm="hippocampe", error="invalid_token", error_description="This key was revoked: ask the owner of Hippocampe for a new one."',
     )
   })
 
@@ -253,8 +284,15 @@ describe('only known agents use the server', () => {
     expect(await reader.call('search', { query: 'wire' })).toMatchObject({
       result: { results: [{ slug: 'over-the-wire' }] },
     })
-    expect(await reader.call('write', { type: 'note', title: 'Not allowed' })).toEqual({
-      error: 'This key may not write: ask the owner of Grenier for a key with the right `write`.',
+    // `write` is not listed to this key, so it is refused as a tool that does not exist.
+    expect(
+      await reader.request('tools/call', {
+        name: 'write',
+        arguments: { type: 'note', title: 'Not allowed' },
+      }),
+    ).toMatchObject({ error: { message: "Tool 'write' not found" } })
+    expect(await reader.call('search', { query: 'Not allowed' })).toMatchObject({
+      result: { results: [] },
     })
   })
 })
@@ -307,17 +345,21 @@ describe('each key writes under its own name', () => {
     )
     await laptop.call('write', { type: 'note', title: 'From the laptop' })
     await phone.call('write', { type: 'note', title: 'From the phone' })
-    expect(await phone.call('history', { entry: 'from-the-laptop' })).toMatchObject({
-      result: { events: [{ actor: 'agent-laptop' }] },
+    expect(
+      await phone.call('read', { entry: 'from-the-laptop', parts: ['history'] }),
+    ).toMatchObject({
+      result: { history: { events: [{ actor: 'agent-laptop' }] } },
     })
-    expect(await laptop.call('history', { entry: 'from-the-phone' })).toMatchObject({
-      result: { events: [{ actor: 'agent-phone' }] },
+    expect(
+      await laptop.call('read', { entry: 'from-the-phone', parts: ['history'] }),
+    ).toMatchObject({
+      result: { history: { events: [{ actor: 'agent-phone' }] } },
     })
   })
 })
 
 describe('changing types through keys', () => {
-  test('an agent key proposes a merge but cannot confirm it; an owner key confirms it', async () => {
+  test('an agent key proposes a merge, no key confirms it over MCP, and the owner confirms it from the command line', async () => {
     const agent = await connect(`${base}/mcp`, bearer(writer))
     await agent.call('define_type', {
       name: 'film',
@@ -332,25 +374,33 @@ describe('changing types through keys', () => {
       fields: [],
     })
     await agent.call('write', { type: 'film', title: 'Old reel' })
-    const proposed = await agent.call('propose_type_change', {
-      action: 'merge',
+    const proposed = await agent.call('change_type', {
       type: 'film',
-      into: 'movie',
+      propose: { action: 'merge', into: 'movie' },
     })
     const { id } = Schema.decodeUnknownSync(
       Schema.Struct({ proposal: Schema.Struct({ id: Schema.String }) }),
     )('result' in proposed ? proposed.result : null).proposal
-    expect(await agent.call('confirm_proposal', { id })).toEqual({
-      error:
-        'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
-    })
+    // No key lists `confirm_proposal`, the owner's included: it is refused as an unknown tool.
     const owner = await connect(
       `${base}/mcp`,
       bearer(await createKey('owner-desk', ['read', 'write', 'owner'])),
     )
-    expect(await owner.call('confirm_proposal', { id })).toMatchObject({
-      result: { proposal: { status: 'confirmed' } },
-    })
+    const refusals = await Promise.all(
+      [agent, owner].map((client) =>
+        client.request('tools/call', { name: 'confirm_proposal', arguments: { id } }),
+      ),
+    )
+    for (const refusal of refusals) {
+      expect(refusal).toMatchObject({ error: { message: "Tool 'confirm_proposal' not found" } })
+    }
+    // `proposal:confirm` of the command line does what the core does for the owner.
+    await database.runPromise(
+      confirmProposal(id).pipe(
+        Effect.provideService(Actor, 'owner'),
+        Effect.provideService(Rights, ['read', 'write', 'sensitive', 'owner']),
+      ),
+    )
     expect(await agent.call('read', { entry: 'old-reel' })).toMatchObject({
       result: { entry: { type: 'movie' } },
     })
@@ -376,14 +426,14 @@ describe('media over HTTP', () => {
     const refused = await fetch(`${base}${media.url}`, { headers: bearer(writeOnly) })
     expect(refused.status).toBe(403)
     expect(await refused.json()).toEqual({
-      error: 'This key may not read: ask the owner of Grenier for a key with the right `read`.',
+      error: 'This key may not read: ask the owner of Hippocampe for a key with the right `read`.',
     })
   })
 })
 
 describe('MCP protocol versions', () => {
   test('a client on 2026-07-28 and one on 2025-11-25 both list the tools and call one', async () => {
-    const expected = [...TOOL_NAMES].toSorted()
+    const expected = TOOL_NAMES.toSorted()
     const stateless = connectStateless(`${base}/mcp`, bearer(writer))
     const { result } = await stateless.request('tools/list', {})
     expect(
@@ -418,7 +468,7 @@ describe('MCP protocol versions', () => {
   })
 
   test('a missing resource answers JSON-RPC -32602', async () => {
-    const uri = 'grenier://nothing-here'
+    const uri = 'hippocampe://nothing-here'
     const { error } = await connectStateless(`${base}/mcp`, bearer(writer)).request(
       'resources/read',
       { uri },
@@ -440,9 +490,33 @@ const answerOf = (answer: { result: Schema.Json } | { error: string }) => {
   return data
 }
 
+/** Every part a read may be asked for: with them, MCP answers with what the read API does. */
+const ALL_PARTS = [
+  'fields',
+  'body',
+  'links',
+  'media',
+  'children',
+  'references',
+  'cited_by',
+  'path',
+  'part_of',
+]
+
+/**
+ * A read over MCP as the read API tells it: MCP names the successor by slug with its id beside,
+ * and keys the titles by slug; the API keeps ids. For an entry that names none.
+ */
+const asTheApiTellsIt = (data: typeof Answer.Type) => {
+  const { entry, titles, ...rest } = data
+  expect(titles).toEqual({})
+  const { superseded_by_id, ...kept } = Schema.decodeUnknownSync(Answer)(entry)
+  return { ...rest, entry: { ...kept, superseded_by: superseded_by_id }, titles: {} }
+}
+
 /** A typed client derived from the API definition, sending `secret` as its key when given. */
 const apiClient = (secret: string | undefined) =>
-  HttpApiClient.make(GrenierApi, { baseUrl: base }).pipe(
+  HttpApiClient.make(HippocampeApi, { baseUrl: base }).pipe(
     Effect.provide(
       HttpApiMiddleware.layerClient(Authorization, ({ next, request }) =>
         next(secret === undefined ? request : HttpClientRequest.bearerToken(request, secret)),
@@ -462,10 +536,11 @@ describe('the read API', () => {
     const reader = await createKey('api-reader', ['read'])
     const overMcp = await connectStateless(`${base}/mcp`, bearer(reader)).call('read', {
       entry: 'over-the-wire',
+      parts: ALL_PARTS,
     })
     expect(await get('/api/entries/over-the-wire', bearer(reader))).toEqual({
       status: 200,
-      body: answerOf(overMcp),
+      body: asTheApiTellsIt(answerOf(overMcp)),
     })
   })
 
@@ -479,14 +554,14 @@ describe('the read API', () => {
     const forbidden = await get('/api/entries/over-the-wire', bearer(writeOnly))
     expect(forbidden.status).toBe(403)
     expect(Schema.decodeUnknownSync(Forbidden)(forbidden.body).message).toBe(
-      'This key may not read: ask the owner of Grenier for a key with the right `read`.',
+      'This key may not read: ask the owner of Hippocampe for a key with the right `read`.',
     )
     const unknown = await get('/api/entries/nowhere-at-all')
     expect(unknown.status).toBe(404)
     expect(Schema.decodeUnknownSync(NotFound)(unknown.body).message).toContain('nowhere-at-all')
   })
 
-  test('GET /api/entries lists the tree: every entry the key may see, with its parent', async () => {
+  test('GET /api/entries lists the tree: every entry the key may see, with the places it is part of', async () => {
     const { status, body } = await get(
       '/api/entries',
       bearer(await createKey('tree-reader', ['read'])),
@@ -496,21 +571,76 @@ describe('the read API', () => {
       Schema.Struct({ entries: Schema.Array(TreeEntry) }),
     )(body)
     expect(entries).toContainEqual(
-      expect.objectContaining({ slug: 'over-the-wire', type: 'note', parent_id: null }),
+      expect.objectContaining({ slug: 'over-the-wire', type: 'note', part_of: [] }),
     )
   })
 
-  test('types and search answer as list_types and search do over MCP', async () => {
+  test('GET /api/entries lists an entry part of two places under both, and /api/entries/{slug} gives both with their dates', async () => {
     const agent = connectStateless(`${base}/mcp`, bearer(writer))
-    const listed = await agent.call('list_types', {})
+    await agent.call('write', { type: 'note', title: 'Left shelf' })
+    await agent.call('write', { type: 'note', title: 'Right shelf' })
+    await agent.call('write', {
+      type: 'note',
+      title: 'Shared lamp',
+      parent: 'left-shelf',
+      provenance: { parent: 'inferred' },
+    })
+    await agent.call('link', {
+      source: 'shared-lamp',
+      target: 'right-shelf',
+      relation: 'part_of',
+      provenance: 'inferred',
+      valid_from: '2026-02-01',
+    })
+    const reader = bearer(await createKey('places-reader', ['read']))
+    const { entries } = Schema.decodeUnknownSync(
+      Schema.Struct({ entries: Schema.Array(TreeEntry) }),
+    )((await get('/api/entries', reader)).body)
+    const ids = Object.fromEntries(entries.map(({ slug, id }) => [slug, id]))
+    expect(entries.find(({ slug }) => slug === 'shared-lamp')?.part_of).toEqual([
+      { id: ids['left-shelf'], in_parent: false },
+      { id: ids['right-shelf'], in_parent: false },
+    ])
+    const lamp = await get('/api/entries/shared-lamp', reader)
+    expect(lamp.body.part_of).toEqual([
+      expect.objectContaining({ slug: 'left-shelf', provenance: 'inferred', valid_from: null }),
+      expect.objectContaining({
+        slug: 'right-shelf',
+        provenance: 'inferred',
+        valid_from: '2026-02-01',
+      }),
+    ])
+    expect(lamp.body.path).toEqual(['Left shelf'])
+    const listed = await get('/api/entries?under=right-shelf', reader)
+    expect(listed.body.entries.map(({ slug }: { slug: string }) => slug)).toEqual(['shared-lamp'])
+  })
+
+  test('types and search answer as the types tool and search do over MCP', async () => {
+    const agent = connectStateless(`${base}/mcp`, bearer(writer))
+    const listed = await agent.call('types', {})
     expect(await get('/api/types')).toEqual({
       status: 200,
       body: answerOf(listed),
     })
+    // MCP also says when and by whom an entry changed, and its neighbors; the read API does not.
     const found = await agent.call('search', { query: 'wire', type: 'note', limit: 5 })
+    const { results } = Schema.decodeUnknownSync(
+      Schema.Struct({ results: Schema.Array(Schema.Json) }),
+    )(answerOf(found))
+    expect(results.length).toBeGreaterThan(0)
     expect(await get('/api/search?q=wire&type=note&limit=5')).toEqual({
       status: 200,
-      body: answerOf(found),
+      body: {
+        results: results.map((result) => {
+          const {
+            updated: _,
+            by: __,
+            neighbors: ___,
+            ...kept
+          } = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(result)
+          return kept
+        }),
+      },
     })
   })
 
@@ -527,6 +657,7 @@ describe('the read API', () => {
       type: 'safe',
       title: 'Office safe',
       fields: { combination: '7-3-9' },
+      provenance: { combination: 'inferred' },
     })
     expect(await get('/api/entries/office-safe')).toMatchObject({
       status: 200,
@@ -554,13 +685,14 @@ describe('the read API', () => {
   test('through the typed client: the same entry, and Unauthorized without a key', async () => {
     const overMcp = await connectStateless(`${base}/mcp`, bearer(writer)).call('read', {
       entry: 'over-the-wire',
+      parts: ALL_PARTS,
     })
     const read = await Effect.runPromise(
       Effect.flatMap(apiClient(writer), (client) =>
         client.entries.read({ params: { entry: 'over-the-wire' } }),
       ),
     )
-    expect(read).toEqual(answerOf(overMcp))
+    expect(read).toEqual(asTheApiTellsIt(answerOf(overMcp)))
     const refused = await Effect.runPromise(
       Effect.flatMap(apiClient(undefined), (client) =>
         Effect.flip(client.entries.read({ params: { entry: 'over-the-wire' } })),
@@ -602,11 +734,20 @@ describe('the read API lists, filters and tells the history', () => {
       title: 'Oil the gate',
       tags: ['outside', 'metal'],
       fields: { code: 'gate-42' },
+      provenance: { code: 'inferred' },
     })
     await agent.call('write', { type: 'chore', title: 'Polish the kettle', tags: ['metal'] })
     await agent.call('write', { type: 'secret-chore', title: 'Hide the key' })
-    await agent.call('write', { entry: 'oil-the-gate', body: 'Oil it. '.repeat(200) })
-    await agent.call('write', { entry: 'oil-the-gate', fields: { code: 'gate-43' } })
+    await agent.call('write', {
+      entry: 'oil-the-gate',
+      body: 'Oil it. '.repeat(200),
+      provenance: { body: 'inferred' },
+    })
+    await agent.call('write', {
+      entry: 'oil-the-gate',
+      fields: { code: 'gate-43' },
+      provenance: { code: 'inferred' },
+    })
   })
 
   test('the history of an entry comes newest first, in pages, a long body as an excerpt', async () => {
@@ -651,7 +792,7 @@ describe('the read API lists, filters and tells the history', () => {
     expect((await get('/api/entries/hide-the-key/history', trusted)).status).toBe(200)
   })
 
-  test('entries listed by type, by two tags, by verified=false, sorted by title', async () => {
+  test('entries listed by type, by two tags, by supposed=true, sorted by title', async () => {
     const titles = async (query: string) =>
       (await get(`/api/entries?${query}`, trusted)).body.entries.map(
         ({ title }: { title: string }) => title,
@@ -663,11 +804,8 @@ describe('the read API lists, filters and tells the history', () => {
     ])
     expect(await titles('tag=outside&tag=metal')).toEqual(['Oil the gate'])
     expect(await titles('tag=metal')).toEqual(['Oil the gate', 'Polish the kettle'])
-    expect(await titles('type=chore&verified=false')).toEqual([
-      'Oil the gate',
-      'Polish the kettle',
-      'Sweep the yard',
-    ])
+    expect(await titles('type=chore&supposed=true')).toEqual(['Oil the gate'])
+    expect(await titles('type=chore&unstated=true')).toEqual([])
     const paged = await get('/api/entries?type=chore&limit=2', trusted)
     expect(paged.body.entries).toHaveLength(2)
     const next = await get(
@@ -677,7 +815,7 @@ describe('the read API lists, filters and tells the history', () => {
     expect(next.body).toMatchObject({ entries: [{ title: 'Sweep the yard' }], next_cursor: null })
   })
 
-  test('search filtered by tag and by verified', async () => {
+  test('search filtered by tag and by supposed, each result saying what is supposed', async () => {
     const slugs = async (query: string) =>
       (await get(`/api/search?${query}`, trusted)).body.results.map(
         ({ slug }: { slug: string }) => slug,
@@ -686,7 +824,18 @@ describe('the read API lists, filters and tells the history', () => {
       expect.arrayContaining(['oil-the-gate', 'polish-the-kettle']),
     )
     expect(await slugs('q=the&tag=metal&tag=outside')).toEqual(['oil-the-gate'])
-    expect(await slugs('q=gate&verified=true')).toEqual([])
+    expect(await slugs('q=gate&supposed=true')).toEqual(['oil-the-gate'])
+    expect(await slugs('q=kettle&supposed=true')).toEqual([])
+    expect(await slugs('q=gate&unstated=true')).toEqual([])
+    const found = await get('/api/search?q=gate&supposed=true', trusted)
+    expect(found.body.results[0]).toMatchObject({
+      slug: 'oil-the-gate',
+      summary: '',
+      supposed: [
+        { what: 'code', by: 'api-lister' },
+        { what: 'body', by: 'api-lister' },
+      ],
+    })
   })
 })
 
@@ -776,14 +925,91 @@ describe('each MCP session starts with the types of the instance', () => {
     expect(second.instructions).toContain(
       '- `widget`: Use it when the user speaks of a part of an interface.',
     )
-    expect(await first.call('get_type', { name: 'widget' })).toMatchObject({
+    expect(await first.call('types', { name: 'widget' })).toMatchObject({
       result: { type: { name: 'widget' } },
     })
   })
 })
 
+describe('each MCP session starts with its working memory', () => {
+  const linesOf = (instructions: string | undefined) =>
+    (instructions ?? '').split('\n').filter((line) => /^- `[^`]+` \(/.test(line))
+
+  test('an entry written after the first session started is the first of the next session, with when and by which key', async () => {
+    const memoryWriter = await createKey('agent-memory', ['read', 'write'])
+    const first = await connect(`${base}/mcp`, bearer(memoryWriter), '2025-11-25')
+    expect(first.instructions).toContain('This session writes as the key `agent-memory`.')
+    await first.call('define_type', {
+      name: 'topic',
+      label: 'Topic',
+      description: 'Use it for a subject to remember.',
+      fields: [],
+    })
+    await first.call('write', { type: 'topic', title: 'Memory of the first session' })
+    const second = await connect(`${base}/mcp`, bearer(memoryWriter), '2025-11-25')
+    expect(linesOf(second.instructions)[0]).toMatch(
+      /^- `memory-of-the-first-session` \(topic\) Memory of the first session: \d{4}-\d\d-\d\dT\d\d:\d\dZ, by `agent-memory`$/,
+    )
+    // The first session keeps what it was told; a third one is told what changed since.
+    await second.call('write', { type: 'topic', title: 'Written during the second session' })
+    expect(linesOf(first.instructions).join('\n')).not.toContain('written-during-the-second')
+    const third = await connect(`${base}/mcp`, bearer(memoryWriter), '2025-11-25')
+    expect(
+      linesOf(third.instructions)
+        .slice(0, 2)
+        .map((line) => line.split(' ')[1]),
+    ).toEqual(['`written-during-the-second-session`', '`memory-of-the-first-session`'])
+  })
+
+  test('at most 10 entries are listed, and they say which key changed them', async () => {
+    const lister = await createKey('agent-lister-memory', ['read', 'write'])
+    const agent = await connect(`${base}/mcp`, bearer(lister), '2025-11-25')
+    // One after the other: the newest is the last.
+    await Array.from({ length: 12 }, (_, index) => index).reduce<Promise<unknown>>(
+      (previous, index) =>
+        previous.then(() => agent.call('write', { type: 'topic', title: `Listed topic ${index}` })),
+      Promise.resolve(),
+    )
+    const next = await connect(`${base}/mcp`, bearer(lister), '2025-11-25')
+    expect(linesOf(next.instructions)).toHaveLength(10)
+    expect(linesOf(next.instructions)[0]).toContain('`listed-topic-11`')
+    expect(
+      linesOf(next.instructions).every((line) => line.endsWith('by `agent-lister-memory`')),
+    ).toBe(true)
+  })
+
+  test('an entry of a sensitive type is absent for a key without `sensitive`, present with it', async () => {
+    const trusted = await createKey('agent-memory-trusted', ['read', 'write', 'sensitive'])
+    const plain = await createKey('agent-memory-plain', ['read', 'write'])
+    const vault = await connect(`${base}/mcp`, bearer(trusted), '2025-11-25')
+    await vault.call('define_type', {
+      name: 'vaulted',
+      label: 'Vaulted',
+      description: 'Something kept out of sight.',
+      fields: [],
+      sensitive: true,
+    })
+    await vault.call('write', { type: 'vaulted', title: 'Hidden from most' })
+    expect(
+      linesOf((await connect(`${base}/mcp`, bearer(trusted), '2025-11-25')).instructions)[0],
+    ).toContain('`hidden-from-most`')
+    const told = (await connect(`${base}/mcp`, bearer(plain), '2025-11-25')).instructions ?? ''
+    expect(told).not.toContain('hidden-from-most')
+    expect(told).not.toContain('Hidden from most')
+  })
+
+  test('a key that only reads gets the working memory but not the writing standard', async () => {
+    const readOnly = await createKey('agent-memory-reader', ['read'])
+    const told = (await connect(`${base}/mcp`, bearer(readOnly), '2025-11-25')).instructions ?? ''
+    expect(told).toContain('This session reads with the key `agent-memory-reader`.')
+    expect(told).not.toContain('How to write an entry')
+    const writes = (await connect(`${base}/mcp`, bearer(writer), '2025-11-25')).instructions ?? ''
+    expect(writes).toContain('How to write an entry')
+  })
+})
+
 describe('what the server takes and gives back safely', () => {
-  test('an HTML file is served sandboxed, so it runs nothing in the origin of Grenier', async () => {
+  test('an HTML file is served sandboxed, so it runs nothing in the origin of Hippocampe', async () => {
     const agent = await connect(`${base}/mcp`, bearer(writer))
     await agent.call('write', { type: 'note', title: 'Saved page' })
     const page = Buffer.from('<!doctype html><title>Saved</title><script>1</script>').toString(
@@ -849,24 +1075,24 @@ describe('the server knows which instance it is', () => {
       started.on('exit', (code) => resolve({ code, stderr }))
     })
 
-  test('without GRENIER_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
+  test('without HIPPOCAMPE_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
     const missing = await startAndExit({})
     expect(missing.code).toBe(1)
     expect(missing.stderr.trim()).toBe(
-      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
+      'The environment variable HIPPOCAMPE_INSTANCE is missing: set it to `production`, `development` or `local`.',
     )
-    const unknown = await startAndExit({ GRENIER_INSTANCE: 'Production' })
+    const unknown = await startAndExit({ HIPPOCAMPE_INSTANCE: 'Production' })
     expect(unknown.code).toBe(1)
     expect(unknown.stderr.trim()).toBe(
-      'GRENIER_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
+      'HIPPOCAMPE_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
     )
   })
 
-  test('over MCP, the development instance announces itself as grenier-dev with its version', async () => {
+  test('over MCP, the development instance announces itself as hippocampe-dev with its version', async () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
-    expect(client.serverInfo).toEqual({ name: 'grenier-dev', version: '1.2.3-test' })
+    expect(client.serverInfo).toEqual({ name: 'hippocampe-dev', version: '1.2.3-test' })
     expect(
-      client.instructions?.startsWith('This is the shared DEVELOPMENT instance of Grenier'),
+      client.instructions?.startsWith('This is the shared DEVELOPMENT instance of Hippocampe'),
     ).toBe(true)
   })
 })

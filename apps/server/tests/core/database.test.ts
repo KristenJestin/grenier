@@ -68,7 +68,7 @@ describe('the health of the database', () => {
   })
 
   test('a server that does not answer is not reachable, and the check does not fail', async () => {
-    const closed = 'postgres://grenier:grenier@127.0.0.1:1/grenier'
+    const closed = 'postgres://hippocampe:hippocampe@127.0.0.1:1/hippocampe'
     expect(await Effect.runPromise(databaseReachable.pipe(at(closed)))).toBe(false)
   })
 })

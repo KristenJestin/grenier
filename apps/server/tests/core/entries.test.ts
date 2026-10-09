@@ -2,7 +2,6 @@ import { Effect, Result } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { execute, whileLocked } from '../../src/core/database/contention.ts'
 import { archiveEntry, listEntries, readEntry, writeEntry } from '../../src/core/entries/index.ts'
-import { Rights } from '../../src/core/auth/index.ts'
 import { entryHistory } from '../../src/core/events/index.ts'
 import { Refused } from '../../src/core/refused.ts'
 import { attachMedia, describeMedia } from '../../src/core/media/index.ts'
@@ -53,6 +52,7 @@ const contract = {
   type: 'contract',
   title: 'Fibre subscription',
   fields: { provider: 'Example Telecom', start: '2025-01-15' },
+  provenance: { provider: 'inferred', start: 'inferred' },
 }
 
 describe('an entry is written and read back with every base field', () => {
@@ -76,7 +76,20 @@ describe('an entry is written and read back with every base field', () => {
           portal: 'https://example.org/account',
           holder: 'household',
         },
-        provenance: { provider: 'extracted', end: 'inferred' },
+        provenance: {
+          parent: 'inferred',
+          provider: 'extracted',
+          end: 'inferred',
+          start: 'inferred',
+          renewal: 'inferred',
+          monthly_cost: 'inferred',
+          seats: 'inferred',
+          portal: 'inferred',
+          holder: 'inferred',
+          body: 'inferred',
+          summary: 'inferred',
+        },
+        sources: [{ url: 'https://example.org/account/contract' }],
         body: 'Signed online.',
         summary: 'Home internet, renewed tacitly.',
         valid_from: '2025-01-15',
@@ -85,13 +98,15 @@ describe('an entry is written and read back with every base field', () => {
     )
     const { entry } = await run(readEntry('internet-at-home'))
     expect(entry).toEqual(written)
+    expect((await run(readEntry('internet-at-home'))).part_of).toEqual([
+      expect.objectContaining({ id: holder.id, provenance: 'inferred', valid_until: null }),
+    ])
     expect(entry).toMatchObject({
       type: 'contract',
       title: 'Internet at home',
       slug: 'internet-at-home',
       aliases: ['fibre'],
       tags: ['home', 'telecom'],
-      parent_id: holder.id,
       fields: {
         provider: 'Example Telecom',
         start: '2025-01-15',
@@ -102,10 +117,9 @@ describe('an entry is written and read back with every base field', () => {
         portal: 'https://example.org/account',
         holder: holder.id,
       },
-      provenance: { provider: 'extracted', end: 'inferred' },
+      provenance: { provider: 'extracted', end: 'inferred', body: 'inferred', summary: 'inferred' },
       body: 'Signed online.',
       summary: 'Home internet, renewed tacitly.',
-      verified: false,
       valid_from: '2025-01-15',
       valid_until: '2027-01-15',
       superseded_by: null,
@@ -124,6 +138,7 @@ describe('an entry is written and read back with every base field', () => {
         entry: 'mobile-line',
         fields: { renewal: 'manual' },
         summary: 'A mobile line.',
+        provenance: { renewal: 'inferred', summary: 'inferred' },
       }),
     )
     expect(updated.fields).toEqual({ ...contract.fields, renewal: 'manual' })
@@ -156,7 +171,8 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 
   test('a value outside an enum', async () => {
     const fields = { ...contract.fields, renewal: 'yearly' }
-    expect(await run(refusalOf(writeEntry({ ...contract, fields })))).toBe(
+    const provenance = { ...contract.provenance, renewal: 'inferred' }
+    expect(await run(refusalOf(writeEntry({ ...contract, fields, provenance })))).toBe(
       'The field `fields.renewal` must be one of `tacit`, `manual`, `none`.',
     )
   })
@@ -170,7 +186,15 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 
   test('an unknown field on a type that has no field', async () => {
     expect(
-      await run(refusalOf(writeEntry({ type: 'note', title: 'Bare', fields: { colour: 'red' } }))),
+      await run(
+        refusalOf(
+          writeEntry({
+            type: 'note',
+            title: 'Bare',
+            fields: { colour: 'red' },
+          }),
+        ),
+      ),
     ).toBe('The field `fields.colour` is not expected.')
   })
 
@@ -196,30 +220,33 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 
   test('a cycle in the tree', async () => {
     await run(writeEntry({ type: 'area', title: 'Outer', slug: 'outer' }))
-    await run(writeEntry({ type: 'area', title: 'Inner', slug: 'inner', parent: 'outer' }))
-    expect(await run(refusalOf(writeEntry({ entry: 'outer', parent: 'inner' })))).toBe(
-      'The field `parent` cannot be `inner`: an entry cannot be filed under itself or one of its descendants.',
+    await run(
+      writeEntry({
+        type: 'area',
+        title: 'Inner',
+        slug: 'inner',
+        parent: 'outer',
+        provenance: { parent: 'inferred' },
+      }),
     )
-  })
-
-  test('verified set to true', async () => {
-    expect(await run(refusalOf(writeEntry({ ...contract, verified: true })))).toBe(
-      'The field `verified` can be set to true by the owner only.',
-    )
-  })
-
-  test('verified set to true by the owner is kept', async () => {
-    const entry = await run(
-      writeEntry({ ...contract, slug: 'checked-by-owner', verified: true }).pipe(
-        Effect.provideService(Rights, ['read', 'write', 'owner']),
+    expect(
+      await run(
+        refusalOf(
+          writeEntry({ entry: 'outer', parent: 'inner', provenance: { parent: 'inferred' } }),
+        ),
       ),
+    ).toBe(
+      'The field `parent` cannot be `inner`: an entry cannot be part of itself or of one of its parts.',
     )
-    expect(entry.verified).toBe(true)
   })
 
   test('a provenance for a field the type does not have', async () => {
     expect(
-      await run(refusalOf(writeEntry({ ...contract, provenance: { colour: 'inferred' } }))),
+      await run(
+        refusalOf(
+          writeEntry({ ...contract, provenance: { ...contract.provenance, colour: 'inferred' } }),
+        ),
+      ),
     ).toBe('The field `provenance.colour` must name a field of the type `contract`.')
   })
 })
@@ -227,12 +254,32 @@ describe('a write that breaks the rules is refused with one sentence naming the 
 describe('a project-like entry is read with its children and the path of its ancestors', () => {
   test('children with their summaries, ancestors from the root', async () => {
     await run(writeEntry({ type: 'area', title: 'Work', slug: 'work' }))
-    await run(writeEntry({ type: 'project', title: 'Atlas', slug: 'atlas', parent: 'work' }))
+    await run(
+      writeEntry({
+        type: 'project',
+        title: 'Atlas',
+        slug: 'atlas',
+        parent: 'work',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     const decision = await run(
-      writeEntry({ type: 'note', title: 'Use maps', parent: 'atlas', summary: 'We use maps.' }),
+      writeEntry({
+        type: 'note',
+        title: 'Use maps',
+        parent: 'atlas',
+        summary: 'We use maps.',
+        provenance: { parent: 'inferred', summary: 'inferred' },
+      }),
     )
     const notes = await run(
-      writeEntry({ type: 'note', title: 'Kick-off', parent: 'atlas', summary: 'First meeting.' }),
+      writeEntry({
+        type: 'note',
+        title: 'Kick-off',
+        parent: 'atlas',
+        summary: 'First meeting.',
+        provenance: { parent: 'inferred', summary: 'inferred' },
+      }),
     )
     const read = await run(readEntry('atlas'))
     expect(read.path).toEqual(['Work'])
@@ -297,11 +344,25 @@ describe('the reason of an archive', () => {
   })
 })
 
-describe('the tree is listed in one read: every entry with its parent, archived ones left out', () => {
+describe('the tree is listed in one read: every entry with the places it is part of, archived ones left out', () => {
   test('a folder, what it holds, and not what was archived', async () => {
     const garden = await run(writeEntry({ type: 'area', title: 'Garden', slug: 'garden' }))
-    const shed = await run(writeEntry({ type: 'note', title: 'Shed', parent: 'garden' }))
-    await run(writeEntry({ type: 'note', title: 'Old fence', parent: 'garden' }))
+    const shed = await run(
+      writeEntry({
+        type: 'note',
+        title: 'Shed',
+        parent: 'garden',
+        provenance: { parent: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Old fence',
+        parent: 'garden',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await run(archiveEntry('old-fence'))
     const listed = await run(listEntries())
     expect(listed.find(({ slug }) => slug === 'garden')).toEqual({
@@ -309,34 +370,36 @@ describe('the tree is listed in one read: every entry with its parent, archived 
       slug: 'garden',
       type: 'area',
       title: 'Garden',
-      parent_id: null,
-      in_parent: false,
+      part_of: [],
     })
-    expect(listed.filter(({ parent_id }) => parent_id === garden.id)).toEqual([
+    expect(listed.filter(({ part_of }) => part_of.some(({ id }) => id === garden.id))).toEqual([
       {
         id: shed.id,
         slug: 'shed',
         type: 'note',
         title: 'Shed',
-        parent_id: garden.id,
-        in_parent: false,
+        part_of: [{ id: garden.id, in_parent: false }],
       },
     ])
   })
 })
 
 describe('several problems in one write are all reported in one refusal', () => {
-  test('a missing field, an unknown field and verified, together', async () => {
+  test('a missing field, an unknown field and a value without provenance, together', async () => {
     const { provider: _, ...fields } = contract.fields
     expect(
       await run(
         refusalOf(
-          writeEntry({ ...contract, fields: { ...fields, colour: 'blue' }, verified: true }),
+          writeEntry({
+            ...contract,
+            fields: { ...fields, colour: 'blue', seats: 2 },
+            provenance: { start: 'inferred' },
+          }),
         ),
       ),
     ).toBe(
       'The field `fields.colour` is not expected. The field `fields.provider` is missing. ' +
-        'The field `verified` can be set to true by the owner only.',
+        'The field `provenance.seats` is required with `fields.seats`: say `extracted` (known, read in a source), `inferred` (supposed by you) or `ambiguous` (sources disagree).',
     )
   })
 })
@@ -385,7 +448,12 @@ describe('an import keeps when an entry was first written', () => {
   test('created is taken on an update while the entry has not changed since its creation, and recorded in its history', async () => {
     await run(writeEntry({ type: 'note', title: 'Draft' }))
     const entry = await run(
-      writeEntry({ entry: 'draft', created: '2019-03-01', body: 'The whole note.' }),
+      writeEntry({
+        entry: 'draft',
+        created: '2019-03-01',
+        body: 'The whole note.',
+        provenance: { body: 'inferred' },
+      }),
     )
     expect(entry.created).toBe('2019-03-01T00:00:00.000Z')
     const history = await run(entryHistory('draft'))
@@ -398,7 +466,7 @@ describe('an import keeps when an entry was first written', () => {
 
   test('created is refused on an update once the entry has changed', async () => {
     await run(writeEntry({ type: 'note', title: 'Kept' }))
-    await run(writeEntry({ entry: 'kept', body: 'Changed.' }))
+    await run(writeEntry({ entry: 'kept', body: 'Changed.', provenance: { body: 'inferred' } }))
     expect(await run(refusalOf(writeEntry({ entry: 'kept', created: '2019-03-01' })))).toBe(
       'The field `created` can be given on an update only while the entry has not changed since it was created.',
     )
@@ -413,8 +481,16 @@ describe('concurrent updates of different fields of one entry both survive', () 
     const entry = await run(writeEntry({ ...contract, slug: 'shared-contract' }))
     const ended = await run(
       whileLocked(execute('SELECT 1 FROM entries WHERE id = $1::uuid FOR UPDATE', entry.id), [
-        writeEntry({ entry: 'shared-contract', fields: { renewal: 'manual' } }),
-        writeEntry({ entry: 'shared-contract', fields: { seats: 3 } }),
+        writeEntry({
+          entry: 'shared-contract',
+          fields: { renewal: 'manual' },
+          provenance: { renewal: 'inferred' },
+        }),
+        writeEntry({
+          entry: 'shared-contract',
+          fields: { seats: 3 },
+          provenance: { seats: 'inferred' },
+        }),
       ]),
     )
     expect(ended.map(({ _tag }) => _tag)).toEqual(['Success', 'Success'])
@@ -438,8 +514,16 @@ describe('the tree never holds a cycle, and a cycle never hangs a read', () => {
           west.id,
         ),
         [
-          writeEntry({ entry: 'east-wing', parent: 'west-wing' }),
-          writeEntry({ entry: 'west-wing', parent: 'east-wing' }),
+          writeEntry({
+            entry: 'east-wing',
+            parent: 'west-wing',
+            provenance: { parent: 'inferred' },
+          }),
+          writeEntry({
+            entry: 'west-wing',
+            parent: 'east-wing',
+            provenance: { parent: 'inferred' },
+          }),
         ],
       ),
     )
@@ -447,54 +531,35 @@ describe('the tree never holds a cycle, and a cycle never hangs a read', () => {
     expect(ended.filter(Result.isFailure).map(({ failure }) => failure instanceof Refused)).toEqual(
       [true],
     )
-    const parents = [
-      (await run(readEntry('east-wing'))).entry.parent_id,
-      (await run(readEntry('west-wing'))).entry.parent_id,
+    const places = [
+      (await run(readEntry('east-wing'))).part_of.map(({ id }) => id),
+      (await run(readEntry('west-wing'))).part_of.map(({ id }) => id),
     ]
-    expect(parents).not.toEqual([west.id, east.id])
+    expect(places).not.toEqual([[west.id], [east.id]])
   })
 
   test('a cycle written around the rules, as a damaged database would hold', async () => {
     const upper = await run(writeEntry({ type: 'area', title: 'Loop upper', slug: 'loop-upper' }))
     const lower = await run(
-      writeEntry({ type: 'area', title: 'Loop lower', slug: 'loop-lower', parent: 'loop-upper' }),
+      writeEntry({
+        type: 'area',
+        title: 'Loop lower',
+        slug: 'loop-lower',
+        parent: 'loop-upper',
+        provenance: { parent: 'inferred' },
+      }),
     )
     await run(
-      execute('UPDATE entries SET parent_id = $1::uuid WHERE id = $2::uuid', lower.id, upper.id),
+      execute(
+        "INSERT INTO links (source_id, target_id, relation, provenance) VALUES ($1::uuid, $2::uuid, 'part_of', 'inferred')",
+        upper.id,
+        lower.id,
+      ),
     )
     const read = await run(Effect.timeout(readEntry('loop-upper'), '5 seconds'))
     expect(read.path).toEqual(['Loop lower'])
     const found = await run(Effect.timeout(search('loop', { under: 'loop-upper' }), '5 seconds'))
     expect(found.map(({ slug }) => slug)).toContain('loop-lower')
-  })
-})
-
-describe('an entry the owner verified is no longer verified once a writer without owner changes it', () => {
-  const asOwner = Effect.provideService(Rights, ['read', 'write', 'owner'])
-
-  test('an update by an agent sets verified back to false, in the same event', async () => {
-    await run(writeEntry({ ...contract, slug: 'reviewed-by-owner', verified: true }).pipe(asOwner))
-    const updated = await run(writeEntry({ entry: 'reviewed-by-owner', summary: 'Changed.' }))
-    expect(updated.verified).toBe(false)
-    const last = (await run(entryHistory('reviewed-by-owner'))).at(-1)
-    expect(last?.changes).toEqual([
-      { field: 'summary', before: '', after: 'Changed.' },
-      { field: 'verified', before: true, after: false },
-    ])
-  })
-
-  test('an update by the owner keeps verified as given', async () => {
-    await run(writeEntry({ ...contract, slug: 'kept-by-owner', verified: true }).pipe(asOwner))
-    const updated = await run(
-      writeEntry({ entry: 'kept-by-owner', summary: 'Changed.' }).pipe(asOwner),
-    )
-    expect(updated.verified).toBe(true)
-  })
-
-  test('a write by an agent that changes nothing leaves it verified', async () => {
-    await run(writeEntry({ ...contract, slug: 'untouched-by-agent', verified: true }).pipe(asOwner))
-    const written = await run(writeEntry({ entry: 'untouched-by-agent', title: contract.title }))
-    expect(written.verified).toBe(true)
   })
 })
 
@@ -508,25 +573,55 @@ describe('a long body written in parts', () => {
     const [first = '', ...rest] = parts
     await run(
       Effect.gen(function* () {
-        yield* writeEntry({ type: 'note', title: 'Garden journal', body: first })
+        yield* writeEntry({
+          type: 'note',
+          title: 'Garden journal',
+          body: first,
+          provenance: { body: 'inferred' },
+        })
         // One part after the other, as an agent sends them.
         for (const part of rest)
-          yield* writeEntry({ entry: 'garden-journal', body: part, append: true })
+          yield* writeEntry({
+            entry: 'garden-journal',
+            body: part,
+            append: true,
+            provenance: { body: 'inferred' },
+          })
       }),
     )
     expect((await run(readEntry('garden-journal'))).entry.body).toBe(parts.join(''))
   })
 
   test('a refusal in the middle leaves the entry as before', async () => {
-    await run(writeEntry({ type: 'note', title: 'Pond journal', body: 'Day one.\n' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Pond journal',
+        body: 'Day one.\n',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(
       await run(
         refusalOf(
-          writeEntry({ entry: 'pond-journal', body: 'Rain.\n', append: true, verified: true }),
+          writeEntry({
+            entry: 'pond-journal',
+            body: 'Rain.\n',
+            append: true,
+          }),
         ),
       ),
-    ).toBe('The field `verified` can be set to true by the owner only.')
-    await run(writeEntry({ entry: 'pond-journal', body: 'Day two.\n', append: true }))
+    ).toBe(
+      'The field `provenance.body` is required with `body`: say `extracted` (known, read in a source), `inferred` (supposed by you) or `ambiguous` (sources disagree).',
+    )
+    await run(
+      writeEntry({
+        entry: 'pond-journal',
+        body: 'Day two.\n',
+        append: true,
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect((await run(readEntry('pond-journal'))).entry.body).toBe('Day one.\nDay two.\n')
     expect(await run(entryHistory('pond-journal'))).toHaveLength(2)
   })
@@ -539,6 +634,7 @@ describe('a few words of a long body changed in place', () => {
         type: 'note',
         title: 'Orchard diary',
         body: 'Pruned the plum tree.\nWatered the pear.\nPicked apples.\n',
+        provenance: { body: 'inferred' },
       }),
     )
     await run(
@@ -549,6 +645,7 @@ describe('a few words of a long body changed in place', () => {
           { find: 'Watered', replace: 'Mulched' },
           { find: 'Picked apples.', replace: 'Picked apples, then pears.' },
         ],
+        provenance: { body: 'inferred' },
       }),
     )
     expect((await run(readEntry('orchard-diary'))).entry.body).toBe(
@@ -558,7 +655,14 @@ describe('a few words of a long body changed in place', () => {
   })
 
   test('an edit that matches twice or never is refused, naming it, and changes nothing', async () => {
-    await run(writeEntry({ type: 'note', title: 'Hedge diary', body: 'Trim. Trim again. Rest.\n' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Hedge diary',
+        body: 'Trim. Trim again. Rest.\n',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(
       await run(
         refusalOf(
@@ -569,6 +673,7 @@ describe('a few words of a long body changed in place', () => {
               { find: 'Trim', replace: 'Cut' },
               { find: 'Water', replace: 'Rain' },
             ],
+            provenance: { body: 'inferred' },
           }),
         ),
       ),
@@ -581,7 +686,14 @@ describe('a few words of a long body changed in place', () => {
 
 describe('edits on their own, counted as they overlap', () => {
   test('edits with append are refused, and change nothing', async () => {
-    await run(writeEntry({ type: 'note', title: 'Shed diary', body: 'Oiled the hinge.\n' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Shed diary',
+        body: 'Oiled the hinge.\n',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(
       await run(
         refusalOf(
@@ -589,6 +701,7 @@ describe('edits on their own, counted as they overlap', () => {
             entry: 'shed-diary',
             append: true,
             edits: [{ find: 'Oiled', replace: 'Greased' }],
+            provenance: { body: 'inferred' },
           }),
         ),
       ),
@@ -596,9 +709,19 @@ describe('edits on their own, counted as they overlap', () => {
   })
 
   test('a find that overlaps itself counts each match', async () => {
-    await run(writeEntry({ type: 'note', title: 'Buzz', body: 'aaa\n' }))
+    await run(
+      writeEntry({ type: 'note', title: 'Buzz', body: 'aaa\n', provenance: { body: 'inferred' } }),
+    )
     expect(
-      await run(refusalOf(writeEntry({ entry: 'buzz', edits: [{ find: 'aa', replace: 'b' }] }))),
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'buzz',
+            edits: [{ find: 'aa', replace: 'b' }],
+            provenance: { body: 'inferred' },
+          }),
+        ),
+      ),
     ).toBe('The edit 1 (`aa`) matches the body 2 times: give a longer `find` that matches once.')
   })
 })
@@ -607,7 +730,14 @@ describe('a draft keeps its right to its real date', () => {
   test('a rewrite by a rename and a description of its media are not changes of its own', async () => {
     const PAGE = Buffer.from('<!doctype html><p>Notes</p>').toString('base64')
     await run(writeEntry({ type: 'note', title: 'Old name' }))
-    await run(writeEntry({ type: 'note', title: 'Field draft', body: 'See [[old-name]].' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Field draft',
+        body: 'See [[old-name]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     await run(writeEntry({ entry: 'old-name', slug: 'new-name' }))
     const { media } = await run(attachMedia({ entry: 'field-draft', data: PAGE }))
     await run(describeMedia(media.id, 'The notes'))

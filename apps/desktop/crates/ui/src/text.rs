@@ -4,7 +4,7 @@
 //! types and fields, the sentences of a refusal) is shown as it was written, never through here.
 
 /// The name of the application.
-pub const GRENIER: &str = "Grenier";
+pub const HIPPOCAMPE: &str = "Hippocampe";
 
 // The sidebar.
 pub const SEARCH_PLACEHOLDER: &str = "Search";
@@ -48,10 +48,12 @@ pub const COPY_LINK_DETAIL: &str = "Copy the link of the entry";
 pub const NO_ENTRY_OPEN: &str = "No entry open";
 pub const NO_ENTRY_OPEN_DETAIL: &str = "Choose an entry on the left, or search for it with Ctrl K.";
 pub const FIELDS: &str = "Fields";
-pub const VERIFIED: &str = "Verified";
-pub const UNVERIFIED: &str = "Unverified";
-pub const VERIFIED_BY_OWNER: &str = "Verified by the owner";
-pub const AWAITING_VERIFICATION: &str = "Awaiting verification";
+/// The mark of what a writer supposed, not knew: a value, a link, the body or the summary.
+pub const SUPPOSED: &str = "Supposed";
+/// The mark of what sources disagree on: not known either.
+pub const DISPUTED: &str = "Sources disagree";
+/// The chip of an entry that holds some, and the filter it lists the entries that do by.
+pub const WITH_SUPPOSED: &str = "With supposed values";
 pub const HIDDEN_VALUE: &str = "hidden";
 pub const YES: &str = "Yes";
 pub const NO: &str = "No";
@@ -77,6 +79,7 @@ pub const SOURCES: &str = "Sources";
 pub const MEDIA: &str = "Media";
 pub const ENTRY: &str = "Entry";
 pub const WEB_ADDRESS: &str = "Web address";
+pub const SAID_BY: &str = "Said by";
 pub const IDENTIFIER: &str = "Identifier";
 pub const INBOX_ITEM: &str = "Item";
 pub const IMAGE: &str = "Image";
@@ -92,6 +95,14 @@ pub fn created_on(date: &str) -> String {
 /// When an entry was last changed, in words.
 pub fn edited_on(date: &str) -> String {
     format!("Edited {}", date_in_words(date))
+}
+
+/// What a person said as a source, and when, with the note it carries.
+pub fn said_on(date: &str, note: Option<&str>) -> String {
+    match note {
+        Some(note) => format!("{} · {note}", date_in_words(date)),
+        None => date_in_words(date),
+    }
 }
 
 /// The entries of a parent the caller may not see.
@@ -209,10 +220,10 @@ pub fn nothing_for(query: &str) -> String {
 pub const RETRY: &str = "Retry";
 pub const UNREACHABLE: &str = "The server does not answer";
 pub const UNREACHABLE_DETAIL: &str =
-    "Check that Grenier is running and that this computer reaches it, then retry.";
+    "Check that Hippocampe is running and that this computer reaches it, then retry.";
 pub const KEY_REFUSED: &str = "The key was refused";
 pub const SERVER_REFUSED: &str = "The server refused";
-pub const UNCONFIGURED: &str = "Grenier is not set up";
+pub const UNCONFIGURED: &str = "Hippocampe is not set up";
 
 // The messages of the application, before and around a read.
 pub const NO_CONFIGURATION_FOLDER: &str = "This system has no configuration folder.";
@@ -221,7 +232,7 @@ pub const NO_CONFIGURATION_FOLDER: &str = "This system has no configuration fold
 pub fn create_configuration(path: &str) -> String {
     format!(
         "Create {path} with the address of the server and the file of the key: \
-         {{ \"server\": \"http://127.0.0.1:3000\", \"key_file\": \"~/.config/grenier/key\" }}"
+         {{ \"server\": \"http://127.0.0.1:3000\", \"key_file\": \"~/.config/hippocampe/key\" }}"
     )
 }
 

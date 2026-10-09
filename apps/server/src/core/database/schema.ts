@@ -1,5 +1,5 @@
 /**
- * The tables of Grenier, described for Drizzle: drizzle-kit generates the migrations from this
+ * The tables of Hippocampe, described for Drizzle: drizzle-kit generates the migrations from this
  * file, and the operations of the core query through it. Constraints and indexes keep the names
  * PostgreSQL gave them when the database was made by hand-written migrations, so a database of
  * that time and one made from this schema are the same.
@@ -26,7 +26,7 @@ import {
 
 const at = { withTimezone: true, mode: 'date' } as const
 
-/** A text search configuration, such as `simple` or `grenier_french`. */
+/** A text search configuration, such as `simple` or `hippocampe_french`. */
 const regconfig = customType<{ data: string }>({ dataType: () => 'regconfig' })
 
 /** A full-text index, computed by PostgreSQL. */
@@ -60,7 +60,7 @@ export const types = pgTable('types', {
 })
 
 /**
- * Everything Grenier stores: the base fields of every entry, and the values of its type. The
+ * Everything Hippocampe stores: the base fields of every entry, and the values of its type. The
  * full-text index is weighted: title and aliases, then tags and summary, then body and the
  * descriptions of the entry's media; each entry keeps the configuration it is indexed with.
  */
@@ -79,7 +79,6 @@ export const entries = pgTable(
     tags: jsonb()
       .notNull()
       .default(sql`'[]'`),
-    parent_id: uuid(),
     fields: jsonb()
       .notNull()
       .default(sql`'{}'`),
@@ -88,7 +87,6 @@ export const entries = pgTable(
       .default(sql`'{}'`),
     body: text().notNull().default(''),
     summary: text().notNull().default(''),
-    verified: boolean().notNull().default(false),
     created: timestamp(at).notNull().defaultNow(),
     updated: timestamp(at).notNull().defaultNow(),
     valid_from: date({ mode: 'string' }),
@@ -115,16 +113,12 @@ export const entries = pgTable(
     unique('entries_slug_key').on(table.slug),
     foreignKey({ name: 'entries_type_fkey', columns: [table.type], foreignColumns: [types.name] }),
     foreignKey({
-      name: 'entries_parent_id_fkey',
-      columns: [table.parent_id],
-      foreignColumns: [table.id],
-    }),
-    foreignKey({
       name: 'entries_superseded_by_fkey',
       columns: [table.superseded_by],
       foreignColumns: [table.id],
     }),
-    index('entries_parent_id').on(table.parent_id),
+    // The entries that have an alias, as the references of a body look them up (`?|`).
+    index('entries_aliases').using('gin', table.aliases),
     index('entries_search').using('gin', sql.raw(`(${SEARCHABLE})`)),
     // A source given whole, and the entries of the types whose fields a caller may not see.
     index('entries_sources').using('gin', table.sources.op('jsonb_path_ops')),
@@ -164,9 +158,9 @@ export const events = pgTable(
 )
 
 /**
- * Links between entries, apart from the tree: a source, a target and a relation. A link
- * `fulfills` carries the period and the date field of the occurrence it closes. Any link may carry
- * a short note and the dates it held between.
+ * Links between entries: a source, a target and a relation. A link `fulfills` carries the period
+ * and the date field of the occurrence it closes. Any link may carry a short note and the dates it
+ * held between. The links `part_of` that hold today are the tree.
  */
 export const links = pgTable(
   'links',
@@ -176,16 +170,26 @@ export const links = pgTable(
     relation: text().notNull(),
     period: text().notNull().default(''),
     field: text().notNull().default(''),
+    // Known (`extracted`) or supposed (`inferred`), or `unstated` for a link made before it was
+    // asked. A `mentions` link has none of its own: it takes its body's, read from the entry.
+    provenance: text(),
     // What the link says of itself: a role (`accountant`), and when it held.
     note: text(),
     valid_from: date({ mode: 'string' }),
     valid_until: date({ mode: 'string' }),
+    // The order the links were made in: of two places an entry has had as long, the first is its path.
+    seq: bigint({ mode: 'number' }).generatedByDefaultAsIdentity(),
   },
   (table) => [
     primaryKey({
       name: 'links_pkey',
       columns: [table.source_id, table.target_id, table.relation, table.period, table.field],
     }),
+    check(
+      'links_provenance',
+      sql`(relation = 'mentions') = (provenance IS NULL)
+        AND (provenance IS NULL OR provenance IN ('extracted', 'inferred', 'unstated'))`,
+    ),
     foreignKey({
       name: 'links_source_id_fkey',
       columns: [table.source_id],
@@ -197,6 +201,11 @@ export const links = pgTable(
       foreignColumns: [entries.id],
     }),
     index('links_target_id').on(table.target_id),
+    // The tree: what is part of an entry, read down from it. Which links hold today depends on the
+    // day, so the index keeps them all.
+    index('links_part_of')
+      .on(table.target_id, table.source_id)
+      .where(sql`relation = 'part_of'`),
   ],
 )
 
@@ -435,7 +444,7 @@ export const inbox = pgTable(
 )
 
 /**
- * What diagnostics found wrong with Grenier itself, one row per problem: reports of agents and
+ * What diagnostics found wrong with Hippocampe itself, one row per problem: reports of agents and
  * unexpected errors of the server, the same problem counted once with its occurrences.
  */
 export const findings = pgTable(

@@ -24,7 +24,8 @@ const refusalOf = <A, E, R>(effect: Effect.Effect<A, E | Refused, R>) =>
     Effect.map((error) => (error instanceof Refused ? error.message : `not a refusal: ${error}`)),
   )
 
-const note = (title: string, body = '') => writeEntry({ type: 'note', title, body })
+const note = (title: string, body = '') =>
+  writeEntry({ type: 'note', title, body, provenance: { body: 'inferred' } })
 
 beforeAll(() =>
   run(defineType({ name: 'note', label: 'Note', description: 'A free note.', fields: [] })),
@@ -40,7 +41,13 @@ describe('body references are kept as links', () => {
         .map(({ slug }) => slug)
         .toSorted()
     expect(await mentioned()).toEqual(['alpha', 'beta', 'gamma'])
-    await run(writeEntry({ entry: source.slug, body: 'Only [[beta]] now.' }))
+    await run(
+      writeEntry({
+        entry: source.slug,
+        body: 'Only [[beta]] now.',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(await mentioned()).toEqual(['beta'])
   })
 
@@ -74,7 +81,7 @@ describe('body references are kept as links', () => {
 describe('explicit links', () => {
   test('a link `about` shows on the source as outgoing and on the target as a backlink', async () => {
     await run(Effect.all([note('Meeting'), note('Roadmap')]))
-    await run(link('meeting', 'roadmap', 'about'))
+    await run(link('meeting', 'roadmap', 'about', '', '', { provenance: 'inferred' }))
     expect(await run(linksOf('meeting'))).toEqual([
       expect.objectContaining({ relation: 'about', slug: 'roadmap', title: 'Roadmap' }),
     ])
@@ -94,9 +101,9 @@ describe('explicit links', () => {
 
   test('a link to a missing entry is refused', async () => {
     await run(note('Lonely'))
-    expect(await run(refusalOf(link('lonely', 'ghost', 'about')))).toBe(
-      'The entry `ghost` does not exist.',
-    )
+    expect(
+      await run(refusalOf(link('lonely', 'ghost', 'about', '', '', { provenance: 'inferred' }))),
+    ).toBe('The entry `ghost` does not exist.')
   })
 })
 
@@ -131,18 +138,26 @@ describe('renaming a slug rewrites the references to it', () => {
   })
 })
 
-describe('links never change the tree', () => {
-  test('parent_id is untouched by link and unlink', async () => {
+describe('links other than part_of never change the tree', () => {
+  test('the places of an entry are untouched by link and unlink', async () => {
     await run(note('Folder'))
-    await run(writeEntry({ type: 'note', title: 'Filed', parent: 'folder' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Filed',
+        parent: 'folder',
+        provenance: { parent: 'inferred' },
+      }),
+    )
     await run(note('Elsewhere'))
-    const before = (await run(readEntry('filed'))).entry.parent_id
-    await run(link('filed', 'elsewhere', 'related'))
-    await run(link('elsewhere', 'filed', 'related'))
-    expect((await run(readEntry('filed'))).entry.parent_id).toBe(before)
+    const before = (await run(readEntry('filed'))).part_of
+    expect(before).toHaveLength(1)
+    await run(link('filed', 'elsewhere', 'related', '', '', { provenance: 'inferred' }))
+    await run(link('elsewhere', 'filed', 'related', '', '', { provenance: 'inferred' }))
+    expect((await run(readEntry('filed'))).part_of).toEqual(before)
     await run(unlink('filed', 'elsewhere', 'related'))
-    expect((await run(readEntry('filed'))).entry.parent_id).toBe(before)
-    expect((await run(readEntry('elsewhere'))).entry.parent_id).toBeNull()
+    expect((await run(readEntry('filed'))).part_of).toEqual(before)
+    expect((await run(readEntry('elsewhere'))).part_of).toEqual([])
   })
 })
 
@@ -160,11 +175,12 @@ describe('links fulfills stored before their period was checked', () => {
           type: 'bill',
           title: 'Gas bill',
           fields: { due_on: '2026-01-10' },
+          provenance: { due_on: 'inferred' },
         })
         const paid = yield* writeEntry({ type: 'note', title: 'Gas paid' })
         // As a link of the time before the check: a yearly period on a monthly date.
         yield* execute(
-          "INSERT INTO links (source_id, target_id, relation, period, field) VALUES ($1::uuid, $2::uuid, 'fulfills', '2026', 'due_on')",
+          "INSERT INTO links (source_id, target_id, relation, period, field, provenance) VALUES ($1::uuid, $2::uuid, 'fulfills', '2026', 'due_on', 'unstated')",
           paid.id,
           bill.id,
         )

@@ -8,9 +8,15 @@ import { fieldsOf } from '../entries/values.ts'
 import { currentActor } from '../events/actor.ts'
 import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
-import { formatSchemaError } from '@grenier/api/schema'
-import { FIELD_KINDS, TypeDefinition } from '@grenier/api/model'
-import { checkAcceptedTypes, getType, listTypes, snapshotOf } from './operations.ts'
+import { formatSchemaError } from '@hippocampe/api/schema'
+import { FIELD_KINDS, TypeDefinition } from '@hippocampe/api/model'
+import {
+  checkAcceptedTypes,
+  getType,
+  listTypes,
+  refuseReservedNames,
+  snapshotOf,
+} from './operations.ts'
 
 /**
  * A change of one field of a type: make it required (or optional), change its kind, rename it,
@@ -20,12 +26,22 @@ import { checkAcceptedTypes, getType, listTypes, snapshotOf } from './operations
  * item of a list on its own. `dry_run` says what the change would do.
  */
 export const ChangeFieldInput = Schema.Struct({
-  type: Schema.String,
-  field: Schema.String,
-  required: Schema.optionalKey(Schema.Boolean),
-  kind: Schema.optionalKey(Schema.Literals(FIELD_KINDS)),
-  rename: Schema.optionalKey(Schema.String),
-  values: Schema.optionalKey(Schema.Array(Schema.String)),
+  type: Schema.String.annotate({ description: 'The name of the type that has the field.' }),
+  field: Schema.String.annotate({ description: 'The name of the field to change.' }),
+  required: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make the field required, or optional again. Refused while entries would break, unless `default` or `mapping` repairs them.',
+  }),
+  kind: Schema.optionalKey(Schema.Literals(FIELD_KINDS)).annotate({
+    description:
+      'The new kind of the field. Refused while entries would break, unless `mapping` or `default` repairs them.',
+  }),
+  rename: Schema.optionalKey(Schema.String).annotate({
+    description: 'The new name of the field, in snake_case.',
+  }),
+  values: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: 'For an `enum` field: the new list of allowed values.',
+  }),
   types: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))).annotate({
     description:
       'For an `entry` field: the types its entries may be of, or `null` to accept any. Stored values that no longer fit are kept and listed in `mismatched`.',
@@ -34,10 +50,21 @@ export const ChangeFieldInput = Schema.Struct({
     description:
       'Make the field hold a list (each stored value becomes a list of one), or a single value again (refused while an entry holds several).',
   }),
-  sensitive: Schema.optionalKey(Schema.Boolean),
-  default: Schema.optionalKey(Schema.Json),
-  mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
-  dry_run: Schema.optionalKey(Schema.Boolean),
+  sensitive: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make the field sensitive. Making it no longer sensitive is for the owner, from the command line.',
+  }),
+  default: Schema.optionalKey(Schema.Json).annotate({
+    description:
+      'The value given to every entry that lacks one, to repair the entries a change would break.',
+  }),
+  mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)).annotate({
+    description:
+      'Turns old values into new ones: each old value (as text, or as JSON for anything else) and the value it becomes.',
+  }),
+  dry_run: Schema.optionalKey(Schema.Boolean).annotate({
+    description: 'Only say what the change would do, and write nothing.',
+  }),
 })
 export type ChangeFieldInput = typeof ChangeFieldInput.Type
 
@@ -241,23 +268,24 @@ export const changeField = Effect.fn('changeField')(
     if (!(yield* Rights).includes('sensitive')) {
       if (type.sensitive === true) {
         return yield* new Refused({
-          message: `The type \`${type.name}\` is sensitive: this key may not change its fields; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+          message: `The type \`${type.name}\` is sensitive: this key may not change its fields; ask the owner of Hippocampe for a key with the right \`sensitive\`.`,
         })
       }
       if (old.sensitive === true) {
         return yield* new Refused({
-          message: `The field \`${old.name}\` of \`${type.name}\` is sensitive: this key may not change it; ask the owner of Grenier for a key with the right \`sensitive\`.`,
+          message: `The field \`${old.name}\` of \`${type.name}\` is sensitive: this key may not change it; ask the owner of Hippocampe for a key with the right \`sensitive\`.`,
         })
       }
     }
     // Lifting a field's sensitivity shows its values at once: the owner's call alone.
     if (old.sensitive === true && input.sensitive === false && !(yield* Rights).includes('owner')) {
       return yield* new Refused({
-        message: `Only the owner of Grenier may make the field \`${old.name}\` of \`${type.name}\` no longer sensitive: they do it from the command line, with \`field:sensitive ${type.name} ${old.name} --off\`.`,
+        message: `Only the owner of Hippocampe may make the field \`${old.name}\` of \`${type.name}\` no longer sensitive: they do it from the command line, with \`field:sensitive ${type.name} ${old.name} --off\`.`,
       })
     }
     const sensitive = input.sensitive ?? old.sensitive === true
     const name = input.rename ?? old.name
+    if (name !== old.name) yield* refuseReservedNames([name])
     const kind = input.kind ?? old.kind
     const required = input.required ?? old.required === true
     const many = input.many ?? old.many === true
@@ -307,14 +335,16 @@ export const changeField = Effect.fn('changeField')(
       const mapOne = (one: Schema.Json) => mappedOf(mapping, keyOf(one)) ?? one
       if (value !== undefined)
         fields[name] = many && Array.isArray(value) ? value.map(mapOne) : mapOne(value)
-      if (value === undefined && required && input.default !== undefined)
-        fields[name] = input.default
+      // The value a default gives is the writer's supposition, not something the entry was told.
+      const fill = value === undefined && required ? input.default : undefined
+      if (fill !== undefined) fields[name] = fill
+      const provenance = renamed(entry.provenance, old.name, name)
       return {
         before: entry,
         slug: entry.slug,
         type: entry.type,
         fields,
-        provenance: renamed(entry.provenance, old.name, name),
+        provenance: fill === undefined ? provenance : { ...provenance, [name]: 'inferred' },
       }
     })
     const { resolved: proposed, unknown } = yield* withEntryIds(
@@ -522,7 +552,7 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
   if (!(yield* Rights).includes('owner')) {
     return yield* new Refused({
       message:
-        'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
+        'Only the owner of Hippocampe may confirm a proposal: an agent proposes, the owner decides.',
     })
   }
   const actor = yield* currentActor
@@ -567,9 +597,13 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
               ]),
             ),
             provenance: Object.fromEntries(
-              Object.entries(entry.provenance).flatMap(([field, value]) =>
-                mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
-              ),
+              Object.entries(entry.provenance).flatMap(([field, value]) => {
+                // The provenance of the body and the summary belongs to the entry, not to a field.
+                if (field === 'body' || field === 'summary') return [[field, value]]
+                return mappedOf(mapping, field) === undefined
+                  ? []
+                  : [[mappedOf(mapping, field), value]]
+              }),
             ),
           }))
           const { resolved: moved, unknown } = yield* withEntryIds(

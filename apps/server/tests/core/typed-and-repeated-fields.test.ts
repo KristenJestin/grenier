@@ -1,5 +1,5 @@
-import { HIDDEN } from '@grenier/api/model'
-import type { FieldDefinition, TypeDefinition } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
+import type { FieldDefinition, TypeDefinition } from '@hippocampe/api/model'
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
@@ -84,14 +84,24 @@ describe('an entry field names the types it accepts', () => {
     expect(
       await run(
         refusalOf(
-          writeEntry({ type: 'person', title: 'Ada Brook', fields: { employer: 'plum-tart' } }),
+          writeEntry({
+            type: 'person',
+            title: 'Ada Brook',
+            fields: { employer: 'plum-tart' },
+            provenance: { employer: 'inferred' },
+          }),
         ),
       ),
     ).toBe(
       'The field `fields.employer` must name an entry of type `organization`: `plum-tart` is of type `recipe`.',
     )
     const ada = await run(
-      writeEntry({ type: 'person', title: 'Ada Brook', fields: { employer: 'lantern-works' } }),
+      writeEntry({
+        type: 'person',
+        title: 'Ada Brook',
+        fields: { employer: 'lantern-works' },
+        provenance: { employer: 'inferred' },
+      }),
     )
     expect(ada.fields['employer']).toBe(await idOf('lantern-works'))
   })
@@ -127,8 +137,22 @@ describe('an entry field names the types it accepts', () => {
         fields: [{ name: 'within', kind: 'entry', types: ['team', 'organization'] }],
       }),
     )
-    await run(writeEntry({ type: 'team', title: 'Night shift', fields: { within: 'copper-shop' } }))
-    await run(writeEntry({ type: 'team', title: 'Night crew', fields: { within: 'night-shift' } }))
+    await run(
+      writeEntry({
+        type: 'team',
+        title: 'Night shift',
+        fields: { within: 'copper-shop' },
+        provenance: { within: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'team',
+        title: 'Night crew',
+        fields: { within: 'night-shift' },
+        provenance: { within: 'inferred' },
+      }),
+    )
     expect((await run(readEntry('night-crew'))).entry.fields['within']).toBe(
       await idOf('night-shift'),
     )
@@ -138,7 +162,12 @@ describe('an entry field names the types it accepts', () => {
     const refusal = await run(
       plain(
         refusalOf(
-          writeEntry({ type: 'person', title: 'Bo Hale', fields: { mentors: ['quiet-evening'] } }),
+          writeEntry({
+            type: 'person',
+            title: 'Bo Hale',
+            fields: { mentors: ['quiet-evening'] },
+            provenance: { mentors: 'inferred' },
+          }),
         ),
       ),
     )
@@ -149,7 +178,12 @@ describe('an entry field names the types it accepts', () => {
       await run(
         plain(
           refusalOf(
-            writeEntry({ type: 'person', title: 'Bo Hale', fields: { employer: 'quiet-evening' } }),
+            writeEntry({
+              type: 'person',
+              title: 'Bo Hale',
+              fields: { employer: 'quiet-evening' },
+              provenance: { employer: 'inferred' },
+            }),
           ),
         ),
       ),
@@ -167,8 +201,22 @@ describe('an entry field names the types it accepts', () => {
         fields: [{ name: 'provider', kind: 'entry' }],
       }),
     )
-    await run(writeEntry({ type: 'contract', title: 'Power', fields: { provider: 'copper-shop' } }))
-    await run(writeEntry({ type: 'contract', title: 'Pastry', fields: { provider: 'plum-tart' } }))
+    await run(
+      writeEntry({
+        type: 'contract',
+        title: 'Power',
+        fields: { provider: 'copper-shop' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'contract',
+        title: 'Pastry',
+        fields: { provider: 'plum-tart' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
     const changed = await run(
       changeField({ type: 'contract', field: 'provider', types: ['organization'] }),
     )
@@ -185,9 +233,23 @@ describe('an entry field names the types it accepts', () => {
     })
     // Not rewritten: the stored value stays, and a write that keeps it is accepted.
     expect((await run(readEntry('pastry'))).entry.fields['provider']).toBe(await idOf('plum-tart'))
-    await run(writeEntry({ entry: 'pastry', summary: 'Kept as it is.' }))
+    await run(
+      writeEntry({
+        entry: 'pastry',
+        summary: 'Kept as it is.',
+        provenance: { summary: 'inferred' },
+      }),
+    )
     expect(
-      await run(refusalOf(writeEntry({ entry: 'power', fields: { provider: 'plum-tart' } }))),
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'power',
+            fields: { provider: 'plum-tart' },
+            provenance: { provider: 'inferred' },
+          }),
+        ),
+      ),
     ).toBe(
       'The field `fields.provider` must name an entry of type `organization`: `plum-tart` is of type `recipe`.',
     )
@@ -233,6 +295,7 @@ describe('an entry named by a field keeps a type the field accepts', () => {
         type: 'person',
         title: 'Oto Vale',
         fields: { employer: 'tin-works', bought_from: ['tin-works'] },
+        provenance: { employer: 'inferred', bought_from: 'inferred' },
       }),
     )
     expect(await run(refusalOf(writeEntry({ entry: 'tin-works', type: 'recipe' })))).toBe(
@@ -241,7 +304,12 @@ describe('an entry named by a field keeps a type the field accepts', () => {
     // A field that accepts any type does not hold it back.
     await run(writeEntry({ type: 'organization', title: 'Brass Works' }))
     await run(
-      writeEntry({ type: 'person', title: 'Pia Vale', fields: { mentors: ['brass-works'] } }),
+      writeEntry({
+        type: 'person',
+        title: 'Pia Vale',
+        fields: { mentors: ['brass-works'] },
+        provenance: { mentors: 'inferred' },
+      }),
     )
     expect((await run(writeEntry({ entry: 'brass-works', type: 'recipe' }))).type).toBe('recipe')
   })
@@ -258,7 +326,13 @@ describe('a type change looks only at the fields of other entries', () => {
       }),
     )
     await run(writeEntry({ type: 'club', title: 'Chess circle' }))
-    await run(writeEntry({ entry: 'chess-circle', fields: { within: 'chess-circle' } }))
+    await run(
+      writeEntry({
+        entry: 'chess-circle',
+        fields: { within: 'chess-circle' },
+        provenance: { within: 'inferred' },
+      }),
+    )
     expect(
       (
         await run(
@@ -276,6 +350,7 @@ describe('a repeated field', () => {
         type: 'person',
         title: 'Cleo Marsh',
         fields: { languages: ['Welsh', 'Basque', 'Catalan'] },
+        provenance: { languages: 'inferred' },
       }),
     )
     expect((await run(readEntry('cleo-marsh'))).entry.fields['languages']).toEqual([
@@ -285,14 +360,36 @@ describe('a repeated field', () => {
     ])
     expect(
       await run(
-        refusalOf(writeEntry({ entry: 'cleo-marsh', fields: { languages: ['Welsh', 'Welsh'] } })),
+        refusalOf(
+          writeEntry({
+            entry: 'cleo-marsh',
+            fields: { languages: ['Welsh', 'Welsh'] },
+            provenance: { languages: 'inferred' },
+          }),
+        ),
       ),
     ).toBe('The field `fields.languages` must be a list without repeated values.')
     expect(
-      await run(refusalOf(writeEntry({ entry: 'cleo-marsh', fields: { languages: 'Welsh' } }))),
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'cleo-marsh',
+            fields: { languages: 'Welsh' },
+            provenance: { languages: 'inferred' },
+          }),
+        ),
+      ),
     ).toBe('The field `fields.languages` must be a list.')
     expect(
-      await run(refusalOf(writeEntry({ entry: 'cleo-marsh', fields: { languages: [3] } }))),
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'cleo-marsh',
+            fields: { languages: [3] },
+            provenance: { languages: 'inferred' },
+          }),
+        ),
+      ),
     ).toBe('The field `fields.languages.0` must be text.')
     await run(
       defineType({
@@ -304,7 +401,14 @@ describe('a repeated field', () => {
     )
     expect(
       await run(
-        refusalOf(writeEntry({ type: 'dish', title: 'Soup', fields: { ingredients: [] } })),
+        refusalOf(
+          writeEntry({
+            type: 'dish',
+            title: 'Soup',
+            fields: { ingredients: [] },
+            provenance: { ingredients: 'inferred' },
+          }),
+        ),
       ),
     ).toBe('The field `fields.ingredients` must be a list of at least one value.')
   })
@@ -315,6 +419,7 @@ describe('a repeated field', () => {
         type: 'person',
         title: 'Dov Reyes',
         fields: { bought_from: ['copper-shop', 'lantern-works'] },
+        provenance: { bought_from: 'inferred' },
       }),
     )
     expect(written.fields['bought_from']).toEqual([
@@ -324,7 +429,11 @@ describe('a repeated field', () => {
     expect(
       await run(
         refusalOf(
-          writeEntry({ entry: 'dov-reyes', fields: { bought_from: ['copper-shop', 'plum-tart'] } }),
+          writeEntry({
+            entry: 'dov-reyes',
+            fields: { bought_from: ['copper-shop', 'plum-tart'] },
+            provenance: { bought_from: 'inferred' },
+          }),
         ),
       ),
     ).toBe(
@@ -336,6 +445,7 @@ describe('a repeated field', () => {
           writeEntry({
             entry: 'dov-reyes',
             fields: { bought_from: ['copper-shop', await idOf('copper-shop')] },
+            provenance: { bought_from: 'inferred' },
           }),
         ),
       ),
@@ -346,12 +456,22 @@ describe('a repeated field', () => {
     )
     expect(
       await run(
-        refusalOf(writeEntry({ entry: 'dov-reyes', fields: { bought_from: 'copper-shop' } })),
+        refusalOf(
+          writeEntry({
+            entry: 'dov-reyes',
+            fields: { bought_from: 'copper-shop' },
+            provenance: { bought_from: 'inferred' },
+          }),
+        ),
       ),
     ).toBe('The field `fields.bought_from` must be a list.')
     // A person is accepted too, and the list is read back with the reader's titles.
     await run(
-      writeEntry({ entry: 'dov-reyes', fields: { bought_from: ['cleo-marsh', 'copper-shop'] } }),
+      writeEntry({
+        entry: 'dov-reyes',
+        fields: { bought_from: ['cleo-marsh', 'copper-shop'] },
+        provenance: { bought_from: 'inferred' },
+      }),
     )
     const read = await run(readEntry('dov-reyes'))
     expect(read.entry.fields['bought_from']).toEqual([
@@ -382,11 +502,24 @@ describe('a repeated field', () => {
   })
 
   test('a sensitive repeated field is `[hidden]` for a key without the right', async () => {
-    await run(writeEntry({ type: 'person', title: 'Eli Stone', fields: { codes: ['k-1', 'k-2'] } }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Eli Stone',
+        fields: { codes: ['k-1', 'k-2'] },
+        provenance: { codes: 'inferred' },
+      }),
+    )
     expect((await run(plain(readEntry('eli-stone')))).entry.fields['codes']).toBe(HIDDEN)
     expect((await run(readEntry('eli-stone'))).entry.fields['codes']).toEqual(['k-1', 'k-2'])
     expect(await run(plain(fieldHistory('eli-stone', 'fields.codes')))).toEqual([])
-    await run(writeEntry({ entry: 'eli-stone', fields: { codes: ['k-3'] } }))
+    await run(
+      writeEntry({
+        entry: 'eli-stone',
+        fields: { codes: ['k-3'] },
+        provenance: { codes: 'inferred' },
+      }),
+    )
     expect(await run(plain(fieldHistory('eli-stone', 'fields.codes')))).toMatchObject([
       { before: HIDDEN, after: HIDDEN },
     ])
@@ -398,13 +531,22 @@ describe('a repeated field', () => {
         type: 'person',
         title: 'Fay Lund',
         fields: { mentors: ['quiet-evening', 'cleo-marsh'] },
+        provenance: { mentors: 'inferred' },
       }),
     )
     const seen = await run(plain(readEntry('fay-lund')))
     expect(seen.entry.fields['mentors']).toEqual([HIDDEN, await idOf('cleo-marsh')])
     expect(seen.titles).toEqual({ [await idOf('cleo-marsh')]: 'Cleo Marsh' })
     // A write of that key that leaves the list as it is keeps the entry it may not see.
-    await run(plain(writeEntry({ entry: 'fay-lund', summary: 'Two mentors.' })))
+    await run(
+      plain(
+        writeEntry({
+          entry: 'fay-lund',
+          summary: 'Two mentors.',
+          provenance: { summary: 'inferred' },
+        }),
+      ),
+    )
     expect((await run(readEntry('fay-lund'))).entry.fields['mentors']).toEqual([
       await idOf('quiet-evening'),
       await idOf('cleo-marsh'),
@@ -413,10 +555,21 @@ describe('a repeated field', () => {
 
   test('search, history and the export carry lists', async () => {
     await run(
-      writeEntry({ type: 'person', title: 'Gil Park', fields: { languages: ['Tagalog', 'Ainu'] } }),
+      writeEntry({
+        type: 'person',
+        title: 'Gil Park',
+        fields: { languages: ['Tagalog', 'Ainu'] },
+        provenance: { languages: 'inferred' },
+      }),
     )
     expect((await run(search('Ainu'))).map(({ slug }) => slug)).toEqual(['gil-park'])
-    await run(writeEntry({ entry: 'gil-park', fields: { languages: ['Ainu', 'Tagalog'] } }))
+    await run(
+      writeEntry({
+        entry: 'gil-park',
+        fields: { languages: ['Ainu', 'Tagalog'] },
+        provenance: { languages: 'inferred' },
+      }),
+    )
     expect(await run(fieldHistory('gil-park', 'fields.languages'))).toMatchObject([
       { before: ['Tagalog', 'Ainu'], after: ['Ainu', 'Tagalog'] },
     ])
@@ -427,7 +580,12 @@ describe('a repeated field', () => {
   test('a batch orders its entries by the lists that name one another', async () => {
     const written = await run(
       writeEntries([
-        { type: 'person', title: 'Hal Moss', fields: { mentors: ['ivy-moss', 'jo-moss'] } },
+        {
+          type: 'person',
+          title: 'Hal Moss',
+          fields: { mentors: ['ivy-moss', 'jo-moss'] },
+          provenance: { mentors: 'inferred' },
+        },
         { type: 'person', title: 'Ivy Moss' },
         { type: 'person', title: 'Jo Moss' },
       ]),
@@ -448,7 +606,12 @@ describe('a repeated field', () => {
       }),
     )
     await run(
-      writeEntry({ type: 'pet', title: 'Pip', fields: { colour: 'grey', vet: 'copper-shop' } }),
+      writeEntry({
+        type: 'pet',
+        title: 'Pip',
+        fields: { colour: 'grey', vet: 'copper-shop' },
+        provenance: { colour: 'inferred', vet: 'inferred' },
+      }),
     )
     await run(writeEntry({ type: 'pet', title: 'Rue' }))
     const wrapped = await run(changeField({ type: 'pet', field: 'colour', many: true }))
@@ -457,11 +620,23 @@ describe('a repeated field', () => {
     expect((await run(readEntry('rue'))).entry.fields).toEqual({})
     await run(changeField({ type: 'pet', field: 'vet', many: true }))
     expect((await run(readEntry('pip'))).entry.fields['vet']).toEqual([await idOf('copper-shop')])
-    await run(writeEntry({ entry: 'rue', fields: { colour: ['white', 'black'] } }))
+    await run(
+      writeEntry({
+        entry: 'rue',
+        fields: { colour: ['white', 'black'] },
+        provenance: { colour: 'inferred' },
+      }),
+    )
     expect(await run(refusalOf(changeField({ type: 'pet', field: 'colour', many: false })))).toBe(
       'The field `colour` of `pet` cannot hold a single value while entries hold several: `rue` (2 values). Leave one value in each first.',
     )
-    await run(writeEntry({ entry: 'rue', fields: { colour: ['white'] } }))
+    await run(
+      writeEntry({
+        entry: 'rue',
+        fields: { colour: ['white'] },
+        provenance: { colour: 'inferred' },
+      }),
+    )
     await run(changeField({ type: 'pet', field: 'colour', many: false }))
     expect((await run(readEntry('rue'))).entry.fields['colour']).toBe('white')
     expect((await run(readEntry('pip'))).entry.fields['colour']).toBe('grey')

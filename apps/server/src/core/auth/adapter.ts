@@ -70,7 +70,9 @@ const escapeLike = (value: string) => value.replace(/[\\%_]/g, (character) => `\
  * written with `sql` templates, escaped identifiers and bound values. Tables and columns are
  * checked against the schema of the instance and `AUTH_TABLES`. Joins are left to Better Auth.
  */
-export function grenierAuthAdapter(bridge: SqlBridge): (options: BetterAuthOptions) => DBAdapter {
+export function hippocampeAuthAdapter(
+  bridge: SqlBridge,
+): (options: BetterAuthOptions) => DBAdapter {
   const adapterOver =
     (current: SqlBridge): Parameters<typeof createAdapterFactory>[0]['adapter'] =>
     ({ schema, getFieldName }) => {
@@ -290,8 +292,8 @@ export function grenierAuthAdapter(bridge: SqlBridge): (options: BetterAuthOptio
     }
 
   const config = {
-    adapterId: 'grenier-sql-pg',
-    adapterName: 'Grenier @effect/sql-pg adapter',
+    adapterId: 'hippocampe-sql-pg',
+    adapterName: 'Hippocampe @effect/sql-pg adapter',
     supportsNumericIds: false,
     supportsDates: true,
     supportsBooleans: true,

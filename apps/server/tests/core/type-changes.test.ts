@@ -60,9 +60,30 @@ beforeAll(() =>
 
 describe('making a field required', () => {
   test('is refused naming the entries that lack it; with a default, it succeeds and both show it', async () => {
-    await run(writeEntry({ type: 'book', title: 'Untitled one', fields: { state: 'new' } }))
-    await run(writeEntry({ type: 'book', title: 'Untitled two', fields: { state: 'used' } }))
-    await run(writeEntry({ type: 'book', title: 'Signed', fields: { author: 'A. Writer' } }))
+    await run(
+      writeEntry({
+        type: 'book',
+        title: 'Untitled one',
+        fields: { state: 'new' },
+        provenance: { state: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'book',
+        title: 'Untitled two',
+        fields: { state: 'used' },
+        provenance: { state: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'book',
+        title: 'Signed',
+        fields: { author: 'A. Writer' },
+        provenance: { author: 'inferred' },
+      }),
+    )
     expect(
       await run(refusalOf(changeField({ type: 'book', field: 'author', required: true }))),
     ).toBe(
@@ -81,8 +102,10 @@ describe('making a field required', () => {
       ['untitled-one', 'untitled-two'].map((slug) => run(entryHistory(slug))),
     )
     for (const history of histories) {
+      // The default is a supposition of the writer of the change, not something the entry said.
       expect(history.at(-1)?.changes).toEqual([
         { field: 'fields.author', before: null, after: 'Unknown' },
+        { field: 'provenance.author', before: null, after: 'inferred' },
       ])
     }
     expect((await run(typeHistory('book'))).at(-1)?.action).toBe('change_field')
@@ -96,6 +119,7 @@ describe('removing an allowed value', () => {
         type: 'book',
         title: 'Worn',
         fields: { author: 'B. Writer', state: 'damaged' },
+        provenance: { author: 'inferred', state: 'inferred' },
       }),
     )
     expect(
@@ -124,6 +148,7 @@ describe('renaming a field', () => {
         title: 'Long read',
         fields: { author: 'C. Writer', pages: '900' },
         provenance: { pages: 'extracted', author: 'inferred' },
+        sources: [{ identifier: 'cat_0042', label: 'catalogue' }],
       }),
     )
     await run(changeField({ type: 'book', field: 'pages', rename: 'page_count' }))
@@ -146,10 +171,19 @@ describe('renaming a date field', () => {
       }),
     )
     await run(
-      writeEntry({ type: 'licence', title: 'Parking permit', fields: { expires: '2026-04-01' } }),
+      writeEntry({
+        type: 'licence',
+        title: 'Parking permit',
+        fields: { expires: '2026-04-01' },
+        provenance: { expires: 'inferred' },
+      }),
     )
     await run(writeEntry({ type: 'licence', title: 'Permit receipt' }))
-    await run(link('permit-receipt', 'parking-permit', 'fulfills', '2026', 'expires'))
+    await run(
+      link('permit-receipt', 'parking-permit', 'fulfills', '2026', 'expires', {
+        provenance: 'inferred',
+      }),
+    )
     await run(changeField({ type: 'licence', field: 'expires', rename: 'renews_on' }))
     expect(await run(backlinksOf('parking-permit'))).toMatchObject([
       { relation: 'fulfills', period: '2026', field: 'renews_on', slug: 'permit-receipt' },
@@ -173,7 +207,14 @@ describe('a dry run', () => {
 
 describe('merging types', () => {
   test('an agent proposes, cannot confirm; the owner confirms and the entries move with their fields', async () => {
-    await run(writeEntry({ type: 'film', title: 'Silent reel', fields: { director: 'D. Maker' } }))
+    await run(
+      writeEntry({
+        type: 'film',
+        title: 'Silent reel',
+        fields: { director: 'D. Maker' },
+        provenance: { director: 'inferred' },
+      }),
+    )
     const proposal = await run(proposeTypeMerge('film', 'movie', { director: 'made_by' }))
     expect(await run(listProposals)).toContainEqual(
       expect.objectContaining({
@@ -185,7 +226,7 @@ describe('merging types', () => {
       }),
     )
     expect(await run(refusalOf(confirmProposal(proposal.id)))).toBe(
-      'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
+      'Only the owner of Hippocampe may confirm a proposal: an agent proposes, the owner decides.',
     )
     await run(asOwner(confirmProposal(proposal.id)))
     const { entry } = await run(readEntry('silent-reel'))
@@ -229,7 +270,14 @@ describe('merging types', () => {
         defineType({ name: 'device', label: 'Device', description: 'A device.', fields: [] }),
       ]),
     )
-    await run(writeEntry({ type: 'gadget', title: 'Clicker', fields: { constructor: 'Acme' } }))
+    await run(
+      writeEntry({
+        type: 'gadget',
+        title: 'Clicker',
+        fields: { constructor: 'Acme' },
+        provenance: { constructor: 'inferred' },
+      }),
+    )
     const { id } = await run(proposeTypeMerge('gadget', 'device', {}))
     expect(await run(refusalOf(asOwner(confirmProposal(id))))).toBe(
       'The merge would lose values: `clicker`: the field `constructor` has no place in `device`. Map these fields first.',
@@ -264,7 +312,14 @@ describe('a merge mapping two fields to one', () => {
         }),
       ]),
     )
-    await run(writeEntry({ type: 'pair', title: 'Both sides', fields: { left: 'L', right: 'R' } }))
+    await run(
+      writeEntry({
+        type: 'pair',
+        title: 'Both sides',
+        fields: { left: 'L', right: 'R' },
+        provenance: { left: 'inferred', right: 'inferred' },
+      }),
+    )
     expect(
       await run(refusalOf(proposeTypeMerge('pair', 'single', { left: 'note', right: 'note' }))),
     ).toBe(
@@ -329,12 +384,24 @@ describe('a change of a type while an entry of it is being written', () => {
         ],
       }),
     )
-    await run(writeEntry({ type: 'shelf', title: 'Top shelf', fields: { label: 'A' } }))
+    await run(
+      writeEntry({
+        type: 'shelf',
+        title: 'Top shelf',
+        fields: { label: 'A' },
+        provenance: { label: 'inferred' },
+      }),
+    )
     // The write stays uncommitted until the change waits on it.
     await run(
-      whileLocked(writeEntry({ entry: 'top-shelf', fields: { place: 'attic' } }), [
-        changeField({ type: 'shelf', field: 'label', rename: 'name' }),
-      ]),
+      whileLocked(
+        writeEntry({
+          entry: 'top-shelf',
+          fields: { place: 'attic' },
+          provenance: { place: 'inferred' },
+        }),
+        [changeField({ type: 'shelf', field: 'label', rename: 'name' })],
+      ),
     )
     expect((await run(readEntry('top-shelf'))).entry.fields).toEqual({ name: 'A', place: 'attic' })
   })
@@ -350,7 +417,12 @@ describe('a change of a type while an entry of it is being written', () => {
     )
     const [ended] = await run(
       whileLocked(changeField({ type: 'crate', field: 'label', rename: 'name' }), [
-        writeEntry({ type: 'crate', title: 'Blue crate', fields: { label: 'B' } }),
+        writeEntry({
+          type: 'crate',
+          title: 'Blue crate',
+          fields: { label: 'B' },
+          provenance: { label: 'inferred' },
+        }),
       ]),
     )
     expect(ended !== undefined && Result.isFailure(ended)).toBe(true)
@@ -372,8 +444,22 @@ describe('a field that becomes a link to an entry', () => {
     )
     await run(writeEntry({ type: 'lamp', title: 'Desk lamp' }))
     const { id } = (await run(readEntry('desk-lamp'))).entry
-    await run(writeEntry({ type: 'loan', title: 'Loan one', fields: { item: 'nobody' } }))
-    await run(writeEntry({ type: 'loan', title: 'Loan two', fields: { item: 'desk-lamp' } }))
+    await run(
+      writeEntry({
+        type: 'loan',
+        title: 'Loan one',
+        fields: { item: 'nobody' },
+        provenance: { item: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'loan',
+        title: 'Loan two',
+        fields: { item: 'desk-lamp' },
+        provenance: { item: 'inferred' },
+      }),
+    )
     const refusal =
       'The change would leave 1 entries invalid: `loan-one`: the field `fields.item` must name an ' +
       'existing entry, and its value names none. Give a `default` for the missing values, or a ' +
@@ -432,15 +518,31 @@ describe('a field that becomes a link to an entry', () => {
       ]),
     )
     const { id } = (await run(readEntry('desk-lamp'))).entry
-    await run(writeEntry({ type: 'card', title: 'Card one', fields: { about: 'desk-lamp' } }))
-    await run(writeEntry({ type: 'card', title: 'Card two', fields: { about: 'nowhere' } }))
+    await run(
+      writeEntry({
+        type: 'card',
+        title: 'Card one',
+        fields: { about: 'desk-lamp' },
+        provenance: { about: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'card',
+        title: 'Card two',
+        fields: { about: 'nowhere' },
+        provenance: { about: 'inferred' },
+      }),
+    )
     const proposal = await run(proposeTypeMerge('card', 'label', { about: 'on' }))
     expect(await run(refusalOf(asOwner(confirmProposal(proposal.id))))).toBe(
       'The merge would leave 1 entries invalid: `card-two`: the field `fields.on` must name an ' +
         'existing entry, and its value names none. Fix these entries, or propose the merge again ' +
         'with a mapping that keeps them valid.',
     )
-    await run(writeEntry({ entry: 'card-two', fields: { about: id } }))
+    await run(
+      writeEntry({ entry: 'card-two', fields: { about: id }, provenance: { about: 'inferred' } }),
+    )
     await run(asOwner(confirmProposal(proposal.id)))
     const cards = await Promise.all(['card-one', 'card-two'].map((slug) => run(readEntry(slug))))
     expect(cards.map(({ entry }) => [entry.type, entry.fields['on']])).toEqual([

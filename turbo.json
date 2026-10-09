@@ -23,7 +23,7 @@
     "transit": {
       "dependsOn": ["^transit"]
     },
-    "@grenier/tools#lint": {
+    "@hippocampe/tools#lint": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/.oxlintrc.json",
@@ -36,7 +36,7 @@
       ],
       "outputs": []
     },
-    "@grenier/tools#test": {
+    "@hippocampe/tools#test": {
       "dependsOn": ["transit"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -54,11 +54,11 @@
       "outputs": [],
       "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
     },
-    "@grenier/server#openapi": {
+    "@hippocampe/server#openapi": {
       "inputs": ["src/openapi.ts", "$TURBO_ROOT$/packages/api/src/**"],
       "outputs": ["$TURBO_ROOT$/packages/api/openapi.json"]
     },
-    "@grenier/server#test": {
+    "@hippocampe/server#test": {
       "dependsOn": ["transit"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -69,8 +69,8 @@
       "outputs": [],
       "env": ["DATABASE_URL", "SEARCH_LANGUAGE"]
     },
-    "@grenier/desktop#generate": {
-      "dependsOn": ["@grenier/server#openapi"],
+    "@hippocampe/desktop#generate": {
+      "dependsOn": ["@hippocampe/server#openapi"],
       "inputs": [
         "crates/api-gen/**",
         "Cargo.toml",
@@ -79,11 +79,11 @@
       ],
       "outputs": ["crates/api/src/types.rs"]
     },
-    "@grenier/desktop#test": {
+    "@hippocampe/desktop#test": {
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/api/openapi.json"],
       "outputs": []
     },
-    "@grenier/desktop#build": {
+    "@hippocampe/desktop#build": {
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["target/debug/story", "target/debug/app"]
     }

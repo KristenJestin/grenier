@@ -1,4 +1,4 @@
-//! The read API of a Grenier server, as the viewer uses it: each call gives the data, or the
+//! The read API of a Hippocampe server, as the viewer uses it: each call gives the data, or the
 //! problem in the terms the screens show. Calls block: run them on the background executor.
 
 use std::fmt;
@@ -113,8 +113,8 @@ impl Client {
         if let Some(tag) = &filter.tag {
             parameters.push(("tag", tag.to_string()));
         }
-        if filter.unverified {
-            parameters.push(("verified", "false".to_string()));
+        if filter.supposed {
+            parameters.push(("supposed", "true".to_string()));
         }
         if let Some(cursor) = cursor {
             parameters.push(("cursor", cursor.to_string()));

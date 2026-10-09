@@ -13,10 +13,10 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 
-use crate::entry::{label_of, link_detail, title_of};
+use crate::entry::{label_of, link_detail, link_mark, mark_of, title_of};
 use crate::intent::{Intent, OnIntent};
 use crate::motion::hoverable;
-use crate::parts::{heading, text_button};
+use crate::parts::{heading, supposed_mark, text_button};
 use crate::text as words;
 use crate::theme::{self, space, text};
 
@@ -48,6 +48,8 @@ pub struct LinkRow {
     pub said: String,
     /// The note and the dates of the link.
     pub detail: Option<String>,
+    /// The mark of the link, or of the field value that names the entry, when it is not known.
+    pub mark: Option<&'static str>,
 }
 
 /// A group of rows, by relation or by field; `key` names it for folding.
@@ -71,6 +73,7 @@ fn row(way: Way, link: &Link) -> LinkRow {
         target: link.slug.clone(),
         said,
         detail: link_detail(link),
+        mark: link_mark(link),
     }
 }
 
@@ -93,6 +96,7 @@ pub fn link_groups(read: &EntryRead, type_definition: Option<&TypeDefinition>) -
                 _ => Vec::new(),
             };
             let label = label_of(&field.name);
+            let mark = mark_of(read, &field.name);
             values
                 .into_iter()
                 .filter(|id| id != crate::entry::HIDDEN)
@@ -102,6 +106,7 @@ pub fn link_groups(read: &EntryRead, type_definition: Option<&TypeDefinition>) -
                     target: id,
                     said: label.clone(),
                     detail: None,
+                    mark,
                 })
                 .collect::<Vec<_>>()
         })
@@ -345,6 +350,7 @@ fn row_element(
         }
     };
     let (title, said, detail) = (link.title.clone(), link.said.clone(), link.detail.clone());
+    let mark = link.mark.map(|mark| supposed_mark(mark, cx));
     let selector = format!("link-{group}-{}", link.target);
     hoverable(
         SharedString::from(selector.clone()),
@@ -379,6 +385,7 @@ fn row_element(
                         .text_color(faint)
                         .child(detail)
                 }))
+                .children(mark)
                 .child(
                     div()
                         .flex_none()
@@ -393,6 +400,7 @@ fn row_element(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api::LinkProvenance;
 
     fn link(relation: &str, title: &str) -> Link {
         Link {
@@ -402,6 +410,7 @@ mod tests {
             note: None,
             valid_from: None,
             valid_until: None,
+            provenance: LinkProvenance::Extracted,
             id: title.to_lowercase(),
             slug: title.to_lowercase(),
             title: title.into(),
@@ -412,12 +421,12 @@ mod tests {
         let mut read: EntryRead = serde_json::from_value(serde_json::json!({
             "entry": {
                 "id": "e1", "type": "note", "title": "Hub", "slug": "hub", "aliases": [], "tags": [],
-                "parent_id": null, "fields": {}, "provenance": {}, "sources": [], "body": "",
-                "summary": "", "verified": false, "created": "2026-10-01T00:00:00Z",
+                "fields": {}, "provenance": {}, "sources": [], "body": "",
+                "summary": "", "created": "2026-10-01T00:00:00Z",
                 "updated": "2026-10-01T00:00:00Z", "valid_from": null, "valid_until": null,
                 "superseded_by": null, "archived_at": null, "archived_reason": null
             },
-            "path": [], "references": [], "ancestors": [], "links": [], "media": [],
+            "path": [], "part_of": [], "references": [], "ancestors": [], "links": [], "media": [],
             "backlinks": [], "titles": {}, "children": [], "hidden_children": 0, "cited_by": []
         }))
         .expect("a read");

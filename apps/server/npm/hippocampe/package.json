@@ -1,0 +1,19 @@
+{
+  "name": "@netsirk/hippocampe",
+  "version": "0.0.0",
+  "description": "Hippocampe, a personal knowledge system kept by AI agents: the server, its MCP tools and its command line.",
+  "license": "AGPL-3.0-only",
+  "repository": "github:KristenJestin/hippocampe",
+  "bin": {
+    "hippo": "bin/hippo.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "optionalDependencies": {
+    "@netsirk/hippocampe-linux-x64": "0.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

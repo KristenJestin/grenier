@@ -1,17 +1,11 @@
 import type { PgClient } from '@effect/sql-pg'
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { Effect } from 'effect'
 import type { SqlClient } from 'effect/sql'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
 import type { Right } from '../../src/core/auth/index.ts'
-import {
-  listEntries,
-  readEntry,
-  unverified,
-  writeEntries,
-  writeEntry,
-} from '../../src/core/entries/index.ts'
+import { listEntries, readEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import {
   addToInbox,
@@ -22,6 +16,7 @@ import {
   takeItem,
 } from '../../src/core/inbox/index.ts'
 import { pendingReferences } from '../../src/core/links/index.ts'
+import { search } from '../../src/core/search/index.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { useScratchDatabase } from './scratch-database.ts'
 
@@ -66,8 +61,14 @@ beforeAll(async () => {
         parent: 'monday',
         superseded_by: 'monday',
         fields: { target: 'monday' },
+        provenance: { parent: 'inferred', target: 'inferred' },
       })
-      yield* writeEntry({ type: 'pointer', title: 'Notes of the day', body: 'See [[monday]].' })
+      yield* writeEntry({
+        type: 'pointer',
+        title: 'Notes of the day',
+        body: 'See [[monday]].',
+        provenance: { body: 'inferred' },
+      })
       return page.id
     }),
   )
@@ -79,7 +80,14 @@ const waitingFor = (list: Effect.Success<typeof pendingReferences>) =>
 
 describe('pending references tell nothing of hidden entries', () => {
   test('a reference resolved to a hidden entry stays pending for a key without the right, not for the owner', async () => {
-    await plain(writeEntry({ type: 'pointer', title: 'Week', body: 'Then [[tuesday]].' }))
+    await plain(
+      writeEntry({
+        type: 'pointer',
+        title: 'Week',
+        body: 'Then [[tuesday]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     await owner(writeEntry({ type: 'diary', title: 'Tuesday' }))
     expect(waitingFor(await plain(pendingReferences))).toContainEqual(['tuesday', ['week']])
     expect(waitingFor(await owner(pendingReferences))).not.toContainEqual(['tuesday', ['week']])
@@ -90,8 +98,8 @@ describe('pending references tell nothing of hidden entries', () => {
     const tuesday = (await owner(readEntry('tuesday'))).entry.id
     expect(history).not.toContain(tuesday)
     expect(JSON.stringify(await owner(entryHistory('week')))).toContain(tuesday)
-    const waiting = await plain(unverified({}))
-    expect(waiting.find(({ slug }) => slug === 'week')).toMatchObject({ by: 'agent-plain' })
+    const listed = await plain(search(undefined, { limit: 100 }))
+    expect(listed.find(({ slug }) => slug === 'week')).toMatchObject({ by: 'agent-plain' })
   })
 
   test('a hidden entry cited by the owner is listed as waiting, as a missing one would be', async () => {
@@ -106,7 +114,13 @@ describe('pending references tell nothing of hidden entries', () => {
   })
 
   test('an edit by a key without the right keeps the stored link to a hidden entry', async () => {
-    await plain(writeEntry({ entry: 'notes-of-the-day', summary: 'A short day.' }))
+    await plain(
+      writeEntry({
+        entry: 'notes-of-the-day',
+        summary: 'A short day.',
+        provenance: { summary: 'inferred' },
+      }),
+    )
     const { links } = await owner(readEntry('notes-of-the-day'))
     expect(links.map(({ id }) => id)).toContain(monday)
   })
@@ -116,8 +130,8 @@ describe('a batch tells nothing of hidden entries', () => {
   test('a loop of parents through a hidden entry given by id never names it', async () => {
     const refused = await refusalOf(
       writeEntries([
-        { entry: monday, parent: 'loop-b' },
-        { type: 'pointer', title: 'Loop b', parent: monday },
+        { entry: monday, parent: 'loop-b', provenance: { parent: 'inferred' } },
+        { type: 'pointer', title: 'Loop b', parent: monday, provenance: { parent: 'inferred' } },
       ]),
     )
     expect(refused).not.toContain('monday')
@@ -128,7 +142,12 @@ describe('a batch tells nothing of hidden entries', () => {
     const refused = await refusalOf(
       writeEntries([
         { entry: monday, slug: 'first-monday' },
-        { type: 'pointer', title: 'Citing', body: 'See [[monday]].' },
+        {
+          type: 'pointer',
+          title: 'Citing',
+          body: 'See [[monday]].',
+          provenance: { body: 'inferred' },
+        },
       ]),
     )
     expect(refused).not.toContain('renames')
@@ -139,16 +158,18 @@ describe('reads give no hidden id', () => {
   test('parent, successor and entry fields pointing to a hidden entry are masked, for the owner shown', async () => {
     const { entry } = await plain(readEntry('loose'))
     expect(entry).toMatchObject({
-      parent_id: null,
       superseded_by: null,
       fields: { target: HIDDEN },
     })
     expect((await owner(readEntry('loose'))).entry).toMatchObject({
-      parent_id: monday,
       superseded_by: monday,
       fields: { target: monday },
     })
-    expect((await plain(listEntries())).find(({ slug }) => slug === 'loose')?.parent_id).toBeNull()
+    expect((await plain(listEntries())).find(({ slug }) => slug === 'loose')?.part_of).toEqual([])
+    expect((await plain(readEntry('loose'))).part_of).toEqual([])
+    expect((await owner(readEntry('loose'))).part_of).toEqual([
+      expect.objectContaining({ id: monday }),
+    ])
   })
 
   test('the history shows no hidden id', async () => {

@@ -1,5 +1,5 @@
 /**
- * Diagnostics: what agents and the server found wrong with Grenier itself, each problem once with
+ * Diagnostics: what agents and the server found wrong with Hippocampe itself, each problem once with
  * its occurrences. Nothing here is the owner's data.
  */
 export { CALL_LIMIT, maskedCall } from './mask.ts'

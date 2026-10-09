@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -39,8 +40,8 @@ export class ExportRefused extends Schema.TaggedError<ExportRefused>()('ExportRe
   message: Schema.String,
 }) {}
 
-/** The commit's author, the same on every machine: the export is Grenier's own writing. */
-const IDENTITY = ['-c', 'user.name=Grenier', '-c', 'user.email=grenier@localhost']
+/** The commit's author, the same on every machine: the export is Hippocampe's own writing. */
+const IDENTITY = ['-c', 'user.name=Hippocampe', '-c', 'user.email=hippocampe@localhost']
 
 /** Runs git in `folder`; whether it succeeded, and what it printed. */
 const git = (folder: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) =>
@@ -100,7 +101,10 @@ const committed = (folder: string): ReadonlyMap<string, string> => {
 const realOf = (folder: string) => (existsSync(folder) ? realpathSync(folder) : resolvePath(folder))
 
 /** Where a folder says which export it holds: inside git's own folder, never committed. */
-const MODE = join('.git', 'grenier-export')
+const MODE = join('.git', 'hippocampe-export')
+
+/** The same mark under the name Hippocampe had before it was renamed: taken over when found. */
+const LEGACY_MODE = join('.git', 'grenier-export')
 
 /** The entry a file of an earlier export holds, read from its front matter. */
 const entryIn = (content: string) => {
@@ -160,6 +164,8 @@ export const exportMarkdown = Effect.fn('exportMarkdown')(function* (options: Ex
         'The folder of the nightly export (EXPORT_DIR) never holds sensitive data: give another folder.',
     })
   const mode = sensitive ? 'sensitive' : 'plain'
+  if (existsSync(join(folder, LEGACY_MODE)) && !existsSync(join(folder, MODE)))
+    renameSync(join(folder, LEGACY_MODE), join(folder, MODE))
   if (existsSync(join(folder, MODE)) && readFileSync(join(folder, MODE), 'utf8').trim() !== mode)
     return yield* new ExportRefused({
       message: sensitive

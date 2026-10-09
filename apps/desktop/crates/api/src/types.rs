@@ -98,8 +98,6 @@ pub struct Entry {
     pub created: ::std::string::String,
     pub fields: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
     pub id: ::std::string::String,
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub parent_id: ::std::option::Option<::std::string::String>,
     pub provenance: ::std::collections::HashMap<::std::string::String, EntryProvenanceValue>,
     pub slug: ::std::string::String,
     pub sources: ::std::vec::Vec<Source>,
@@ -115,7 +113,6 @@ pub struct Entry {
     pub valid_from: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub valid_until: ::std::option::Option<::std::string::String>,
-    pub verified: bool,
 }
 #[doc = "`EntryList`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -144,6 +141,8 @@ pub enum EntryProvenanceValue {
     Inferred,
     #[serde(rename = "ambiguous")]
     Ambiguous,
+    #[serde(rename = "unstated")]
+    Unstated,
 }
 impl ::std::fmt::Display for EntryProvenanceValue {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -151,6 +150,7 @@ impl ::std::fmt::Display for EntryProvenanceValue {
             Self::Extracted => f.write_str("extracted"),
             Self::Inferred => f.write_str("inferred"),
             Self::Ambiguous => f.write_str("ambiguous"),
+            Self::Unstated => f.write_str("unstated"),
         }
     }
 }
@@ -161,6 +161,7 @@ impl ::std::str::FromStr for EntryProvenanceValue {
             "extracted" => Ok(Self::Extracted),
             "inferred" => Ok(Self::Inferred),
             "ambiguous" => Ok(Self::Ambiguous),
+            "unstated" => Ok(Self::Unstated),
             _ => Err("invalid value".into()),
         }
     }
@@ -190,6 +191,7 @@ pub struct EntryRead {
     pub hidden_children: i64,
     pub links: ::std::vec::Vec<Link>,
     pub media: ::std::vec::Vec<Medium>,
+    pub part_of: ::std::vec::Vec<Place>,
     pub path: ::std::vec::Vec<::std::string::String>,
     pub references: ::std::vec::Vec<EntryReadReferencesItem>,
     pub titles: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
@@ -217,34 +219,40 @@ pub struct EntryReadReferencesItem {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub title: ::std::option::Option<::std::string::String>,
 }
-#[doc = "`FieldDefinition`"]
+#[doc = "A field of a type: its name, its kind and the rules a value of it follows."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct FieldDefinition {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub due: ::std::option::Option<FieldDefinitionDue>,
+    #[doc = "What the field holds. `enum` needs its `values`; `entry` points to other entries (see `types`); `date` may carry `due` or `recurs`."]
     pub kind: FieldDefinitionKind,
     #[doc = "The field holds a list of values of its kind, in the order given and without duplicates, such as several sellers or languages; `required` then means at least one. Not with `due` or `recurs`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub many: ::std::option::Option<bool>,
+    #[doc = "The name of the field, in snake_case such as `monthly_cost`."]
     pub name: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub recurs: ::std::option::Option<FieldDefinitionRecurs>,
+    #[doc = "A write must give a value for the field (at least one when it is `many`)."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub required: ::std::option::Option<bool>,
+    #[doc = "The values of the field are shown and written only by a key with the right `sensitive`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub sensitive: ::std::option::Option<bool>,
     #[doc = "On an `entry` field only: the names of the types its entries may be of, such as `[\"organization\"]`; a write naming an entry of another type is refused. Without it, any entry is accepted."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub types: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    #[doc = "For an `enum` field only: the values it accepts, at least one, without repeats."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub values: ::std::option::Option<::std::vec::Vec<FieldDefinitionValuesItem>>,
 }
-#[doc = "`FieldDefinitionDue`"]
+#[doc = "For a `date` field only: the date is a deadline, told as coming `notice` before it."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct FieldDefinitionDue {
+    #[doc = "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."]
     pub notice: ::std::string::String,
 }
-#[doc = "`FieldDefinitionKind`"]
+#[doc = "What the field holds. `enum` needs its `values`; `entry` points to other entries (see `types`); `date` may carry `due` or `recurs`."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -331,13 +339,15 @@ impl ::std::convert::TryFrom<::std::string::String> for FieldDefinitionKind {
         value.parse()
     }
 }
-#[doc = "`FieldDefinitionRecurs`"]
+#[doc = "For a `date` field only: the date comes back, `every` year, month or week, told as coming `notice` before each time."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct FieldDefinitionRecurs {
+    #[doc = "How often the date comes back."]
     pub every: FieldDefinitionRecursEvery,
+    #[doc = "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."]
     pub notice: ::std::string::String,
 }
-#[doc = "`FieldDefinitionRecursEvery`"]
+#[doc = "How often the date comes back."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -581,6 +591,7 @@ pub struct Link {
     pub note: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub period: ::std::option::Option<::std::string::String>,
+    pub provenance: LinkProvenance,
     pub relation: ::std::string::String,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
@@ -588,6 +599,65 @@ pub struct Link {
     pub valid_from: ::std::option::Option<::std::string::String>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub valid_until: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`LinkProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum LinkProvenance {
+    #[serde(rename = "extracted")]
+    Extracted,
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "ambiguous")]
+    Ambiguous,
+    #[serde(rename = "unstated")]
+    Unstated,
+}
+impl ::std::fmt::Display for LinkProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Extracted => f.write_str("extracted"),
+            Self::Inferred => f.write_str("inferred"),
+            Self::Ambiguous => f.write_str("ambiguous"),
+            Self::Unstated => f.write_str("unstated"),
+        }
+    }
+}
+impl ::std::str::FromStr for LinkProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "extracted" => Ok(Self::Extracted),
+            "inferred" => Ok(Self::Inferred),
+            "ambiguous" => Ok(Self::Ambiguous),
+            "unstated" => Ok(Self::Unstated),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for LinkProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for LinkProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 #[doc = "`Medium`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -680,6 +750,77 @@ pub struct PendingReferenceCitedByItem {
 pub struct PendingReferences {
     pub pending: ::std::vec::Vec<PendingReference>,
 }
+#[doc = "`Place`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Place {
+    pub id: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub note: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub period: ::std::option::Option<::std::string::String>,
+    pub provenance: PlaceProvenance,
+    pub slug: ::std::string::String,
+    pub title: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub valid_from: ::std::option::Option<::std::string::String>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub valid_until: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`PlaceProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum PlaceProvenance {
+    #[serde(rename = "extracted")]
+    Extracted,
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "unstated")]
+    Unstated,
+}
+impl ::std::fmt::Display for PlaceProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Extracted => f.write_str("extracted"),
+            Self::Inferred => f.write_str("inferred"),
+            Self::Unstated => f.write_str("unstated"),
+        }
+    }
+}
+impl ::std::str::FromStr for PlaceProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "extracted" => Ok(Self::Extracted),
+            "inferred" => Ok(Self::Inferred),
+            "unstated" => Ok(Self::Unstated),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for PlaceProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PlaceProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 #[doc = "`SearchResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SearchResult {
@@ -689,9 +830,64 @@ pub struct SearchResult {
     pub rank: f64,
     pub slug: ::std::string::String,
     pub summary: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub summary_provenance: ::std::option::Option<SearchResultSummaryProvenance>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub supposed: ::std::vec::Vec<Supposed>,
     pub title: ::std::string::String,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
+}
+#[doc = "`SearchResultSummaryProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SearchResultSummaryProvenance {
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "ambiguous")]
+    Ambiguous,
+}
+impl ::std::fmt::Display for SearchResultSummaryProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Inferred => f.write_str("inferred"),
+            Self::Ambiguous => f.write_str("ambiguous"),
+        }
+    }
+}
+impl ::std::str::FromStr for SearchResultSummaryProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "inferred" => Ok(Self::Inferred),
+            "ambiguous" => Ok(Self::Ambiguous),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SearchResultSummaryProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SearchResultSummaryProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 #[doc = "`SearchResults`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -703,6 +899,7 @@ pub struct SearchResults {
 #[serde(untagged)]
 pub enum Source {
     Entry(SourceEntry),
+    Said(SourceSaid),
     Url(SourceUrl),
     Identifier(SourceIdentifier),
     Item(SourceItem),
@@ -710,6 +907,11 @@ pub enum Source {
 impl ::std::convert::From<SourceEntry> for Source {
     fn from(value: SourceEntry) -> Self {
         Self::Entry(value)
+    }
+}
+impl ::std::convert::From<SourceSaid> for Source {
+    fn from(value: SourceSaid) -> Self {
+        Self::Said(value)
     }
 }
 impl ::std::convert::From<SourceUrl> for Source {
@@ -731,6 +933,7 @@ impl ::std::convert::From<SourceItem> for Source {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceEntry {
     pub entry: ::std::string::String,
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
     pub slug: ::std::string::String,
@@ -739,54 +942,146 @@ pub struct SourceEntry {
 #[doc = "`SourceIdentifier`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceIdentifier {
+    #[doc = "An identifier outside Hippocampe, such as a ticket number or an ISBN."]
     pub identifier: ::std::string::String,
+    #[doc = "What the identifier names, such as `ticket`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub label: ::std::option::Option<::std::string::String>,
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`SourceItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceItem {
+    #[doc = "The id of the inbox item."]
     pub item: ::std::string::String,
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
+    #[doc = "Where the item came from: `inbox` for an item of the inbox."]
     pub source: ::std::string::String,
+}
+#[doc = "`SourceSaid`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct SourceSaid {
+    #[doc = "A few words on what this source gave."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub note: ::std::option::Option<::std::string::String>,
+    pub on: ::std::string::String,
+    pub said_by: ::std::string::String,
+    pub slug: ::std::string::String,
+    pub title: ::std::string::String,
 }
 #[doc = "`SourceUrl`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceUrl {
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
+    #[doc = "The address of the page the entry comes from."]
     pub url: ::std::string::String,
+}
+#[doc = "`Supposed`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Supposed {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub by: ::std::option::Option<::std::string::String>,
+    pub provenance: SupposedProvenance,
+    pub what: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub when: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`SupposedProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SupposedProvenance {
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "ambiguous")]
+    Ambiguous,
+    #[serde(rename = "unstated")]
+    Unstated,
+}
+impl ::std::fmt::Display for SupposedProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Inferred => f.write_str("inferred"),
+            Self::Ambiguous => f.write_str("ambiguous"),
+            Self::Unstated => f.write_str("unstated"),
+        }
+    }
+}
+impl ::std::str::FromStr for SupposedProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "inferred" => Ok(Self::Inferred),
+            "ambiguous" => Ok(Self::Ambiguous),
+            "unstated" => Ok(Self::Unstated),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SupposedProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SupposedProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 #[doc = "`TreeEntry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct TreeEntry {
     pub id: ::std::string::String,
-    pub in_parent: bool,
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub parent_id: ::std::option::Option<::std::string::String>,
+    pub part_of: ::std::vec::Vec<TreePlace>,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
+#[doc = "`TreePlace`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct TreePlace {
+    pub id: ::std::string::String,
+    pub in_parent: bool,
+}
 #[doc = "`TypeDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct TypeDefinition {
+    #[doc = "What the type is and when to use it, in the words a user would say: agents choose a type from it."]
     pub description: TypeDefinitionDescription,
+    #[doc = "The fields of the type; none is a type with a title and a body only."]
     pub fields: ::std::vec::Vec<FieldDefinition>,
+    #[doc = "The name of the type as people read it."]
     pub label: TypeDefinitionLabel,
+    #[doc = "The name of the type, in lowercase kebab-case such as `bank-account`."]
     pub name: ::std::string::String,
-    #[doc = "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."]
+    #[doc = "Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub read_in_parent: ::std::option::Option<bool>,
     #[doc = "Every entry of the type is sensitive: shown only to a key with the right `sensitive`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub sensitive: ::std::option::Option<bool>,
 }
-#[doc = "`TypeDefinitionDescription`"]
+#[doc = "What the type is and when to use it, in the words a user would say: agents choose a type from it."]
 #[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
 pub struct TypeDefinitionDescription(::std::string::String);
@@ -836,7 +1131,7 @@ impl<'de> ::serde::Deserialize<'de> for TypeDefinitionDescription {
             })
     }
 }
-#[doc = "`TypeDefinitionLabel`"]
+#[doc = "The name of the type as people read it."]
 #[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
 pub struct TypeDefinitionLabel(::std::string::String);

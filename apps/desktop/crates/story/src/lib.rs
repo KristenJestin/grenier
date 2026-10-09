@@ -25,7 +25,7 @@ pub struct Story {
 }
 
 fn refused() -> Problem {
-    Problem::KeyRefused("This key was revoked: ask the owner of Grenier for a new one.".into())
+    Problem::KeyRefused("This key was revoked: ask the owner of Hippocampe for a new one.".into())
 }
 
 /// A viewer showing that tree and that pane.
@@ -39,7 +39,7 @@ fn viewer(
     cx.new(|cx| {
         let mut viewer = Viewer::new(window, cx);
         viewer.set_tree(tree, cx);
-        viewer.set_connection(Some("grenier.local".into()), cx);
+        viewer.set_connection(Some("hippocampe.local".into()), cx);
         viewer.set_pane(pane, window, cx);
         if let Some(id) = selected {
             viewer.select(&id.into(), cx);
@@ -122,6 +122,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "tree/two-places",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::shared_tree()),
+                    Some("ecran-partage"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::bare()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "tree/long-titles",
             build: |window, cx| {
                 viewer(
@@ -194,6 +206,18 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "entry/supposed",
+            build: |window, cx| {
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    Some("fibre-maison"),
+                    Pane::Entry(Box::new(Load::Ready(fixtures::supposed()))),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "entry/many-links",
             build: |window, cx| {
                 viewer(
@@ -211,7 +235,7 @@ pub fn stories() -> Vec<Story> {
                 cx.new(|cx| {
                     let mut viewer = Viewer::new(window, cx);
                     viewer.set_tree(Load::Ready(fixtures::long_titles_tree()), cx);
-                    viewer.set_connection(Some("grenier.local".into()), cx);
+                    viewer.set_connection(Some("hippocampe.local".into()), cx);
                     viewer.set_pane(
                         Pane::Entry(Box::new(Load::Ready(fixtures::many_links()))),
                         window,
@@ -308,6 +332,23 @@ pub fn stories() -> Vec<Story> {
             },
         },
         Story {
+            name: "results/supposed",
+            build: |window, cx| {
+                let mut listed = fixtures::listed();
+                listed.filter = ui::intent::ListFilter {
+                    supposed: true,
+                    ..ui::intent::ListFilter::default()
+                };
+                viewer(
+                    Load::Ready(fixtures::tree()),
+                    None,
+                    Pane::List(listed),
+                    window,
+                    cx,
+                )
+            },
+        },
+        Story {
             name: "search/filtered",
             build: |window, cx| {
                 viewer(
@@ -391,7 +432,7 @@ struct Typography;
 
 impl Render for Typography {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        const SAMPLE: &str = "Mémoire du grenier : « l’œuvre à ranger », déjà vue, çà et là.";
+        const SAMPLE: &str = "Mémoire du jardin : « l’œuvre à ranger », déjà vue, çà et là.";
         let sizes = [
             ("TITLE", text::TITLE),
             ("HEADING", text::HEADING),

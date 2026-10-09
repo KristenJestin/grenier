@@ -78,7 +78,7 @@ describe('JSON Schema for MCP tools', () => {
     expect(JSON.stringify(input)).not.toContain('$ref')
     expect(input).toMatchInlineSnapshot(`
       {
-        "additionalProperties": true,
+        "additionalProperties": false,
         "description": "Writes a note.",
         "properties": {
           "body": {
@@ -102,7 +102,7 @@ describe('JSON Schema for MCP tools', () => {
             "type": "string",
           },
           "place": {
-            "additionalProperties": true,
+            "additionalProperties": false,
             "properties": {
               "path": {
                 "description": "Absolute path of the folder.",
@@ -149,6 +149,26 @@ describe('JSON Schema for MCP tools', () => {
     }
   })
 
+  test('a tool that restates its list item describes it once, under $defs, and refers to it', () => {
+    const Entry = Schema.Struct({
+      title: Schema.String.annotate({ description: 'Title of the entry.' }),
+      body: Schema.optionalKey(Schema.String).annotate({ description: 'Body of the entry.' }),
+    })
+    const Write = Schema.Struct({
+      ...Entry.fields,
+      entries: Schema.optionalKey(Schema.Array(Entry)).annotate({ description: 'Several.' }),
+    })
+    const input = toToolInputSchema(Write, { property: 'entries', as: 'Entry' })
+    expect(JSON.stringify(input).match(/Title of the entry/g)).toHaveLength(1)
+    expect(input.$defs).toHaveProperty(['Entry', 'properties', 'title', 'description'])
+    expect(input.properties).toMatchObject({
+      title: { $ref: '#/$defs/Entry/properties/title' },
+      body: { $ref: '#/$defs/Entry/properties/body' },
+      entries: { type: 'array', description: 'Several.', items: { $ref: '#/$defs/Entry' } },
+    })
+    expect(input.additionalProperties).toBe(false)
+  })
+
   test('a schema that is not an object at the root is refused', () => {
     expect(() => toToolInputSchema(Schema.String)).toThrow(/object at the root/)
   })
@@ -173,7 +193,7 @@ describe('Standard Schema for forms', () => {
       name: 'This field is missing.',
       port: 'This field must be a finite number.',
     })
-    expect(fieldErrors(toFormSchema(Settings), { name: 'grenier', port: '4321' })).toEqual({})
+    expect(fieldErrors(toFormSchema(Settings), { name: 'hippocampe', port: '4321' })).toEqual({})
   })
 })
 
@@ -202,7 +222,7 @@ describe('Messages shown to people', () => {
   })
 
   test('a field of the wrong type is named with the type it must have', () => {
-    expect(formatSchemaError(failureOf({ name: 'grenier', port: 'x' }))).toBe(
+    expect(formatSchemaError(failureOf({ name: 'hippocampe', port: 'x' }))).toBe(
       'The field `port` must be a number.',
     )
   })

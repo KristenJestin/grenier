@@ -1,4 +1,4 @@
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { inArray } from 'drizzle-orm'
 import { Effect, Schema } from 'effect'
 import { drizzle } from './database/client.ts'

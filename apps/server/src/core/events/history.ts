@@ -2,7 +2,7 @@ import { Effect, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { findEntry } from '../entries/operations.ts'
-import { HIDDEN } from '@grenier/api/model'
+import { HIDDEN } from '@hippocampe/api/model'
 import { Refused } from '../refused.ts'
 import { hiddenIn, holdsHidden, withoutHidden } from '../hidden-ids.ts'
 import { sensitivity } from '../sensitive.ts'
@@ -207,7 +207,7 @@ const withoutSeq = (change: FieldChange & { readonly seq: number }): FieldChange
 })
 
 /**
- * The changes of one field of an entry, oldest first: `title`, `parent_id`, `fields.provider`…
+ * The changes of one field of an entry, oldest first: `title`, `links.part_of`, `fields.provider`…
  * The value an entry was created with is the `before` of the first change.
  */
 export const fieldHistory = Effect.fn('fieldHistory')(function* (reference: string, field: string) {

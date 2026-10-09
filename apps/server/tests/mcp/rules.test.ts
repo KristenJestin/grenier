@@ -10,7 +10,7 @@ import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { startServer } from './stdio-client.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
-const scratch = mkdtempSync(join(tmpdir(), 'grenier-rules-'))
+const scratch = mkdtempSync(join(tmpdir(), 'hippocampe-rules-'))
 const database = ManagedRuntime.make(scratchDatabase)
 let url = ''
 
@@ -28,7 +28,7 @@ const cli = (...args: ReadonlyArray<string>) =>
 
 /** A session starting now, as an agent, with the given environment. */
 const session = (env: Readonly<Record<string, string>> = {}) =>
-  startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test', ...env })
+  startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-test', ...env })
 
 const RULES = `Ask before writing anything private about someone else.
 
@@ -52,7 +52,7 @@ describe('the instance gives its rules to every agent', () => {
   test('without rules, nothing is added', async () => {
     const server = await session()
     expect(server.instructions).not.toContain('rules of this instance')
-    expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: null } })
+    expect(await server.call('types', { rules: true })).toMatchObject({ result: { rules: null } })
     server.close()
     expect(cli('rules:show').stdout).toBe('This instance has no rules.\n')
   })
@@ -63,17 +63,24 @@ describe('the instance gives its rules to every agent', () => {
     expect(cli('rules:set', file).stdout).toBe('The rules of this instance are set.\n')
     expect(cli('rules:show').stdout).toBe(RULES)
 
-    const server = await session({ GRENIER_DIAGNOSTICS: 'on' })
+    const server = await session({ HIPPOCAMPE_DIAGNOSTICS: 'on' })
     const paragraphs = server.instructions?.split('\n\n') ?? []
     const at = paragraphs.findIndex((paragraph) => paragraph.includes('rules of this instance'))
-    // After the instance, diagnostics and how an inbox item becomes entries; before how to
-    // choose a type.
-    expect(at).toBe(3)
-    expect(paragraphs[1]).toMatch(/^Diagnostics are on/)
-    expect(paragraphs[2]).toMatch(/^How an inbox item becomes entries/)
+    // After the instance, how to choose a type, the types, the working memory, how to recall and
+    // diagnostics; before how to write an entry and how an inbox item becomes entries.
+    expect(paragraphs[1]).toMatch(/^Hippocampe keeps entries/)
+    expect(paragraphs[3]).toMatch(/^There is no type yet/)
+    expect(paragraphs[4]).toMatch(/^This session writes as the key/)
+    expect(paragraphs[5]).toMatch(/^When the owner refers to something without naming it/)
+    expect(paragraphs[6]).toMatch(/^When the user mentions something/)
+    expect(paragraphs[7]).toMatch(/^Diagnostics are on/)
+    expect(at).toBe(8)
+    expect(paragraphs[at + 3]).toMatch(/^How to write an entry/)
+    expect(paragraphs[at + 4]).toMatch(/^How an inbox item becomes entries/)
     expect(server.instructions).toContain(RULES.trim())
-    expect(paragraphs[at + 3]).toMatch(/^Grenier keeps entries/)
-    expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: RULES } })
+    expect(await server.call('types', { rules: true })).toMatchObject({
+      result: { rules: RULES },
+    })
     server.close()
   })
 
@@ -89,7 +96,7 @@ describe('the instance gives its rules to every agent', () => {
     expect(cli('rules:show').stdout).toBe(RULES)
   })
 
-  test('long rules: the instructions give their opening and point to instance_rules', async () => {
+  test('long rules: the instructions give their opening and say how to read them whole, in `types`', async () => {
     const file = join(scratch, 'long.md')
     const long = `Ask before writing anything private.\n\n${'## Style\n\nShort sentences.\n\n'.repeat(400)}`
     writeFileSync(file, long)
@@ -97,8 +104,9 @@ describe('the instance gives its rules to every agent', () => {
     const server = await session()
     expect(server.instructions).toContain('Ask before writing anything private.')
     expect(server.instructions).not.toContain('## Style')
-    expect(server.instructions).toContain('`instance_rules`')
-    expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: long } })
+    expect(server.instructions).toContain('calling `types` with `rules: true`')
+    expect(server.instructions).not.toContain('instance_rules')
+    expect(await server.call('types', { rules: true })).toMatchObject({ result: { rules: long } })
     server.close()
   })
 })
