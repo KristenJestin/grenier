@@ -6,8 +6,9 @@ export const confirmProposalTool = defineTool({
   name: 'confirm_proposal',
   description: 'Confirms a proposal. For the owner only.',
   input: Schema.Struct({ id: Schema.String }),
-  // The core refuses anyone but the owner, with its own sentence.
-  right: 'write',
+  // Listed only to a key with the right `owner`, which no key given to an agent has; the core
+  // refuses anyone but the owner all the same, with its own sentence.
+  right: 'owner',
   hints: { destructive: true, idempotent: false },
   run: ({ id }) => Effect.map(confirmProposal(id), (proposal) => ({ proposal })),
 })

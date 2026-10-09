@@ -34,7 +34,7 @@ const Tools = Schema.Struct({
 })
 
 describe('the server answers over stdio', () => {
-  test('it lists the tools, each with an input schema that is a JSON object at the root', async () => {
+  test('it lists the tools of its rights, each with an input schema that is a JSON object at the root', async () => {
     const { result } = await mcp().request('tools/list', {})
     const { tools } = Schema.decodeUnknownSync(Tools)(result)
     expect(tools.map(({ name }) => name).toSorted()).toEqual([
@@ -44,7 +44,6 @@ describe('the server answers over stdio', () => {
       'briefing',
       'change_field',
       'change_type',
-      'confirm_proposal',
       'define_type',
       'describe_media',
       'get_type',

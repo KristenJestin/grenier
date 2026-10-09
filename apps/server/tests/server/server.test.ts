@@ -157,7 +157,26 @@ describe('the MCP tools over HTTP', () => {
     const client = await connect(`${base}/mcp`, bearer(writer))
     const { result } = await client.request('tools/list', {})
     const { tools } = Schema.decodeUnknownSync(Tools)(result)
-    expect(tools.map(({ name }) => name).toSorted()).toEqual([...TOOL_NAMES].toSorted())
+    // In the fixed order, without the tool of the owner, which this key lacks the right for.
+    expect(tools.map(({ name }) => name)).toEqual(
+      TOOL_NAMES.filter((name) => name !== 'confirm_proposal'),
+    )
+  })
+
+  test('each key lists the tools of its rights, on a session and without one', async () => {
+    const readerKey = bearer(await createKey('agent-lister-reader', ['read']))
+    const namesOf = (listed: Schema.Json | undefined) =>
+      Schema.decodeUnknownSync(Tools)(listed).tools.map(({ name }) => name)
+    const sessioned = await connect(`${base}/mcp`, readerKey)
+    const stateless = connectStateless(`${base}/mcp`, readerKey)
+    const reads = namesOf((await sessioned.request('tools/list', {})).result)
+    expect(reads).toEqual(namesOf((await stateless.request('tools/list', {})).result))
+    expect(reads).toContain('search')
+    expect(reads).not.toContain('write')
+    // Another key, with more rights, is not served the first one's list.
+    const wide = await connect(`${base}/mcp`, bearer(writer))
+    expect(namesOf((await wide.request('tools/list', {})).result)).toContain('write')
+    expect(namesOf((await sessioned.request('tools/list', {})).result)).toEqual(reads)
   })
 
   test('define a type, write an entry, read it back, and get a refusal in sentences', async () => {
@@ -253,8 +272,15 @@ describe('only known agents use the server', () => {
     expect(await reader.call('search', { query: 'wire' })).toMatchObject({
       result: { results: [{ slug: 'over-the-wire' }] },
     })
-    expect(await reader.call('write', { type: 'note', title: 'Not allowed' })).toEqual({
-      error: 'This key may not write: ask the owner of Grenier for a key with the right `write`.',
+    // `write` is not listed to this key, so it is refused as a tool that does not exist.
+    expect(
+      await reader.request('tools/call', {
+        name: 'write',
+        arguments: { type: 'note', title: 'Not allowed' },
+      }),
+    ).toMatchObject({ error: { message: "Tool 'write' not found" } })
+    expect(await reader.call('search', { query: 'Not allowed' })).toMatchObject({
+      result: { results: [] },
     })
   })
 })
@@ -340,9 +366,11 @@ describe('changing types through keys', () => {
     const { id } = Schema.decodeUnknownSync(
       Schema.Struct({ proposal: Schema.Struct({ id: Schema.String }) }),
     )('result' in proposed ? proposed.result : null).proposal
-    expect(await agent.call('confirm_proposal', { id })).toEqual({
-      error:
-        'Only the owner of Grenier may confirm a proposal: an agent proposes, the owner decides.',
+    // Not listed to a key without the right `owner`, so refused as a tool that does not exist.
+    expect(
+      await agent.request('tools/call', { name: 'confirm_proposal', arguments: { id } }),
+    ).toMatchObject({
+      error: { message: "Tool 'confirm_proposal' not found" },
     })
     const owner = await connect(
       `${base}/mcp`,
@@ -383,7 +411,7 @@ describe('media over HTTP', () => {
 
 describe('MCP protocol versions', () => {
   test('a client on 2026-07-28 and one on 2025-11-25 both list the tools and call one', async () => {
-    const expected = [...TOOL_NAMES].toSorted()
+    const expected = TOOL_NAMES.filter((name) => name !== 'confirm_proposal').toSorted()
     const stateless = connectStateless(`${base}/mcp`, bearer(writer))
     const { result } = await stateless.request('tools/list', {})
     expect(
