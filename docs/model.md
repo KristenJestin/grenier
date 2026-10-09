@@ -1,11 +1,11 @@
 # The data model
 
-What Grenier stores and the rules the server enforces. This is the reference the issues build
+What Hippocampe stores and the rules the server enforces. This is the reference the issues build
 on; an issue may refine it, and when it does, this file is updated in the same pull request.
 
 ## Entries
 
-Everything Grenier stores is an **entry**: a recipe, a contract, a person, a project, a note, a
+Everything Hippocampe stores is an **entry**: a recipe, a contract, a person, a project, a note, a
 bookmark, a folder-like area. All entries share the same base:
 
 | Field | Meaning |
@@ -22,7 +22,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), what a person said (`{ "said_by": "<slug or id>", "on": "2026-10-08" }`, kept as the id of the entry that stands for them and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
-| `created`, `updated` | when the entry came to be (the time of the write that created it, or the date a migrated note gives) and when Grenier last changed it (the time of the last write) |
+| `created`, `updated` | when the entry came to be (the time of the write that created it, or the date a migrated note gives) and when Hippocampe last changed it (the time of the last write) |
 | `valid_from`, `valid_until`, `superseded_by` | when it was true in the world, and what replaced it |
 | `archived_at` | set when the entry is archived: it stays in place and leaves the default views |
 
@@ -60,7 +60,7 @@ disagree.
   `body` and `summary` are not. The `mentions`
   that come from a body take the provenance of the body.
 - **The owner confirms.** From the command line, `supposed:confirm` makes a value or a link known:
-  `extracted`, with the source "said by" the entry that stands for the owner (`--as`: Grenier knows
+  `extracted`, with the source "said by" the entry that stands for the owner (`--as`: Hippocampe knows
   no entry for the owner itself), dated the day of confirmation, in one event of the entry. A link
   `fulfills` supposed for several periods is confirmed with `--period` and `--field`, which the
   refusal lists; a `mentions` link follows its body: confirm the `body`. A correction is an ordinary write by the owner. Through MCP,
@@ -216,7 +216,7 @@ said to be known or supposed, with its `provenance`, and what someone said cited
 kept; nothing added without its source; a dated text kept in its time; the language of what is
 given; and sensitive values left out when the key may not write them. The **inbox standard**
 (the description of `inbox_take` refers to it rather than repeating it) keeps what is specific to
-an item: a long item split by part or by period, and, for an item that brings again what Grenier
+an item: a long item split by part or by period, and, for an item that brings again what Hippocampe
 holds, the entries it gave before read and compared with the whole item fact by fact, then
 completed or corrected (what the types and rules now ask for included), never taken as complete
 because they exist. The rules of the instance come before both and may add to them.
@@ -452,7 +452,7 @@ creation; the value it was created with is the `before` of the first change.
 
 ## The inbox
 
-Nothing enters Grenier as a raw copy. What arrives (a text, a link, a file, a shared page) goes
+Nothing enters Hippocampe as a raw copy. What arrives (a text, a link, a file, a shared page) goes
 into the **inbox** as an item: its kind, its content (a file is kept as its text when it is
 text, else on disk by its hash with its type), where it came from, when it arrived, and where it stands:
 `pending`, `taken` by one agent, `processed` or `dismissed` (with a reason). An agent takes an
@@ -488,14 +488,14 @@ name, so an agent can rebuild the tree; hidden files and folders (`.gitkeep`, `.
 skipped, and what is skipped or refused is listed at the end. `--dry-run` says what would be
 added; a file the inbox holds already (same content, same path, same origin, whatever became of
 it) is not added again unless `--again`. The folder must be on the server's machine: for the
-container, copy it in first (`docker compose cp <folder> grenier:/tmp/<name>`), then run
-`docker compose exec grenier bun src/cli.ts inbox:add /tmp/<name> --origin <name>`.
+container, copy it in first (`docker compose cp <folder> hippocampe:/tmp/<name>`), then run
+`docker compose exec hippocampe bun src/cli.ts inbox:add /tmp/<name> --origin <name>`.
 
 ## Sources
 
 An entry made from an inbox item cites it as `{ "source": "inbox", "item": "<id>" }`:
 `inbox_finish` (`done`) adds that source to each entry it names, and a write may give it too, for an item
-the inbox holds. No other item is cited this way: a source outside Grenier is a URL or an
+the inbox holds. No other item is cited this way: a source outside Hippocampe is a URL or an
 external identifier.
 
 A write may give an entry its `created` time when it creates the entry, or later as long as the
@@ -589,16 +589,16 @@ The same code runs as several instances, each with its own database: `production
 real data), `development` (a shared test server, whose test data persists, to try what has been
 merged) and `local` (a stack on a developer's machine, with throwaway data). An agent may be
 connected to more than one at once, so each says what it is: its MCP server is announced as
-`grenier`, `grenier-dev` or `grenier-local`, with the version of the server, and its instructions
+`hippocampe`, `hippocampe-dev` or `hippocampe-local`, with the version of the server, and its instructions
 start with a paragraph on what the instance holds and when to use it (never test data in
 production, never real data elsewhere). `/health` and `GET /api/about` tell the instance, the
 version and the commit. The instance is set by `HIPPOCAMPE_INSTANCE`, which the server requires.
 
 ## Diagnostics
 
-With diagnostics on (`HIPPOCAMPE_DIAGNOSTICS=on`), the agents also test Grenier itself. Their
+With diagnostics on (`HIPPOCAMPE_DIAGNOSTICS=on`), the agents also test Hippocampe itself. Their
 instructions say so after the types, and two tools exist that are absent otherwise:
-`grenier_report` (right `write`) records a problem with Grenier, and `grenier_reports` (right
+`report` (right `write`) records a problem with Hippocampe, and `reports` (right
 `read`) lists what is recorded, titles only.
 
 A **finding** is one problem: a number, a title, a kind (`bug`, `tool_error`, `unclear_refusal`,
@@ -614,11 +614,11 @@ are open at that place, of any kind (one agent sees as slow what another sees as
 agent's report is not recorded yet: the answer names them, and the agent reports again with
 `same_as: <number>` (one more occurrence of it, at that place) or `new: true` (a finding of its
 own), since two agents describe one problem in different words, and only they can
-tell two problems of one tool apart. `grenier_reports` filters by place and kind, to check before
+tell two problems of one tool apart. `reports` filters by place and kind, to check before
 reporting. The owner merges two findings of one problem with `findings:merge <into> <from>`: the
 occurrences move, and the merged finding is closed.
 
-An unexpected failure of the server (a defect, never a refusal, nor the 404 of a route Grenier
+An unexpected failure of the server (a defect, never a refusal, nor the 404 of a route Hippocampe
 does not have), in a tool or a route, is first
 written to the server's standard error, in every instance and whether diagnostics are on or not:
 one line of JSON with the time, the class, the message and the stack, the tool or route, and the

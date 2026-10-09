@@ -13,7 +13,7 @@ the crate's source for the real signature.
   `types.rs` by hand; a test fails when it is stale.
 - `crates/ui`: the screens and components. **A screen never calls the network**: it receives
   plain data and a state (loading, empty, error, ready) and emits what the user asks for (open an
-  entry, search, follow a link). Colours come from the theme (`cx.theme()`), which Grenier's
+  entry, search, follow a link). Colours come from the theme (`cx.theme()`), which Hippocampe's
   `crates/ui/src/theme.json` fills, light and dark; spacing and text sizes from `ui::theme`; how
   things move from `ui::motion`: no literal colour, size or duration in a screen. An icon outside
   GPUI Kit's default set is added to `ui::assets`, or it draws nothing. The fonts ship inside the
@@ -43,9 +43,9 @@ cargo fmt --check
 
 ## Releases and updates
 
-A release of Grenier builds the viewer from its tag (`.github/workflows/release.yml`), its version
+A release of Hippocampe builds the viewer from its tag (`.github/workflows/release.yml`), its version
 taken from the tag (`HIPPOCAMPE_VERSION` at build time, `unknown` in a local build; shown at the foot
-of the sidebar and by `grenier-desktop --version`), packs it with `scripts/package.sh` and attaches
+of the sidebar and by `hippocampe-desktop --version`), packs it with `scripts/package.sh` and attaches
 the archives and their checksums to the release. `scripts/update.sh` installs or updates it on
 Linux from the latest release; its tests (`crates/app/tests/update_script.rs`) run it against a
 local fake release server. The launcher and the icon of an archive are in `assets/release/` (the
@@ -54,7 +54,7 @@ icon is provisional).
 The dispatch of `release.yml` (`workflow_dispatch`) is a dry run of the viewer's build: it builds
 the tag it is given and attaches the archives to that tag's release, and tags nothing. A tag
 cut before the viewer was released (such as `v0.4.0`) has no `scripts/package.sh` and no
-`grenier-desktop` target, and the job makes no release, so a dry run needs a tag and a release of
+`hippocampe-desktop` target, and the job makes no release, so a dry run needs a tag and a release of
 its own, on the branch under test:
 
 ```
@@ -76,23 +76,27 @@ To report a failure at start (a window that never opens, a viewer that quits at 
 a terminal and keep everything it prints:
 
 ```
-RUST_LOG=debug WAYLAND_DEBUG=1 grenier-desktop 2> grenier-desktop.log; echo "exit $?"
+RUST_LOG=debug WAYLAND_DEBUG=1 hippocampe-desktop 2> hippocampe-desktop.log; echo "exit $?"
 ```
 
 `WAYLAND_DEBUG=1` adds the exchange with the Wayland compositor; leave it out on X11. Give the
 log, the exit code, the desktop (compositor, scale) and the graphics card with the report. On
 Windows, a release build has no console: in PowerShell, `$env:RUST_LOG="debug"`, then
-`Start-Process .\grenier-desktop.exe -Wait -RedirectStandardError grenier-desktop.log`.
+`Start-Process .\hippocampe-desktop.exe -Wait -RedirectStandardError hippocampe-desktop.log`.
 
 ## Pointing the viewer at a server
 
-The application reads `grenier/desktop.json` in the system's configuration folder
-(`~/.config/grenier/desktop.json` on Linux, `%APPDATA%\grenier\desktop.json` on Windows), or
+The application reads `hippocampe/desktop.json` in the system's configuration folder
+(`~/.config/hippocampe/desktop.json` on Linux, `%APPDATA%\hippocampe\desktop.json` on Windows), or
 the file `HIPPOCAMPE_DESKTOP_CONFIG` names:
 
 ```json
-{ "server": "http://127.0.0.1:3000", "key_file": "~/.config/grenier/key" }
+{ "server": "http://127.0.0.1:3000", "key_file": "~/.config/hippocampe/key" }
 ```
+
+The folder was `grenier` while Hippocampe was named Grenier. The first start after the rename moves
+it (the key beside the configuration, and the `key_file` that names it, follow); when both folders
+exist, nothing is merged and the new one is read.
 
 `key_file` holds a key with the right `read` (`key:create --rights read`), alone on its line;
 give it to no one else (`chmod 600`). The key is read from that file at start and sent as
