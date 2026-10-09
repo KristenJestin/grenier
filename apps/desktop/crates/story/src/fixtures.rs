@@ -132,13 +132,14 @@ fn item_type() -> TypeDefinition {
 }
 
 /// The same contract as a writer left it when it was not sure of everything: the summary, the
-/// body, the renewal and a link only supposed, the provider known, and the seats written before
-/// writers were asked, which carry no mark either way.
+/// body, the renewal and a link only supposed, the customer area on which sources disagree, the
+/// provider known, and the seats written before writers were asked, which carry no mark.
 pub fn supposed() -> EntryData {
     let mut data = contract();
     data.read.entry.provenance = [
         ("provider", EntryProvenanceValue::Extracted),
         ("renewal", EntryProvenanceValue::Inferred),
+        ("customer_area", EntryProvenanceValue::Ambiguous),
         ("seats", EntryProvenanceValue::Unstated),
         ("summary", EntryProvenanceValue::Inferred),
         ("body", EntryProvenanceValue::Inferred),

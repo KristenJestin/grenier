@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use api::{EntryRead, FieldDefinitionKind, Link, LinkProvenance, TypeDefinition};
+use api::{EntryRead, FieldDefinitionKind, Link, TypeDefinition};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
@@ -13,7 +13,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 
-use crate::entry::{is_supposed, label_of, link_detail, title_of};
+use crate::entry::{label_of, link_detail, link_mark, mark_of, title_of};
 use crate::intent::{Intent, OnIntent};
 use crate::motion::hoverable;
 use crate::parts::{heading, supposed_mark, text_button};
@@ -48,8 +48,8 @@ pub struct LinkRow {
     pub said: String,
     /// The note and the dates of the link.
     pub detail: Option<String>,
-    /// Whether the link, or the field value that names the entry, is only supposed.
-    pub supposed: bool,
+    /// The mark of the link, or of the field value that names the entry, when it is not known.
+    pub mark: Option<&'static str>,
 }
 
 /// A group of rows, by relation or by field; `key` names it for folding.
@@ -73,7 +73,7 @@ fn row(way: Way, link: &Link) -> LinkRow {
         target: link.slug.clone(),
         said,
         detail: link_detail(link),
-        supposed: link.provenance == LinkProvenance::Inferred,
+        mark: link_mark(link),
     }
 }
 
@@ -96,7 +96,7 @@ pub fn link_groups(read: &EntryRead, type_definition: Option<&TypeDefinition>) -
                 _ => Vec::new(),
             };
             let label = label_of(&field.name);
-            let supposed = is_supposed(read, &field.name);
+            let mark = mark_of(read, &field.name);
             values
                 .into_iter()
                 .filter(|id| id != crate::entry::HIDDEN)
@@ -106,7 +106,7 @@ pub fn link_groups(read: &EntryRead, type_definition: Option<&TypeDefinition>) -
                     target: id,
                     said: label.clone(),
                     detail: None,
-                    supposed,
+                    mark,
                 })
                 .collect::<Vec<_>>()
         })
@@ -350,7 +350,7 @@ fn row_element(
         }
     };
     let (title, said, detail) = (link.title.clone(), link.said.clone(), link.detail.clone());
-    let supposed = link.supposed.then(|| supposed_mark(cx));
+    let mark = link.mark.map(|mark| supposed_mark(mark, cx));
     let selector = format!("link-{group}-{}", link.target);
     hoverable(
         SharedString::from(selector.clone()),
@@ -385,7 +385,7 @@ fn row_element(
                         .text_color(faint)
                         .child(detail)
                 }))
-                .children(supposed)
+                .children(mark)
                 .child(
                     div()
                         .flex_none()
@@ -400,6 +400,7 @@ fn row_element(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api::LinkProvenance;
 
     fn link(relation: &str, title: &str) -> Link {
         Link {

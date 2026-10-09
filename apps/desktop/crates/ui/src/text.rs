@@ -50,6 +50,8 @@ pub const NO_ENTRY_OPEN_DETAIL: &str = "Choose an entry on the left, or search f
 pub const FIELDS: &str = "Fields";
 /// The mark of what a writer supposed, not knew: a value, a link, the body or the summary.
 pub const SUPPOSED: &str = "Supposed";
+/// The mark of what sources disagree on: not known either.
+pub const DISPUTED: &str = "Sources disagree";
 /// The chip of an entry that holds some, and the filter it lists the entries that do by.
 pub const WITH_SUPPOSED: &str = "With supposed values";
 pub const HIDDEN_VALUE: &str = "hidden";

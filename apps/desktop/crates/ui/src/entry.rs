@@ -129,22 +129,33 @@ fn opener(
     move |_, window, cx| on_intent(Intent::Open(target.clone()), window, cx)
 }
 
-/// Whether a writer only supposed what the entry says under `name`: a field, `body` or `summary`.
-/// What is known, and what was written before writers were asked, is not marked.
-pub(crate) fn is_supposed(read: &EntryRead, name: &str) -> bool {
-    read.entry.provenance.get(name) == Some(&EntryProvenanceValue::Inferred)
+/// The words of the mark of what the entry says under `name`, a field, `body` or `summary`: a
+/// writer only supposed it, or sources disagree. What is known, and what was written before
+/// writers were asked, carries none.
+pub(crate) fn mark_of(read: &EntryRead, name: &str) -> Option<&'static str> {
+    match read.entry.provenance.get(name) {
+        Some(EntryProvenanceValue::Inferred) => Some(words::SUPPOSED),
+        Some(EntryProvenanceValue::Ambiguous) => Some(words::DISPUTED),
+        _ => None,
+    }
 }
 
-/// Whether the entry holds anything supposed: a value, its texts, or a link it makes.
+/// The words of the mark of a link, by the same rule.
+pub(crate) fn link_mark(link: &Link) -> Option<&'static str> {
+    match link.provenance {
+        LinkProvenance::Inferred => Some(words::SUPPOSED),
+        LinkProvenance::Ambiguous => Some(words::DISPUTED),
+        _ => None,
+    }
+}
+
+/// Whether the entry holds anything not known: a value, its texts, or a link it makes.
 fn holds_supposed(read: &EntryRead) -> bool {
     read.entry
         .provenance
-        .values()
-        .any(|provenance| *provenance == EntryProvenanceValue::Inferred)
-        || read
-            .links
-            .iter()
-            .any(|link| link.provenance == LinkProvenance::Inferred)
+        .keys()
+        .any(|name| mark_of(read, name).is_some())
+        || read.links.iter().any(|link| link_mark(link).is_some())
 }
 
 /// A chip that lists the entries it names: of that type, with that tag, holding supposed values.
@@ -238,8 +249,8 @@ fn ready(
     article.push(title(entry.title.clone()));
     if !entry.summary.is_empty() {
         article.push(lead(entry.summary.clone(), cx));
-        if is_supposed(&read, "summary") {
-            article.push(div().mt(space::S).child(supposed_mark(cx)));
+        if let Some(mark) = mark_of(&read, "summary") {
+            article.push(div().mt(space::S).child(supposed_mark(mark, cx)));
         }
     }
     let type_label = type_definition.as_ref().map_or_else(
@@ -549,7 +560,7 @@ fn fields(
                                 on_intent,
                                 cx,
                             )))
-                            .children(is_supposed(read, &name).then(|| supposed_mark(cx)))
+                            .children(mark_of(read, &name).map(|mark| supposed_mark(mark, cx)))
                     }),
             );
     let chevron = Icon::new(IconName::ChevronRight)
@@ -811,8 +822,8 @@ pub fn parts_of(body: &str) -> Vec<(Option<(u8, String)>, String)> {
 /// The body, from Markdown, part by part, with `[[slug]]` references as links that open the
 /// entry, titled when the entry is among its links.
 fn body(article: &mut Article, id: String, body: &str, read: &EntryRead, cx: &App) {
-    if !body.is_empty() && is_supposed(read, "body") {
-        article.push(div().mt(space::XL).child(supposed_mark(cx)));
+    if let Some(mark) = mark_of(read, "body").filter(|_| !body.is_empty()) {
+        article.push(div().mt(space::XL).child(supposed_mark(mark, cx)));
     }
     // What the server says each reference names: an alias as well as a slug; nothing yet for a
     // reference that waits for its entry.
@@ -1480,7 +1491,7 @@ fn glide(scroll: ScrollHandle, place: Pixels, window: &mut Window, cx: &mut App)
 
 #[cfg(test)]
 mod tests {
-    use super::{holds_supposed, is_supposed, link_detail, parts_of};
+    use super::{holds_supposed, link_detail, mark_of, parts_of};
     use api::{Link, LinkProvenance};
 
     fn link(note: Option<&str>, from: Option<&str>, until: Option<&str>) -> Link {
@@ -1538,15 +1549,18 @@ mod tests {
     fn only_what_a_writer_supposed_is_marked_not_what_is_known_nor_what_was_unstated() {
         let read = read_with(
             serde_json::json!({
-                "depth": "inferred", "quay": "extracted", "summary": "unstated", "body": "inferred"
+                "depth": "inferred", "quay": "extracted", "summary": "unstated",
+                "body": "inferred", "tide": "ambiguous"
             }),
             Vec::new(),
         );
-        assert!(is_supposed(&read, "depth"));
-        assert!(!is_supposed(&read, "quay"));
-        assert!(!is_supposed(&read, "summary"));
-        assert!(is_supposed(&read, "body"));
-        assert!(!is_supposed(&read, "never_written"));
+        assert_eq!(mark_of(&read, "depth"), Some("Supposed"));
+        assert_eq!(mark_of(&read, "quay"), None);
+        assert_eq!(mark_of(&read, "summary"), None);
+        assert_eq!(mark_of(&read, "body"), Some("Supposed"));
+        // Not known either, and said in other words.
+        assert_eq!(mark_of(&read, "tide"), Some("Sources disagree"));
+        assert_eq!(mark_of(&read, "never_written"), None);
     }
 
     #[test]
@@ -1559,7 +1573,10 @@ mod tests {
         )));
         let mut guessed = link(None, None, None);
         guessed.provenance = LinkProvenance::Inferred;
-        assert!(holds_supposed(&read_with(known, vec![guessed])));
+        assert!(holds_supposed(&read_with(known.clone(), vec![guessed])));
+        let mut disputed = link(None, None, None);
+        disputed.provenance = LinkProvenance::Ambiguous;
+        assert!(holds_supposed(&read_with(known, vec![disputed])));
     }
 
     #[test]

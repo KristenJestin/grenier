@@ -14,7 +14,6 @@ use gpui_kit::{
 use gpui_kit::prelude::FluentBuilder as _;
 
 use crate::motion::{enter, hoverable};
-use crate::text as words;
 use crate::theme::{self, font, space, text, width};
 
 /// The column a page reads in.
@@ -134,10 +133,10 @@ pub fn chip(icon: Option<Icon>, label: impl Into<SharedString>, cx: &App) -> Div
         .child(label.into())
 }
 
-/// A quiet mark beside what a writer only supposed, not knew: a value, a link, the body or the
-/// summary. What is known (`extracted`) carries none, and neither does what was written before
+/// A quiet mark beside what a writer only supposed, not knew (or found sources to disagree on):
+/// a value, a link, the body or the summary, with the words of how it stands. What is known (`extracted`) carries none, and neither does what was written before
 /// writers were asked (`unstated`), which says nothing either way.
-pub fn supposed_mark(cx: &App) -> Div {
+pub fn supposed_mark(label: &'static str, cx: &App) -> Div {
     let theme = cx.theme();
     div()
         .flex_none()
@@ -147,7 +146,7 @@ pub fn supposed_mark(cx: &App) -> Div {
         .border_color(theme.border)
         .text_size(text::XS)
         .text_color(theme.muted_foreground)
-        .child(words::SUPPOSED)
+        .child(label)
 }
 
 /// An icon in a small framed square, as cards and results lead with.
