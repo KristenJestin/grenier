@@ -389,6 +389,29 @@ describe('every value says whether it is known or supposed', () => {
     expect(unstated.every(({ provenance }) => provenance === 'unstated')).toBe(true)
   })
 
+  test('a type with a field named body or summary is refused with a sentence, and nothing is changed', async () => {
+    const [refusal, flag] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`INSERT INTO types (name, label, description, fields) VALUES
+          ('book', 'Book', 'A book.', '[{"name": "title_page", "kind": "text"}, {"name": "summary", "kind": "text"}]'),
+          ('page', 'Page', 'A page.', '[{"name": "body", "kind": "text"}]')`
+        const said = yield* migrate.pipe(
+          Effect.as('migrated'),
+          Effect.catch((error) => Effect.succeed(error.message)),
+        )
+        const held = yield* columns(sql`SELECT table_name FROM information_schema.columns
+          WHERE table_schema = 'public' AND column_name = 'verified'`)
+        return [said, held] as const
+      }),
+    )
+    expect(refusal).toBe(
+      'The type `book` has a field `summary` and the type `page` has a field `body`: they are the keys of the provenance of the summary and the body of an entry. Rename these fields first (`change_type` with `field` and `rename`), then start again.',
+    )
+    expect(flag).toEqual([{ table_name: 'entries' }])
+  })
+
   test('a database migrated twice is left as it is', async () => {
     const [first, second] = await onScratch(
       Effect.gen(function* () {

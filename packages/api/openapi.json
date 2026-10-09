@@ -672,7 +672,8 @@
           "summary_provenance": {
             "type": "string",
             "enum": [
-              "inferred"
+              "inferred",
+              "ambiguous"
             ]
           },
           "path": {
@@ -712,6 +713,14 @@
           "what": {
             "type": "string"
           },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "inferred",
+              "ambiguous",
+              "unstated"
+            ]
+          },
           "by": {
             "anyOf": [
               {
@@ -735,6 +744,7 @@
         },
         "required": [
           "what",
+          "provenance",
           "by",
           "when"
         ],

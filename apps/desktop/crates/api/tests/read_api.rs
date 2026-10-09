@@ -95,9 +95,9 @@ fn types_and_search_results_read() {
     assert_eq!(types.types[0].fields.len(), 2);
     let found: SearchResults = serde_json::from_str(
         r#"{ "results": [{ "id": "01a1-entry", "slug": "plum-tart", "type": "recipe", "title": "Plum tart",
-             "summary": "", "summary_provenance": "inferred", "path": ["Kitchen"],
+             "summary": "", "summary_provenance": "ambiguous", "path": ["Kitchen"],
              "excerpt": "<mark>plum</mark> tart", "rank": 0.6,
-             "supposed": [{ "what": "summary", "by": "agent-laptop", "when": "2026-10-08T09:00:00Z" }] }] }"#,
+             "supposed": [{ "what": "summary", "provenance": "ambiguous", "by": "agent-laptop", "when": "2026-10-08T09:00:00Z" }] }] }"#,
     )
     .expect("search results as the API returns them");
     assert_eq!(found.results[0].rank, 0.6);

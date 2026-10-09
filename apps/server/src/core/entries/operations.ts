@@ -644,6 +644,17 @@ const instantOf = (value: string | undefined) => {
     : undefined
 }
 
+/**
+ * The provenance of a body once a part is added to it or edited in it. The part has its own, but
+ * the body is known only as far as both are: `extracted` when the old one and the new one both
+ * are, `ambiguous` when either is, else `inferred`. A body that was `unstated` (or has none) with
+ * an `extracted` part is `inferred` too, since what the old part was cannot be known.
+ */
+const mixedProvenance = (old: string | undefined, added: string) => {
+  if (added === 'ambiguous' || old === 'ambiguous') return 'ambiguous'
+  return added === 'extracted' && old === 'extracted' ? 'extracted' : 'inferred'
+}
+
 const withoutNulls = <V>(record: Readonly<Record<string, V | null>>): Record<string, V> =>
   Object.fromEntries(Object.entries(record).filter((pair): pair is [string, V] => pair[1] !== null))
 
@@ -893,6 +904,19 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
               ? [(given.body ?? '').replace(/\n+$/, ''), base.body].filter(Boolean).join('\n\n')
               : (given.body ?? (edits === undefined ? base.body : edited.body))
         const summary = given.summary ?? base.summary
+        // A part added to a body, or words edited in it, does not make the whole body known.
+        const added = provenance['body']
+        const partial =
+          (append === true || prepend === true || edits !== undefined) && base.body !== ''
+        const mixed =
+          partial && (added === 'extracted' || added === 'inferred' || added === 'ambiguous')
+            ? {
+                body: mixedProvenance(
+                  Object.entries(base.provenance).find(([name]) => name === 'body')?.[1],
+                  added,
+                ),
+              }
+            : {}
         const state = {
           ...base,
           ...given,
@@ -900,7 +924,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           fields: withoutNulls({ ...base.fields, ...fields }),
           // A value removed takes its provenance with it, as a text emptied does its own.
           provenance: Object.fromEntries(
-            Object.entries(withoutNulls({ ...base.provenance, ...provenance })).filter(
+            Object.entries(withoutNulls({ ...base.provenance, ...provenance, ...mixed })).filter(
               ([name]) =>
                 fields[name] !== null &&
                 !(name === 'body' && body === '') &&
@@ -1153,6 +1177,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // The entries a source names (the entry it comes from, or who said it), by id; a URL that
         // is a web address; an item the inbox holds.
         const sources: Array<SourceKept> = []
+        const problemsBefore = problems.length
         for (const [index, source] of state.sources.entries()) {
           const at = `\`sources.${index}\``
           const who = namedBy(source)
@@ -1198,6 +1223,8 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           } else sources.push(source)
         }
         sources.push(...unseenSources)
+        // A source refused is said once: the entry is not told it has none besides.
+        const sourcesRefused = problems.length > problemsBefore
 
         // Known or supposed: said for every value written, a field, the body, the summary, and
         // never as `unstated`, which only what was written before can be.
@@ -1206,9 +1233,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
             .filter(
               ([name, value]) =>
                 value !== null &&
+                // Compared as stored: an entry named by its slug is the entry named by its id.
                 !(
                   existing !== undefined &&
-                  JSON.stringify(existing.fields[name]) === JSON.stringify(value)
+                  JSON.stringify(existing.fields[name]) === JSON.stringify(references[name])
                 ),
             )
             // A field the type has not is the decoder's problem, and said once.
@@ -1237,8 +1265,11 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         }
         // A known value has a source: this write gives it, or the entry has one. The whole entry
         // is checked when the write changes its sources.
-        if (sources.length === 0) {
-          const asked = input.sources === undefined ? provenance : state.provenance
+        const sourcesChanged =
+          input.sources !== undefined &&
+          JSON.stringify(sources) !== JSON.stringify(existing?.sources ?? [])
+        if (sources.length === 0 && !sourcesRefused) {
+          const asked = sourcesChanged ? state.provenance : provenance
           for (const name of Object.keys(asked)) {
             if (state.provenance[name] === 'extracted') {
               problems.push(

@@ -1,11 +1,13 @@
 import { Schema } from 'effect'
 
 /**
- * A value of an entry that is supposed, not known: a field by its name, `body`, `summary`, or a
- * link as `link <relation> <slug of the target>`; by whom it was written last, and when.
+ * A value of an entry that is not known: a field by its name, `body`, `summary`, or a link as
+ * `link <relation> <slug of the target>`; how it stands (`inferred`, `ambiguous`, or `unstated`);
+ * by whom it was written last, and when.
  */
 export const Supposed = Schema.Struct({
   what: Schema.String,
+  provenance: Schema.Literals(['inferred', 'ambiguous', 'unstated']),
   by: Schema.NullOr(Schema.String),
   when: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'Supposed' })
@@ -18,8 +20,8 @@ export const SearchResult = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
   summary: Schema.String,
-  /** Present, `inferred`, when the summary is supposed, not known. */
-  summary_provenance: Schema.optionalKey(Schema.Literal('inferred')),
+  /** Present, `inferred` or `ambiguous`, when the summary is not known. */
+  summary_provenance: Schema.optionalKey(Schema.Literals(['inferred', 'ambiguous'])),
   path: Schema.Array(Schema.String),
   excerpt: Schema.String,
   rank: Schema.Finite,
@@ -35,7 +37,7 @@ export type SearchResult = typeof SearchResult.Type
 const Certainty = {
   supposed: Schema.optionalKey(Schema.Boolean).annotate({
     description:
-      'true: only the entries that hold supposed values (a field, the body, the summary or a link written `inferred`), newest first; each result lists them in `supposed`, with who wrote it and when. Tell the owner what waits; they confirm it, or say it again as known.',
+      'true: only the entries that hold supposed values (a field, the body, the summary or a link written `inferred`, or `ambiguous`: sources disagree), newest first; each result lists them in `supposed`, with how it stands, who wrote it and when. With `by`, the key that wrote the value. Tell the owner what waits; they confirm it, or say it again as known.',
   }),
   unstated: Schema.optionalKey(Schema.Boolean).annotate({
     description:

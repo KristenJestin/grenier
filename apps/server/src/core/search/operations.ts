@@ -25,7 +25,7 @@ const found = rowsOf(
   Schema.Struct({
     ...Found.fields,
     path: Schema.Null,
-    summary_provenance: Schema.NullOr(Schema.Literal('inferred')),
+    summary_provenance: Schema.NullOr(Schema.Literals(['inferred', 'ambiguous'])),
   }),
 )
 
@@ -90,7 +90,7 @@ export const search = Effect.fn('search')(function* (
   const configuration = yield* searchConfiguration
   const { hiddenTypes, hiddenFields } = yield* sensitivity
   const wanted = wantedOf(options)
-  const certain = yield* holding(wanted)
+  const certain = yield* holding(wanted, options.by)
   const under = options.under === undefined ? null : (yield* findEntry(options.under)).id
   // The types with fields the caller may not see: the index holds those fields, so their entries
   // are matched without it.
@@ -116,11 +116,14 @@ export const search = Effect.fn('search')(function* (
         OR e.updated >= ${startOf(options.since)}::timestamptz)
       AND (${endOf(options.until)}::timestamptz IS NULL
         OR e.updated <= ${endOf(options.until)}::timestamptz)
-      AND (${options.by ?? null}::text IS NULL OR ${sql.literal(LAST_WRITER)} = ${options.by ?? null})`
+      -- Beside the supposed, the key is who wrote a supposed value, which \`holding\` checks.
+      AND (${options.by ?? null}::text IS NULL OR ${wanted.length > 0}::boolean
+        OR ${sql.literal(LAST_WRITER)} = ${options.by ?? null})`
   // When the entry last changed, and who changed it.
   const lastChange = sql`to_char(e.updated AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated,
       ${sql.literal(LAST_WRITER)} AS by,
-      CASE WHEN e.provenance ->> 'summary' = 'inferred' THEN 'inferred' END AS summary_provenance`
+      CASE WHEN e.provenance ->> 'summary' IN ('inferred', 'ambiguous')
+        THEN e.provenance ->> 'summary' END AS summary_provenance`
   const listing = sql`
     WITH RECURSIVE ${subtree}
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, NULL AS path,
@@ -189,8 +192,9 @@ export const search = Effect.fn('search')(function* (
         supposed === undefined
           ? {}
           : {
-              supposed: (supposed.get(row.id) ?? []).map(({ what, by, when }) => ({
+              supposed: (supposed.get(row.id) ?? []).map(({ what, provenance, by, when }) => ({
                 what,
+                provenance,
                 by,
                 when,
               })),

@@ -784,11 +784,14 @@ pub struct SearchResult {
 pub enum SearchResultSummaryProvenance {
     #[serde(rename = "inferred")]
     Inferred,
+    #[serde(rename = "ambiguous")]
+    Ambiguous,
 }
 impl ::std::fmt::Display for SearchResultSummaryProvenance {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Inferred => f.write_str("inferred"),
+            Self::Ambiguous => f.write_str("ambiguous"),
         }
     }
 }
@@ -797,6 +800,7 @@ impl ::std::str::FromStr for SearchResultSummaryProvenance {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
             "inferred" => Ok(Self::Inferred),
+            "ambiguous" => Ok(Self::Ambiguous),
             _ => Err("invalid value".into()),
         }
     }
@@ -913,9 +917,65 @@ pub struct SourceUrl {
 pub struct Supposed {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub by: ::std::option::Option<::std::string::String>,
+    pub provenance: SupposedProvenance,
     pub what: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub when: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`SupposedProvenance`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SupposedProvenance {
+    #[serde(rename = "inferred")]
+    Inferred,
+    #[serde(rename = "ambiguous")]
+    Ambiguous,
+    #[serde(rename = "unstated")]
+    Unstated,
+}
+impl ::std::fmt::Display for SupposedProvenance {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Inferred => f.write_str("inferred"),
+            Self::Ambiguous => f.write_str("ambiguous"),
+            Self::Unstated => f.write_str("unstated"),
+        }
+    }
+}
+impl ::std::str::FromStr for SupposedProvenance {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "inferred" => Ok(Self::Inferred),
+            "ambiguous" => Ok(Self::Ambiguous),
+            "unstated" => Ok(Self::Unstated),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SupposedProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SupposedProvenance {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 #[doc = "`TreeEntry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

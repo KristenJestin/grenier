@@ -3,14 +3,15 @@ import { SqlClient } from 'effect/sql'
 import { sensitivity } from '../sensitive.ts'
 
 /**
- * The provenances a filter looks for: `supposed` is what a writer said `inferred`, `unstated` what
- * was written before writers were asked. Neither: no filter.
+ * The provenances a filter looks for: `supposed` is what a writer said `inferred`, or `ambiguous`
+ * (sources disagree: not known either), `unstated` what was written before writers were asked.
+ * Neither: no filter.
  */
 export const wantedOf = (filter: {
   readonly supposed?: boolean | undefined
   readonly unstated?: boolean | undefined
 }) => [
-  ...(filter.supposed === true ? ['inferred'] : []),
+  ...(filter.supposed === true ? ['inferred', 'ambiguous'] : []),
   ...(filter.unstated === true ? ['unstated'] : []),
 ]
 
@@ -22,17 +23,60 @@ export const VALUE_HELD = `(CASE p.key WHEN 'body' THEN e.body <> '' WHEN 'summa
   ELSE e.fields ? p.key END)`
 
 /**
+ * The names the event log gives a value of a provenance `p` of an entry `e`: `fields.<name>` and
+ * `provenance.<name>`, or `body`, `summary`.
+ */
+export const VALUE_NAMES = `ARRAY[CASE WHEN p.key IN ('body', 'summary') THEN p.key ELSE 'fields.' || p.key END,
+  'provenance.' || p.key]`
+
+/** The name the event log gives a link `l`: `links.<relation>`, with its field and period. */
+export const LINK_NAME = `concat_ws('.', 'links.' || l.relation, nullif(l.field, ''), nullif(l.period, ''))`
+
+/**
+ * What the latest event that wrote a value or a link says (`column`: its `actor` or its `at`), as a
+ * scalar SQL expression: the event of the entry `entry` that changed one of the `names`, and, for a
+ * link, that named `target` as the other end (`optional`: unless `target` is null). A value written again, still supposed, is as new as
+ * that write.
+ */
+export const LATEST = (
+  column: 'actor' | 'at',
+  entry: string,
+  names: string,
+  target: string | null,
+  optional = false,
+) => `(SELECT ev.${column} FROM events ev
+  WHERE ev.entry_id = ${entry} AND ev.action IN ('create', 'update', 'link')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(ev.changes) AS c(change)
+      WHERE c.change ->> 'field' = ANY(${names})
+        ${
+          target === null
+            ? ''
+            : `AND (${optional ? `${target} IS NULL OR ` : ''}c.change -> 'after' ->> 'entry' = ${target}
+              OR c.change ->> 'after' = ${target})`
+        })
+  ORDER BY ev.id DESC LIMIT 1)`
+
+/**
  * The condition, over `e`, that an entry holds a value, its body, its summary or a link written
  * with one of these provenances (the links of a `mentions` have their body's, which is counted
  * with the body); true when none is wanted. A link to an entry the caller may not see is not held.
+ * With `by`, only a value or a link that key wrote last counts.
  */
-export const holding = Effect.fn('holding')(function* (wanted: ReadonlyArray<string>) {
+export const holding = Effect.fn('holding')(function* (
+  wanted: ReadonlyArray<string>,
+  by?: string | undefined,
+) {
   const sql = yield* SqlClient.SqlClient
   const { hiddenTypes } = yield* sensitivity
   if (wanted.length === 0) return sql`true`
+  const writer = by ?? null
   return sql`(EXISTS (SELECT 1 FROM jsonb_each_text(e.provenance) AS p(key, value)
-      WHERE p.value IN ${sql.in(wanted)} AND ${sql.literal(VALUE_HELD)})
+      WHERE p.value IN ${sql.in(wanted)} AND ${sql.literal(VALUE_HELD)}
+        AND (${writer}::text IS NULL
+          OR ${sql.literal(LATEST('actor', 'e.id', VALUE_NAMES, null))} = ${writer}))
     OR EXISTS (SELECT 1 FROM links l JOIN entries t ON t.id = l.target_id
       WHERE l.source_id = e.id AND l.provenance IN ${sql.in(wanted)}
-        AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? t.type)))`
+        AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? t.type)
+        AND (${writer}::text IS NULL
+          OR ${sql.literal(LATEST('actor', 'e.id', `ARRAY[${LINK_NAME}]`, 'l.target_id::text'))} = ${writer})))`
 })

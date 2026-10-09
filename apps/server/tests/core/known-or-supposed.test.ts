@@ -9,6 +9,7 @@ import {
   writeEntries,
   writeEntry,
 } from '../../src/core/entries/index.ts'
+import { execute } from '../../src/core/database/contention.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { confirmLink, link, linksOf, backlinksOf } from '../../src/core/links/index.ts'
 import { Refused } from '../../src/core/refused.ts'
@@ -574,5 +575,298 @@ describe('the names of the body and the summary are the keys of their provenance
     expect(
       await run(refusalOf(changeField({ type: 'person', field: 'phone', rename: 'summary' }))),
     ).toContain('The field `summary` cannot be named so')
+  })
+})
+
+describe('a part added to a body does not make the whole body known', () => {
+  const source = [{ url: 'https://example.org/minutes' }]
+  const bodyOf = async (slug: string) => (await run(readEntry(slug))).entry.provenance['body']
+
+  test('an extracted part appended to an inferred body leaves the body inferred', async () => {
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Guessed minutes',
+        body: 'Probably Lyon.\n',
+        provenance: { body: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'guessed-minutes',
+        body: 'Confirmed by phone.\n',
+        append: true,
+        provenance: { body: 'extracted' },
+        sources: source,
+      }),
+    )
+    expect(await bodyOf('guessed-minutes')).toBe('inferred')
+  })
+
+  test('the same through prepend and through edits', async () => {
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Guessed notes',
+        body: 'Probably Lyon.\n',
+        provenance: { body: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'guessed-notes',
+        body: 'Said on the phone.\n',
+        prepend: true,
+        provenance: { body: 'extracted' },
+        sources: source,
+      }),
+    )
+    expect(await bodyOf('guessed-notes')).toBe('inferred')
+    await run(
+      writeEntry({
+        entry: 'guessed-notes',
+        edits: [{ find: 'Lyon', replace: 'Annecy' }],
+        provenance: { body: 'extracted' },
+      }),
+    )
+    expect(await bodyOf('guessed-notes')).toBe('inferred')
+  })
+
+  test('the body stays extracted only when the old and the new provenance both are', async () => {
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Known minutes',
+        body: 'Said on the phone.\n',
+        provenance: { body: 'extracted' },
+        sources: source,
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'known-minutes',
+        body: 'Said again.\n',
+        append: true,
+        provenance: { body: 'extracted' },
+      }),
+    )
+    expect(await bodyOf('known-minutes')).toBe('extracted')
+    await run(
+      writeEntry({
+        entry: 'known-minutes',
+        body: 'Perhaps by mail.\n',
+        append: true,
+        provenance: { body: 'inferred' },
+      }),
+    )
+    expect(await bodyOf('known-minutes')).toBe('inferred')
+  })
+
+  test('either provenance ambiguous makes the body ambiguous', async () => {
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Disputed minutes',
+        body: 'Said on the phone.\n',
+        provenance: { body: 'extracted' },
+        sources: source,
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'disputed-minutes',
+        body: 'Another version.\n',
+        append: true,
+        provenance: { body: 'ambiguous' },
+      }),
+    )
+    expect(await bodyOf('disputed-minutes')).toBe('ambiguous')
+    await run(
+      writeEntry({
+        entry: 'disputed-minutes',
+        body: 'Said once more.\n',
+        append: true,
+        provenance: { body: 'extracted' },
+      }),
+    )
+    expect(await bodyOf('disputed-minutes')).toBe('ambiguous')
+  })
+
+  test('an unstated body with an extracted part is inferred: what the old part was cannot be known', async () => {
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Old minutes',
+        body: 'Written before.\n',
+        provenance: { body: 'inferred' },
+      }),
+    )
+    await run(
+      execute(
+        `UPDATE entries SET provenance = jsonb_set(provenance, '{body}', '"unstated"') WHERE slug = $1`,
+        'old-minutes',
+      ),
+    )
+    await run(
+      writeEntry({
+        entry: 'old-minutes',
+        body: 'Heard today.\n',
+        append: true,
+        provenance: { body: 'extracted' },
+        sources: source,
+      }),
+    )
+    expect(await bodyOf('old-minutes')).toBe('inferred')
+  })
+
+  test('a body written whole again takes the provenance given', async () => {
+    await run(
+      writeEntry({
+        entry: 'guessed-minutes',
+        body: 'All of it said on the phone.\n',
+        provenance: { body: 'extracted' },
+      }),
+    )
+    expect(await bodyOf('guessed-minutes')).toBe('extracted')
+  })
+})
+
+describe('a field sent again in any accepted form needs no provenance', () => {
+  test('an entry field named by its slug, then by its id, unchanged', async () => {
+    const marie = await run(readEntry('marie-lund'))
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Hosted tea',
+        fields: { host: 'marie-lund' },
+        provenance: { host: 'inferred' },
+      }),
+    )
+    const bySlug = await run(writeEntry({ entry: 'hosted-tea', fields: { host: 'marie-lund' } }))
+    const byId = await run(writeEntry({ entry: 'hosted-tea', fields: { host: marie.entry.id } }))
+    expect(bySlug.provenance).toEqual({ host: 'inferred' })
+    expect(byId.fields).toEqual({ host: marie.entry.id })
+    expect(await run(entryHistory('hosted-tea'))).toHaveLength(1)
+  })
+})
+
+describe('sources sent unchanged', () => {
+  test('sources: [] on a legacy entry holding an extracted value without a source is accepted', async () => {
+    await run(
+      writeEntry({
+        type: 'visit',
+        title: 'Legacy tea',
+        fields: { place: 'Lyon' },
+        provenance: { place: 'inferred' },
+      }),
+    )
+    await run(
+      execute(
+        `UPDATE entries SET provenance = '{"place": "extracted"}' WHERE slug = $1`,
+        'legacy-tea',
+      ),
+    )
+    const written = await run(writeEntry({ entry: 'legacy-tea', sources: [] }))
+    expect(written.provenance).toEqual({ place: 'extracted' })
+  })
+})
+
+describe('a refused source is said once', () => {
+  test('a said_by naming no entry does not add that the entry has no source', async () => {
+    const refusal = await run(
+      refusalOf(
+        writeEntries([
+          {
+            type: 'visit',
+            title: 'Told by nobody',
+            fields: { place: 'Lyon' },
+            provenance: { place: 'extracted' },
+            sources: [{ said_by: 'nobody', on: '2026-10-08' }],
+          },
+        ]),
+      ),
+    )
+    expect(refusal).toBe(
+      'Entry 1 (`Told by nobody`): The source `sources.0` names `nobody`, which is not an entry.',
+    )
+  })
+})
+
+describe('the owner confirms a link in one write of the entry', () => {
+  test('the entry is updated by the owner, in one event', async () => {
+    await run(writeEntry({ type: 'visit', title: 'Confirmed outing' }))
+    await run(writeEntry({ type: 'visit', title: 'Outing target' }))
+    await run(
+      link('confirmed-outing', 'outing-target', 'goes_to', '', '', { provenance: 'inferred' }),
+    )
+    const before = await run(readEntry('confirmed-outing'))
+    const events = (await run(entryHistory('confirmed-outing'))).length
+    await run(asOwner(confirmLink('confirmed-outing', 'goes_to', 'outing-target', 'owner-person')))
+    const after = await run(readEntry('confirmed-outing'))
+    expect(after.entry.updated > before.entry.updated).toBe(true)
+    const history = await run(entryHistory('confirmed-outing'))
+    expect(history).toHaveLength(events + 1)
+    expect(history.at(-1)).toMatchObject({ actor: 'owner', action: 'update' })
+    const found = await run(search(undefined, { limit: 100 }))
+    expect(found.find(({ slug }) => slug === 'confirmed-outing')?.by).toBe('owner')
+  })
+})
+
+describe('confirming a link', () => {
+  test('a mention takes the provenance of its body: confirm the body', async () => {
+    expect(
+      await run(
+        refusalOf(
+          asOwner(confirmLink('plan-with-a-mention', 'mentions', 'marie-lund', 'owner-person')),
+        ),
+      ),
+    ).toBe('A mention takes the provenance of its body: confirm the `body`.')
+  })
+
+  test('several supposed links of a relation are listed, and one is chosen by period and field', async () => {
+    await run(
+      defineType({
+        name: 'bill',
+        label: 'Bill',
+        description: 'A bill that comes back every year.',
+        fields: [{ name: 'due_on', kind: 'date', recurs: { every: 'yearly', notice: 'P7D' } }],
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'bill',
+        title: 'Water bill',
+        fields: { due_on: '2025-03-01' },
+        provenance: { due_on: 'inferred' },
+      }),
+    )
+    await run(writeEntry({ type: 'visit', title: 'Water payment' }))
+    await run(
+      Effect.forEach(['2025', '2026'], (period) =>
+        link('water-payment', 'water-bill', 'fulfills', period, 'due_on', {
+          provenance: 'inferred',
+        }),
+      ),
+    )
+    expect(
+      await run(
+        refusalOf(asOwner(confirmLink('water-payment', 'fulfills', 'water-bill', 'owner-person'))),
+      ),
+    ).toBe(
+      'Several links `fulfills` from `water-payment` to `water-bill` are supposed: say which with `--period` and `--field`: period `2025` field `due_on`; period `2026` field `due_on`.',
+    )
+    await run(
+      asOwner(
+        confirmLink('water-payment', 'fulfills', 'water-bill', 'owner-person', {
+          period: '2026',
+          field: 'due_on',
+        }),
+      ),
+    )
+    const links = await run(linksOf('water-payment'))
+    expect(links.map(({ period, provenance }) => [period, provenance]).toSorted()).toEqual([
+      ['2025', 'inferred'],
+      ['2026', 'extracted'],
+    ])
   })
 })

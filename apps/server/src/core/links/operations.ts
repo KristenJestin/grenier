@@ -322,16 +322,25 @@ export const unlink = Effect.fn('unlink')(function* (
 const Held = Schema.Struct({ ...About.fields, period: Schema.String, field: Schema.String })
 const helds = rowsOf(Held)
 
+/** Which link of a relation: the period and the date field of a link `fulfills`. */
+export type WhichLink = {
+  readonly period?: string | undefined
+  readonly field?: string | undefined
+}
+
 /**
- * The owner confirms a supposition about a link: every link of that relation from the entry to the
- * target that is not known yet becomes `extracted`, and the entry gets the source "said by that
- * person", dated today, once. One event, on the entry, as the link that made it was.
+ * The owner confirms a supposition about a link: the links of that relation from the entry to the
+ * target that are not known yet become `extracted` (the one a `period` and a `field` name, when
+ * several are supposed: they are listed, and none is chosen for the owner), and the entry gets the
+ * source "said by that person", dated today, once. One event, an `update` of the entry: the source
+ * changes the entry, so its time and its last writer move with it, as a confirmed field does.
  */
 export const confirmLink = Effect.fn('confirmLink')(function* (
   sourceReference: string,
   relation: string,
   targetReference: string,
   person: string,
+  which: WhichLink = {},
 ) {
   const sql = yield* SqlClient.SqlClient
   const actor = yield* currentActor
@@ -340,18 +349,28 @@ export const confirmLink = Effect.fn('confirmLink')(function* (
       message: 'Only the owner of Grenier may confirm a supposition, from the command line.',
     })
   }
+  if (relation === MENTIONS) {
+    return yield* new Refused({
+      message: `A mention takes the provenance of its body: confirm the \`body\`.`,
+    })
+  }
   return yield* sql.withTransaction(
     Effect.gen(function* () {
       const said = yield* saidOn(person)
       const source = yield* lockedEntry(sourceReference)
       const target = yield* findEntry(targetReference)
-      const held = yield* helds(sql`SELECT provenance, period, field, note,
+      const named = which.period !== undefined || which.field !== undefined
+      const held = (yield* helds(sql`SELECT provenance, period, field, note,
           valid_from::text AS valid_from, valid_until::text AS valid_until
         FROM links WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
-          AND relation = ${relation} ORDER BY period, field FOR UPDATE`)
+          AND relation = ${relation} ORDER BY period, field FOR UPDATE`)).filter(
+        ({ period, field }) =>
+          (which.period === undefined || period === which.period) &&
+          (which.field === undefined || field === which.field),
+      )
       if (held.length === 0) {
         return yield* new Refused({
-          message: `There is no link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\`.`,
+          message: `There is no link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\`${named ? ' for that period and field' : ''}.`,
         })
       }
       const supposed = held.filter(({ provenance }) => provenance !== 'extracted')
@@ -360,18 +379,30 @@ export const confirmLink = Effect.fn('confirmLink')(function* (
           message: `The link \`${relation}\` from \`${source.slug}\` to \`${target.slug}\` is known already (\`extracted\`).`,
         })
       }
-      yield* sql`UPDATE links SET provenance = 'extracted'
-        WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
-          AND relation = ${relation} AND provenance <> 'extracted'`
+      if (supposed.length > 1 && !named) {
+        const told = supposed.map(({ period, field }) =>
+          [period === '' ? '' : `period \`${period}\``, field === '' ? '' : `field \`${field}\``]
+            .filter((part) => part !== '')
+            .join(' '),
+        )
+        return yield* new Refused({
+          message: `Several links \`${relation}\` from \`${source.slug}\` to \`${target.slug}\` are supposed: say which with \`--period\` and \`--field\`: ${told.join('; ')}.`,
+        })
+      }
+      yield* Effect.forEach(
+        supposed,
+        ({ period, field }) =>
+          sql`UPDATE links SET provenance = 'extracted'
+          WHERE source_id = ${source.id}::uuid AND target_id = ${target.id}::uuid
+            AND relation = ${relation} AND period = ${period} AND field = ${field}`,
+      )
       const cited = source.sources.some(
         (each) => 'said_by' in each && each.said_by === said.said_by && each.on === said.on,
       )
       const sources = cited ? source.sources : [...source.sources, said]
-      if (!cited) {
-        yield* sql`UPDATE entries SET sources = ${JSON.stringify(sources)}::jsonb
-          WHERE id = ${source.id}::uuid`
-      }
-      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'link', [
+      yield* sql`UPDATE entries SET sources = ${JSON.stringify(sources)}::jsonb, updated = now()
+        WHERE id = ${source.id}::uuid`
+      yield* recordEvent(actor, { entryId: source.id, typeName: null }, 'update', [
         ...supposed.map(({ period, field, ...before }) => ({
           field: fieldOf(relation, period, field),
           before: endOf(target.id, before),
