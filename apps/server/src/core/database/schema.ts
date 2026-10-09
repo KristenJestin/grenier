@@ -88,7 +88,6 @@ export const entries = pgTable(
       .default(sql`'{}'`),
     body: text().notNull().default(''),
     summary: text().notNull().default(''),
-    verified: boolean().notNull().default(false),
     created: timestamp(at).notNull().defaultNow(),
     updated: timestamp(at).notNull().defaultNow(),
     valid_from: date({ mode: 'string' }),
@@ -178,6 +177,9 @@ export const links = pgTable(
     relation: text().notNull(),
     period: text().notNull().default(''),
     field: text().notNull().default(''),
+    // Known (`extracted`) or supposed (`inferred`), or `unstated` for a link made before it was
+    // asked. A `mentions` link has none of its own: it takes its body's, read from the entry.
+    provenance: text(),
     // What the link says of itself: a role (`accountant`), and when it held.
     note: text(),
     valid_from: date({ mode: 'string' }),
@@ -188,6 +190,11 @@ export const links = pgTable(
       name: 'links_pkey',
       columns: [table.source_id, table.target_id, table.relation, table.period, table.field],
     }),
+    check(
+      'links_provenance',
+      sql`(relation = 'mentions') = (provenance IS NULL)
+        AND (provenance IS NULL OR provenance IN ('extracted', 'inferred', 'unstated'))`,
+    ),
     foreignKey({
       name: 'links_source_id_fkey',
       columns: [table.source_id],

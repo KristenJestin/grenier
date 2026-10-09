@@ -13,6 +13,7 @@ import {
   MigrationsBehind,
   schemaVersion,
 } from '../../src/core/database/index.ts'
+import { readEntry, supposedValues } from '../../src/core/entries/index.ts'
 import { search } from '../../src/core/search/index.ts'
 import { emptyScratchDatabase } from '../../src/core/testing.ts'
 import { migrations } from './fixtures/effect-migrations/index.ts'
@@ -248,8 +249,8 @@ describe('links take a note and dates', () => {
           VALUES ('note', 'Note', 'A note.', '[]')`
         yield* sql`INSERT INTO entries (type, title, slug)
           SELECT 'note', 'Note ' || n, 'note-' || n FROM generate_series(1, 41) AS n`
-        yield* sql`INSERT INTO links (source_id, target_id, relation)
-          SELECT a.id, b.id, 'related' FROM entries a, entries b
+        yield* sql`INSERT INTO links (source_id, target_id, relation, provenance)
+          SELECT a.id, b.id, 'related', 'unstated' FROM entries a, entries b
           WHERE a.id <> b.id LIMIT 800`
         const count = sql<{ links: number }>`SELECT count(*)::int AS links FROM links`
         const [kept] = yield* count
@@ -298,6 +299,111 @@ describe('references left waiting by an old race are resolved', () => {
     )
     expect(links).toHaveLength(1)
     expect(waiting).toEqual([{ slug: 'nobody' }])
+  })
+})
+
+describe('every value says whether it is known or supposed', () => {
+  /** A database one migration behind, as the server before this migration left it. */
+  const before = Effect.gen(function* () {
+    yield* migrate
+    const sql = yield* SqlClient.SqlClient
+    yield* sql`ALTER TABLE links DROP CONSTRAINT links_provenance`
+    yield* sql`ALTER TABLE links DROP COLUMN provenance`
+    yield* sql`ALTER TABLE entries ADD COLUMN verified boolean NOT NULL DEFAULT false`
+    yield* sql`DELETE FROM drizzle.__drizzle_migrations
+      WHERE name = '20261009182911_known_or_supposed'`
+    yield* sql`INSERT INTO types (name, label, description, fields) VALUES
+      ('lamp', 'Lamp', 'A lamp.', '[{"name": "colour", "kind": "text"}, {"name": "size", "kind": "text"}]')`
+    yield* sql`INSERT INTO entries (type, title, slug, fields, provenance, body, summary, verified)
+      VALUES
+      ('lamp', 'Lantern', 'lantern', '{"colour": "amber", "size": "small"}', '{}',
+        'A lantern by the door, near the [[mantel]].', 'An old lantern.', true),
+      ('lamp', 'Candle', 'candle', '{"colour": "white"}', '{"colour": "inferred"}', '', '', false),
+      ('lamp', 'Mantel', 'mantel', '{}', '{"body": "extracted"}', 'Oak.', '', false)`
+    yield* sql`INSERT INTO links (source_id, target_id, relation)
+      SELECT a.id, b.id, relation FROM entries a, entries b,
+        (VALUES ('related', 'lantern', 'candle'), ('mentions', 'lantern', 'mantel')) AS l(relation, s, t)
+      WHERE a.slug = l.s AND b.slug = l.t`
+    yield* sql`INSERT INTO events (actor, entry_id, action, changes)
+      SELECT 'agent-old', id, 'update',
+        '[{"field": "verified", "before": true, "after": false}]'::jsonb
+      FROM entries WHERE slug = 'lantern'`
+  })
+
+  const events = rowsOf(Schema.Struct({ changes: Schema.Json }))
+  const columns = rowsOf(Schema.Struct({ table_name: Schema.String }))
+
+  test('every existing value, body, summary and link reads unstated, and the flag is dropped', async () => {
+    const [lantern, candle, mantel, linked, kept, dropped] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        const sql = yield* SqlClient.SqlClient
+        yield* migrate
+        return [
+          yield* readEntry('lantern'),
+          yield* readEntry('candle'),
+          yield* readEntry('mantel'),
+          (yield* readEntry('lantern')).links,
+          yield* events(sql`SELECT changes FROM events WHERE actor = 'agent-old'`),
+          yield* columns(sql`SELECT table_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND column_name = 'verified'`),
+        ] as const
+      }),
+    )
+    expect(lantern.entry.provenance).toEqual({
+      colour: 'unstated',
+      size: 'unstated',
+      body: 'unstated',
+      summary: 'unstated',
+    })
+    // What was said stays said; an empty body and summary have nothing to say.
+    expect(candle.entry.provenance).toEqual({ colour: 'inferred' })
+    expect(mantel.entry.provenance).toEqual({ body: 'extracted' })
+    expect(linked).toEqual([
+      expect.objectContaining({ relation: 'mentions', slug: 'mantel', provenance: 'unstated' }),
+      expect.objectContaining({ relation: 'related', slug: 'candle', provenance: 'unstated' }),
+    ])
+    expect(lantern.entry).not.toHaveProperty('verified')
+    expect(dropped).toEqual([])
+    // The log keeps its past changes, the flag included.
+    expect(kept).toEqual([{ changes: [{ field: 'verified', before: true, after: false }] }])
+  })
+
+  test('supposed lists none of them, supposed --unstated lists them', async () => {
+    const [supposed, unstated] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        yield* migrate
+        return [yield* supposedValues({}), yield* supposedValues({ unstated: true })] as const
+      }),
+    )
+    // Only what a writer said was a supposition before: the colour of the candle.
+    expect(supposed.map(({ slug, what }) => [slug, what])).toEqual([['candle', 'colour']])
+    expect(unstated.map(({ slug, what }) => [slug, what]).toSorted()).toEqual([
+      ['lantern', 'body'],
+      ['lantern', 'colour'],
+      ['lantern', 'link related candle'],
+      ['lantern', 'size'],
+      ['lantern', 'summary'],
+    ])
+    expect(unstated.every(({ provenance }) => provenance === 'unstated')).toBe(true)
+  })
+
+  test('a database migrated twice is left as it is', async () => {
+    const [first, second] = await onScratch(
+      Effect.gen(function* () {
+        yield* before
+        yield* migrate
+        const sql = yield* SqlClient.SqlClient
+        const read = rowsOf(Schema.Struct({ provenance: Schema.Json }))(
+          sql`SELECT provenance FROM entries ORDER BY slug`,
+        )
+        const one = yield* read
+        yield* migrate
+        return [one, yield* read] as const
+      }),
+    )
+    expect(second).toEqual(first)
   })
 })
 

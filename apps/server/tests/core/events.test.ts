@@ -44,12 +44,27 @@ beforeAll(() =>
 describe('every write of an entry is in its history', () => {
   test('creating an entry, then changing one field twice, gives three events', async () => {
     await run(
-      writeEntry({ type: 'supplier', title: 'Bakery', fields: { provider: 'A' } }).pipe(
-        as('agent-laptop'),
-      ),
+      writeEntry({
+        type: 'supplier',
+        title: 'Bakery',
+        fields: { provider: 'A' },
+        provenance: { provider: 'inferred' },
+      }).pipe(as('agent-laptop')),
     )
-    await run(writeEntry({ entry: 'bakery', fields: { provider: 'B' } }).pipe(as('agent-phone')))
-    await run(writeEntry({ entry: 'bakery', fields: { provider: 'C' } }).pipe(as('importer')))
+    await run(
+      writeEntry({
+        entry: 'bakery',
+        fields: { provider: 'B' },
+        provenance: { provider: 'inferred' },
+      }).pipe(as('agent-phone')),
+    )
+    await run(
+      writeEntry({
+        entry: 'bakery',
+        fields: { provider: 'C' },
+        provenance: { provider: 'inferred' },
+      }).pipe(as('importer')),
+    )
     const history = await run(entryHistory('bakery'))
     expect(history.map(({ action, actor }) => [action, actor])).toEqual([
       ['create', 'agent-laptop'],
@@ -67,10 +82,35 @@ describe('every write of an entry is in its history', () => {
   })
 
   test('fieldHistory of a field changed twice returns the two changes only', async () => {
-    await run(writeEntry({ type: 'supplier', title: 'Dairy', fields: { provider: 'A' } }))
-    await run(writeEntry({ entry: 'dairy', fields: { provider: 'B' } }))
-    await run(writeEntry({ entry: 'dairy', summary: 'Milk and cheese.' }))
-    await run(writeEntry({ entry: 'dairy', fields: { provider: 'C' } }))
+    await run(
+      writeEntry({
+        type: 'supplier',
+        title: 'Dairy',
+        fields: { provider: 'A' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'dairy',
+        fields: { provider: 'B' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'dairy',
+        summary: 'Milk and cheese.',
+        provenance: { summary: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'dairy',
+        fields: { provider: 'C' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
     const changes = await run(fieldHistory('dairy', 'fields.provider'))
     expect(changes.map(({ before, after, actor }) => ({ before, after, actor }))).toEqual([
       { before: 'A', after: 'B', actor: 'test-suite' },
@@ -81,8 +121,24 @@ describe('every write of an entry is in its history', () => {
   test('base fields count as fields, and a body is kept in full before and after', async () => {
     const area = await run(writeEntry({ type: 'area', title: 'Food' }))
     const body = 'A long body.\n\n'.repeat(200)
-    await run(writeEntry({ type: 'supplier', title: 'Mill', fields: { provider: 'A' }, body }))
-    await run(writeEntry({ entry: 'mill', title: 'Old mill', parent: 'food', body: `${body}!` }))
+    await run(
+      writeEntry({
+        type: 'supplier',
+        title: 'Mill',
+        fields: { provider: 'A' },
+        body,
+        provenance: { provider: 'inferred', body: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        entry: 'mill',
+        title: 'Old mill',
+        parent: 'food',
+        body: `${body}!`,
+        provenance: { body: 'inferred' },
+      }),
+    )
     const [change] = await run(entryHistory('mill')).then((history) => history.slice(1))
     expect(change?.changes).toEqual([
       { field: 'title', before: 'Mill', after: 'Old mill' },
@@ -94,16 +150,46 @@ describe('every write of an entry is in its history', () => {
 
 describe('a write that does not happen leaves no event', () => {
   test('a refused write leaves no event', async () => {
-    await run(writeEntry({ type: 'supplier', title: 'Forge', fields: { provider: 'A' } }))
+    await run(
+      writeEntry({
+        type: 'supplier',
+        title: 'Forge',
+        fields: { provider: 'A' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
     const before = await run(entryHistory('forge'))
-    await run(refusalOf(writeEntry({ entry: 'forge', fields: { colour: 'red' } })))
+    await run(
+      refusalOf(
+        writeEntry({
+          entry: 'forge',
+          fields: { colour: 'red' },
+          provenance: { colour: 'inferred' },
+        }),
+      ),
+    )
     expect(await run(entryHistory('forge'))).toEqual(before)
   })
 
   test('a write without a current actor is refused with one sentence', async () => {
-    await run(writeEntry({ type: 'supplier', title: 'Brewery', fields: { provider: 'A' } }))
+    await run(
+      writeEntry({
+        type: 'supplier',
+        title: 'Brewery',
+        fields: { provider: 'A' },
+        provenance: { provider: 'inferred' },
+      }),
+    )
     expect(
-      await run(refusalOf(writeEntry({ entry: 'brewery', summary: 'Beer.' }).pipe(as(undefined)))),
+      await run(
+        refusalOf(
+          writeEntry({
+            entry: 'brewery',
+            summary: 'Beer.',
+            provenance: { summary: 'inferred' },
+          }).pipe(as(undefined)),
+        ),
+      ),
     ).toBe('A write needs a current actor: name the agent or program that makes it.')
     expect((await run(readEntry('brewery'))).entry.summary).toBe('')
     expect(await run(entryHistory('brewery'))).toHaveLength(1)
@@ -135,9 +221,15 @@ describe('every change of a type is in its history', () => {
 describe('the history of a long entry comes in pages', () => {
   test('newest first, a page at a time, long texts as their size and an excerpt', async () => {
     const long = 'A line of the log.\n'.repeat(200)
-    await run(writeEntry({ type: 'area', title: 'Logbook', body: long }))
-    await run(writeEntry({ entry: 'logbook', summary: 'One.' }))
-    await run(writeEntry({ entry: 'logbook', summary: 'Two.' }))
+    await run(
+      writeEntry({ type: 'area', title: 'Logbook', body: long, provenance: { body: 'inferred' } }),
+    )
+    await run(
+      writeEntry({ entry: 'logbook', summary: 'One.', provenance: { summary: 'inferred' } }),
+    )
+    await run(
+      writeEntry({ entry: 'logbook', summary: 'Two.', provenance: { summary: 'inferred' } }),
+    )
     const first = await run(historyPage('logbook', { limit: 2 }))
     expect(first.events.map(({ action }) => action)).toEqual(['update', 'update'])
     expect(first.events[0]?.changes).toMatchObject([{ field: 'summary', after: 'Two.' }])

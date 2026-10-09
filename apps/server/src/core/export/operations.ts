@@ -37,6 +37,7 @@ const linkRows = rowsOf(
     relation: Schema.String,
     period: Schema.String,
     field: Schema.String,
+    provenance: Schema.NullOr(Schema.String),
     note: Schema.NullOr(Schema.String),
     valid_from: Schema.NullOr(Schema.String),
     valid_until: Schema.NullOr(Schema.String),
@@ -103,7 +104,6 @@ const snapshot = Effect.gen(function* () {
         sources: entries.sources,
         body: entries.body,
         summary: entries.summary,
-        verified: entries.verified,
         created: entries.created,
         updated: entries.updated,
         valid_from: entries.valid_from,
@@ -174,12 +174,15 @@ const snapshot = Effect.gen(function* () {
         valid_from: entry.valid_from,
         valid_until: entry.valid_until,
         superseded_by: slugOf(entry.superseded_by),
-        verified: entry.verified,
         archived_at: entry.archived_at?.toISOString() ?? null,
         archived_reason: entry.archived_reason,
         sources: entry.sources.map((source) =>
           sorted(
-            'entry' in source && leftOut.has(source.entry) ? { ...source, entry: HIDDEN } : source,
+            'entry' in source && leftOut.has(source.entry)
+              ? { ...source, entry: HIDDEN }
+              : 'said_by' in source && leftOut.has(source.said_by)
+                ? { ...source, said_by: HIDDEN }
+                : source,
           ),
         ),
         fields: sorted(
@@ -193,15 +196,28 @@ const snapshot = Effect.gen(function* () {
         provenance: sorted(entry.provenance),
         links: allLinks
           .filter(({ source_id, target_id }) => source_id === entry.id && shown.has(target_id))
-          .map(({ target_id, relation, period, field, note, valid_from, valid_until }) => ({
-            relation,
-            target: slugOf(target_id) ?? '',
-            period,
-            field,
-            note,
-            valid_from,
-            valid_until,
-          }))
+          .map(
+            ({
+              target_id,
+              relation,
+              period,
+              field,
+              provenance,
+              note,
+              valid_from,
+              valid_until,
+            }) => ({
+              relation,
+              target: slugOf(target_id) ?? '',
+              period,
+              field,
+              // A `mentions` link is as known as the body it comes from.
+              provenance: provenance ?? entry.provenance['body'] ?? 'unstated',
+              note,
+              valid_from,
+              valid_until,
+            }),
+          )
           .toSorted(
             (left, right) =>
               compare(left.relation, right.relation) ||

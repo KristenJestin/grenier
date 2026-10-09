@@ -12,7 +12,15 @@ export {
   Source,
   SourceGiven,
   SourceKept,
+  STORED_PROVENANCES,
   TreeEntry,
   WriteEntryInput,
 } from './entries.ts'
-export { HistoryEvent, HistoryPage, ListOptions, SearchOptions, SearchResult } from './search.ts'
+export {
+  HistoryEvent,
+  HistoryPage,
+  ListOptions,
+  SearchOptions,
+  SearchResult,
+  Supposed,
+} from './search.ts'

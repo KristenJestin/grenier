@@ -1,12 +1,7 @@
 import { Effect } from 'effect'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { Rights } from '../../src/core/auth/index.ts'
-import {
-  archiveEntry,
-  recentEntries,
-  unverified,
-  writeEntry,
-} from '../../src/core/entries/index.ts'
+import { archiveEntry, recentEntries, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor } from '../../src/core/events/index.ts'
 import { link } from '../../src/core/links/index.ts'
 import { search } from '../../src/core/search/index.ts'
@@ -35,7 +30,7 @@ beforeAll(() =>
   ),
 )
 
-/** What the three readings of the last writer say of an entry: search, review and recent entries. */
+/** What the two readings of the last writer say of an entry: search and recent entries. */
 const writersOf = (slug: string) =>
   run(
     Effect.gen(function* () {
@@ -43,23 +38,23 @@ const writersOf = (slug: string) =>
       const found = (yield* search(undefined, { limit: 100 })).find(
         (each) => each.slug === slug,
       )?.by
-      const waiting = (yield* unverified({})).find((each) => each.slug === slug)?.by
-      return { listed, found, waiting }
+      return { listed, found }
     }),
   )
 
-describe('the last writer: one definition for search, review and the working memory', () => {
+describe('the last writer: one definition for search and the working memory', () => {
   test('the actor of the last write, not of an earlier one', async () => {
     await run(
       Effect.gen(function* () {
         yield* as('agent-first')(writeEntry({ type: 'thing', title: 'Shared page' }))
-        yield* as('agent-second')(writeEntry({ entry: 'shared-page', body: 'Edited.' }))
+        yield* as('agent-second')(
+          writeEntry({ entry: 'shared-page', body: 'Edited.', provenance: { body: 'inferred' } }),
+        )
       }),
     )
     expect(await writersOf('shared-page')).toEqual({
       listed: 'agent-second',
       found: 'agent-second',
-      waiting: 'agent-second',
     })
   })
 
@@ -68,13 +63,14 @@ describe('the last writer: one definition for search, review and the working mem
       Effect.gen(function* () {
         yield* as('agent-writer')(writeEntry({ type: 'thing', title: 'Linked page' }))
         yield* as('agent-writer')(writeEntry({ type: 'thing', title: 'Other page' }))
-        yield* as('agent-linker')(link('linked-page', 'other-page', 'about'))
+        yield* as('agent-linker')(
+          link('linked-page', 'other-page', 'about', '', '', { provenance: 'inferred' }),
+        )
       }),
     )
     expect(await writersOf('linked-page')).toEqual({
       listed: 'agent-writer',
       found: 'agent-writer',
-      waiting: 'agent-writer',
     })
   })
 
@@ -82,7 +78,12 @@ describe('the last writer: one definition for search, review and the working mem
     await run(
       Effect.gen(function* () {
         yield* as('agent-citer')(
-          writeEntry({ type: 'thing', title: 'Citing page', body: 'See [[cited-later]].' }),
+          writeEntry({
+            type: 'thing',
+            title: 'Citing page',
+            body: 'See [[cited-later]].',
+            provenance: { body: 'inferred' },
+          }),
         )
         yield* as('agent-target')(writeEntry({ type: 'thing', title: 'Cited later' }))
       }),
@@ -113,7 +114,13 @@ describe('recentEntries: the entries changed most recently that the caller may s
           yield* as('agent-recent')(
             writeEntry({ type: 'thing', title: `Recent page ${String(index).padStart(2, '0')}` }),
           )
-        yield* as('agent-late')(writeEntry({ entry: 'recent-page-03', body: 'Touched again.' }))
+        yield* as('agent-late')(
+          writeEntry({
+            entry: 'recent-page-03',
+            body: 'Touched again.',
+            provenance: { body: 'inferred' },
+          }),
+        )
       }),
     )
     const recent = await run(as('agent-reader')(recentEntries(10)))

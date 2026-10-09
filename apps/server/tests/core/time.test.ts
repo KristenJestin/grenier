@@ -76,7 +76,14 @@ beforeAll(() =>
 
 describe('a yearly date with a 30-day notice', () => {
   test('appears in upcoming and in heads_up 30 days before, with its age; not 31 days before', async () => {
-    await run(writeEntry({ type: 'person', title: 'Ada', fields: { birthday: '1990-11-04' } }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Ada',
+        fields: { birthday: '1990-11-04' },
+        provenance: { birthday: 'inferred' },
+      }),
+    )
     const coming = await run(upcoming('2026-10-05', '2026-12-31').pipe(on('2026-10-05')))
     expect(coming.filter(({ entry }) => entry.slug === 'ada')).toEqual([
       {
@@ -101,7 +108,14 @@ describe('a yearly date with a 30-day notice', () => {
 
 describe('heads_up', () => {
   test('shows an occurrence once a day per actor, then again the next day', async () => {
-    await run(writeEntry({ type: 'person', title: 'Bo', fields: { birthday: '1985-06-20' } }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Bo',
+        fields: { birthday: '1985-06-20' },
+        provenance: { birthday: 'inferred' },
+      }),
+    )
     const seen = (day: string, actor: string) =>
       run(
         headsUp.pipe(
@@ -119,7 +133,14 @@ describe('heads_up', () => {
 
 describe('closing an occurrence', () => {
   test('a yearly deadline fulfilled for this year is no longer announced; next year’s is', async () => {
-    await run(writeEntry({ type: 'tax', title: 'Land tax', fields: { deadline: '2024-04-15' } }))
+    await run(
+      writeEntry({
+        type: 'tax',
+        title: 'Land tax',
+        fields: { deadline: '2024-04-15' },
+        provenance: { deadline: 'inferred' },
+      }),
+    )
     const taxes = (from: string, to: string) =>
       run(
         upcoming(from, to).pipe(
@@ -131,22 +152,26 @@ describe('closing an occurrence', () => {
       )
     expect(await taxes('2026-04-01', '2026-04-30')).toEqual(['2026-04-15'])
     await run(writeEntry({ type: 'note', title: 'Land tax paid' }))
-    await run(link('land-tax-paid', 'land-tax', 'fulfills', '2026'))
+    await run(link('land-tax-paid', 'land-tax', 'fulfills', '2026', '', { provenance: 'inferred' }))
     expect(await taxes('2026-04-01', '2026-04-30')).toEqual([])
     expect(await taxes('2027-04-01', '2027-04-30')).toEqual(['2027-04-15'])
   })
 
   test('a fulfills link needs a period, and only a fulfills link takes one', async () => {
     await run(writeEntry({ type: 'note', title: 'Receipt' }))
-    await expect(run(link('receipt', 'land-tax', 'fulfills'))).rejects.toThrow(
+    await expect(
+      run(link('receipt', 'land-tax', 'fulfills', '', '', { provenance: 'inferred' })),
+    ).rejects.toThrow(
       'The field `deadline` of `land-tax` comes back every year: a link `fulfills` names its period as `2026`.',
     )
-    await expect(run(link('receipt', 'land-tax', 'fulfills', 'soon'))).rejects.toThrow(
+    await expect(
+      run(link('receipt', 'land-tax', 'fulfills', 'soon', '', { provenance: 'inferred' })),
+    ).rejects.toThrow(
       'A link `fulfills` needs a period: `2026` for a yearly date, `2026-10` monthly, `2026-W41` weekly, or the date itself.',
     )
-    await expect(run(link('receipt', 'land-tax', 'about', '2026'))).rejects.toThrow(
-      'Only a link `fulfills` takes a period.',
-    )
+    await expect(
+      run(link('receipt', 'land-tax', 'about', '2026', '', { provenance: 'inferred' })),
+    ).rejects.toThrow('Only a link `fulfills` takes a period.')
   })
 })
 
@@ -157,10 +182,15 @@ describe('a fulfills link closes one field', () => {
         type: 'car',
         title: 'Blue car',
         fields: { insurance_renewal: '2020-03-10', inspection: '2020-03-20' },
+        provenance: { insurance_renewal: 'inferred', inspection: 'inferred' },
       }),
     )
     await run(writeEntry({ type: 'note', title: 'Blue car insurance paid' }))
-    await run(link('blue-car-insurance-paid', 'blue-car', 'fulfills', '2026', 'insurance_renewal'))
+    await run(
+      link('blue-car-insurance-paid', 'blue-car', 'fulfills', '2026', 'insurance_renewal', {
+        provenance: 'inferred',
+      }),
+    )
     const fieldsOf = (list: ReadonlyArray<{ entry: { slug: string }; field: string }>) =>
       list.filter(({ entry }) => entry.slug === 'blue-car').map(({ field }) => field)
     expect(
@@ -174,9 +204,20 @@ describe('a fulfills link closes one field', () => {
   })
 
   test('the field is inferred when the target has one deadline or recurring date', async () => {
-    await run(writeEntry({ type: 'tax', title: 'Water tax', fields: { deadline: '2024-05-15' } }))
+    await run(
+      writeEntry({
+        type: 'tax',
+        title: 'Water tax',
+        fields: { deadline: '2024-05-15' },
+        provenance: { deadline: 'inferred' },
+      }),
+    )
     await run(writeEntry({ type: 'note', title: 'Water tax paid' }))
-    expect(await run(link('water-tax-paid', 'water-tax', 'fulfills', '2026'))).toMatchObject({
+    expect(
+      await run(
+        link('water-tax-paid', 'water-tax', 'fulfills', '2026', '', { provenance: 'inferred' }),
+      ),
+    ).toMatchObject({
       field: 'deadline',
     })
     const { links } = await run(readEntry('water-tax-paid'))
@@ -186,9 +227,18 @@ describe('a fulfills link closes one field', () => {
   })
 
   test('without a field, a link to a target with two such dates is refused, naming them', async () => {
-    await run(writeEntry({ type: 'car', title: 'Red car', fields: { inspection: '2021-06-01' } }))
+    await run(
+      writeEntry({
+        type: 'car',
+        title: 'Red car',
+        fields: { inspection: '2021-06-01' },
+        provenance: { inspection: 'inferred' },
+      }),
+    )
     await run(writeEntry({ type: 'note', title: 'Red car paper' }))
-    await expect(run(link('red-car-paper', 'red-car', 'fulfills', '2026'))).rejects.toThrow(
+    await expect(
+      run(link('red-car-paper', 'red-car', 'fulfills', '2026', '', { provenance: 'inferred' })),
+    ).rejects.toThrow(
       'A link `fulfills` to `red-car` must name the field it closes: `insurance_renewal` or `inspection`.',
     )
   })
@@ -196,7 +246,11 @@ describe('a fulfills link closes one field', () => {
   test('a field that is not a deadline or recurring date of the target is refused', async () => {
     await run(writeEntry({ type: 'note', title: 'Red car invoice' }))
     await expect(
-      run(link('red-car-invoice', 'red-car', 'fulfills', '2026', 'bought')),
+      run(
+        link('red-car-invoice', 'red-car', 'fulfills', '2026', 'bought', {
+          provenance: 'inferred',
+        }),
+      ),
     ).rejects.toThrow(
       'The field `bought` is not a deadline or a recurring date of `red-car`: name `insurance_renewal` or `inspection`.',
     )
@@ -205,7 +259,14 @@ describe('a fulfills link closes one field', () => {
 
 describe('briefing', () => {
   test('a deadline past and unfulfilled is reported as overdue', async () => {
-    await run(writeEntry({ type: 'bill', title: 'Plumber bill', fields: { due_on: '2026-09-30' } }))
+    await run(
+      writeEntry({
+        type: 'bill',
+        title: 'Plumber bill',
+        fields: { due_on: '2026-09-30' },
+        provenance: { due_on: 'inferred' },
+      }),
+    )
     const { overdue } = await run(briefing('today').pipe(on('2026-10-05')))
     expect(overdue.filter(({ entry }) => entry.slug === 'plumber-bill')).toEqual([
       expect.objectContaining({ date: '2026-09-30', days_left: -5, deadline: true }),
@@ -222,7 +283,12 @@ describe('briefing', () => {
           { title: 'Monday', birthday: '2001-10-12' },
         ],
         ({ title, birthday }) =>
-          writeEntry({ type: 'person', title: `Born a ${title}`, fields: { birthday } }),
+          writeEntry({
+            type: 'person',
+            title: `Born a ${title}`,
+            fields: { birthday },
+            provenance: { birthday: 'inferred' },
+          }),
       ),
     )
     const result = await run(briefing('weekend').pipe(on('2026-10-08')))
@@ -241,7 +307,14 @@ describe('briefing', () => {
 
 describe('29 February', () => {
   test('falls on 28 February in a year that is not a leap year', async () => {
-    await run(writeEntry({ type: 'person', title: 'Leap', fields: { birthday: '2000-02-29' } }))
+    await run(
+      writeEntry({
+        type: 'person',
+        title: 'Leap',
+        fields: { birthday: '2000-02-29' },
+        provenance: { birthday: 'inferred' },
+      }),
+    )
     const leap = (from: string, to: string) =>
       run(
         upcoming(from, to).pipe(
@@ -294,7 +367,14 @@ describe('notices', () => {
         fields: [{ name: 'ends', kind: 'date', due: { notice: 'P1M' } }],
       }),
     )
-    await run(writeEntry({ type: 'lease', title: 'Studio lease', fields: { ends: '2026-03-30' } }))
+    await run(
+      writeEntry({
+        type: 'lease',
+        title: 'Studio lease',
+        fields: { ends: '2026-03-30' },
+        provenance: { ends: 'inferred' },
+      }),
+    )
     const told = await run(headsUp.pipe(on('2026-02-28'), as('agent-lease')))
     expect(told.map(({ entry }) => entry.slug)).toContain('studio-lease')
   })
@@ -308,7 +388,14 @@ describe('notices', () => {
         fields: [{ name: 'on', kind: 'date', due: { notice: 'PT12H' } }],
       }),
     )
-    await run(writeEntry({ type: 'slot', title: 'Court booking', fields: { on: '2026-06-10' } }))
+    await run(
+      writeEntry({
+        type: 'slot',
+        title: 'Court booking',
+        fields: { on: '2026-06-10' },
+        provenance: { on: 'inferred' },
+      }),
+    )
     const seen = async (day: string) =>
       (await run(headsUp.pipe(on(day), as(`agent-slot-${day}`)))).map(({ entry }) => entry.slug)
     expect(await seen('2026-06-08')).not.toContain('court-booking')
@@ -377,9 +464,24 @@ describe('sensitive dates, for a key without the right sensitive', () => {
     const before = await seen('2041-04-10', 'agent-probe-before')
     await run(
       Effect.all([
-        writeEntry({ type: 'clinic', title: 'Checkup', fields: { visit: '2041-04-14' } }),
-        writeEntry({ type: 'locker', title: 'Gym locker', fields: { renews: '2041-04-17' } }),
-        writeEntry({ type: 'clinic', title: 'Old visit', fields: { visit: '2041-04-03' } }),
+        writeEntry({
+          type: 'clinic',
+          title: 'Checkup',
+          fields: { visit: '2041-04-14' },
+          provenance: { visit: 'inferred' },
+        }),
+        writeEntry({
+          type: 'locker',
+          title: 'Gym locker',
+          fields: { renews: '2041-04-17' },
+          provenance: { renews: 'inferred' },
+        }),
+        writeEntry({
+          type: 'clinic',
+          title: 'Old visit',
+          fields: { visit: '2041-04-03' },
+          provenance: { visit: 'inferred' },
+        }),
         writeEntry({ type: 'clinic', title: 'Lab results', created: '2041-04-12' }),
       ]),
     )

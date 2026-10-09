@@ -37,8 +37,22 @@ describe('search with the default language', () => {
   beforeAll(() => run(types))
 
   test('an entry whose title matches ranks above one whose body only matches', async () => {
-    await run(writeEntry({ type: 'note', title: 'Gardening notes', body: 'About tomatoes.' }))
-    await run(writeEntry({ type: 'note', title: 'Tomatoes', body: 'Red fruit.' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Gardening notes',
+        body: 'About tomatoes.',
+        provenance: { body: 'inferred' },
+      }),
+    )
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Tomatoes',
+        body: 'Red fruit.',
+        provenance: { body: 'inferred' },
+      }),
+    )
     const results = await run(search('tomatoes'))
     expect(results.map(({ title }) => title)).toEqual(['Tomatoes', 'Gardening notes'])
     expect(results[0]?.rank).toBeGreaterThan(results[1]?.rank ?? Infinity)
@@ -51,6 +65,7 @@ describe('search with the default language', () => {
         title: 'Ali, third run',
         slug: 'ali-run3-cold-test',
         body: 'Run3 of the cold test.',
+        provenance: { body: 'inferred' },
       }),
     )
     await run(
@@ -59,6 +74,7 @@ describe('search with the default language', () => {
         title: 'Run3 cold test results',
         summary: 'The cold test, run3.',
         body: 'Cold test run3. '.repeat(30),
+        provenance: { body: 'inferred', summary: 'inferred' },
       }),
     )
     const results = await run(search('run3 cold test'))
@@ -66,7 +82,14 @@ describe('search with the default language', () => {
   })
 
   test('a search can be answered from the search index', async () => {
-    await run(writeEntry({ type: 'note', title: 'Quiet lighthouse', body: 'Fog at dawn.' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Quiet lighthouse',
+        body: 'Fog at dawn.',
+        provenance: { body: 'inferred' },
+      }),
+    )
     const before = await run(searchIndexScans)
     const found = await run(
       Effect.flatMap(SqlClient.SqlClient, (sql) =>
@@ -109,6 +132,7 @@ describe('search with the default language', () => {
         type: 'locker',
         title: 'Harbour locker',
         fields: { place: 'pier', code: 'kelp' },
+        provenance: { place: 'inferred', code: 'inferred' },
       }),
     )
     const plain = (query: string) =>
@@ -153,6 +177,7 @@ describe('search with the default language', () => {
         title: 'Harvest',
         summary: 'What we picked.',
         body: 'In late September we picked the walnuts from the old tree.',
+        provenance: { body: 'inferred', summary: 'inferred' },
       }),
     )
     const [result] = await run(search('walnuts'))

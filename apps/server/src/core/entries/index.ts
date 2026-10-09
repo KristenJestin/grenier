@@ -11,4 +11,4 @@ export {
 } from './operations.ts'
 export { slugsOf } from './slugs.ts'
 export { recentEntries } from './recent.ts'
-export { ReviewFilter, setVerified, Unverified, unverified } from './review.ts'
+export { confirmValue, saidOn, supposedIn, SupposedValue, supposedValues } from './supposed.ts'

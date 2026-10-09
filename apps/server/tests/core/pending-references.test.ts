@@ -32,7 +32,12 @@ const mentionsOf = async (slug: string) =>
 describe('a reference to an entry not written yet waits for it', () => {
   test('A writes [[b]] before b exists: accepted, one pending reference; b is created: A links to b, none left', async () => {
     await run(
-      writeEntry({ type: 'note', title: 'Apple tree', body: 'Grafted from [[pear-tree]].' }),
+      writeEntry({
+        type: 'note',
+        title: 'Apple tree',
+        body: 'Grafted from [[pear-tree]].',
+        provenance: { body: 'inferred' },
+      }),
     )
     expect(await mentionsOf('apple-tree')).toEqual([])
     expect(await run(pendingReferences)).toEqual([
@@ -57,17 +62,38 @@ describe('a reference to an entry not written yet waits for it', () => {
 
   test('a reference to an alias of an existing entry links to that entry', async () => {
     await run(writeEntry({ type: 'note', title: 'Quince', aliases: ['coing'] }))
-    await run(writeEntry({ type: 'note', title: 'Jam', body: 'Made with [[coing]].' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Jam',
+        body: 'Made with [[coing]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     expect(await mentionsOf('jam')).toEqual(['quince'])
     // And an alias given later resolves what waited for it.
-    await run(writeEntry({ type: 'note', title: 'Cider', body: 'From [[pommes]].' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Cider',
+        body: 'From [[pommes]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     await run(writeEntry({ type: 'note', title: 'Apples', aliases: ['pommes'] }))
     expect(await mentionsOf('cider')).toEqual(['apples'])
   })
 
   test('a renamed entry whose old slug was cited keeps those links', async () => {
     await run(writeEntry({ type: 'note', title: 'Shed', slug: 'shed' }))
-    await run(writeEntry({ type: 'note', title: 'Tools', body: 'In the [[shed]].' }))
+    await run(
+      writeEntry({
+        type: 'note',
+        title: 'Tools',
+        body: 'In the [[shed]].',
+        provenance: { body: 'inferred' },
+      }),
+    )
     await run(writeEntry({ entry: 'shed', slug: 'garden-shed' }))
     expect(await mentionsOf('tools')).toEqual(['garden-shed'])
     expect((await run(readEntry('tools'))).entry.body).toBe('In the [[garden-shed]].')
@@ -77,7 +103,16 @@ describe('a reference to an entry not written yet waits for it', () => {
     await run(writeEntry({ type: 'diary', title: 'Monday' }))
     const plain = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.provideService(effect, Rights, ['read', 'write'])
-    await run(plain(writeEntry({ type: 'note', title: 'Week', body: 'See [[monday]].' })))
+    await run(
+      plain(
+        writeEntry({
+          type: 'note',
+          title: 'Week',
+          body: 'See [[monday]].',
+          provenance: { body: 'inferred' },
+        }),
+      ),
+    )
     expect((await run(plain(readEntry('week')))).references).toEqual([
       { reference: 'monday', id: null, title: null },
     ])

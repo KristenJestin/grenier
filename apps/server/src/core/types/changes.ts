@@ -10,7 +10,13 @@ import { changesBetween, prefixed, recordEvent } from '../events/record.ts'
 import { Refused } from '../refused.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { FIELD_KINDS, TypeDefinition } from '@grenier/api/model'
-import { checkAcceptedTypes, getType, listTypes, snapshotOf } from './operations.ts'
+import {
+  checkAcceptedTypes,
+  getType,
+  listTypes,
+  refuseReservedNames,
+  snapshotOf,
+} from './operations.ts'
 
 /**
  * A change of one field of a type: make it required (or optional), change its kind, rename it,
@@ -279,6 +285,7 @@ export const changeField = Effect.fn('changeField')(
     }
     const sensitive = input.sensitive ?? old.sensitive === true
     const name = input.rename ?? old.name
+    if (name !== old.name) yield* refuseReservedNames([name])
     const kind = input.kind ?? old.kind
     const required = input.required ?? old.required === true
     const many = input.many ?? old.many === true
@@ -328,14 +335,16 @@ export const changeField = Effect.fn('changeField')(
       const mapOne = (one: Schema.Json) => mappedOf(mapping, keyOf(one)) ?? one
       if (value !== undefined)
         fields[name] = many && Array.isArray(value) ? value.map(mapOne) : mapOne(value)
-      if (value === undefined && required && input.default !== undefined)
-        fields[name] = input.default
+      // The value a default gives is the writer's supposition, not something the entry was told.
+      const fill = value === undefined && required ? input.default : undefined
+      if (fill !== undefined) fields[name] = fill
+      const provenance = renamed(entry.provenance, old.name, name)
       return {
         before: entry,
         slug: entry.slug,
         type: entry.type,
         fields,
-        provenance: renamed(entry.provenance, old.name, name),
+        provenance: fill === undefined ? provenance : { ...provenance, [name]: 'inferred' },
       }
     })
     const { resolved: proposed, unknown } = yield* withEntryIds(
@@ -588,9 +597,13 @@ export const confirmProposal = Effect.fn('confirmProposal')(function* (id: strin
               ]),
             ),
             provenance: Object.fromEntries(
-              Object.entries(entry.provenance).flatMap(([field, value]) =>
-                mappedOf(mapping, field) === undefined ? [] : [[mappedOf(mapping, field), value]],
-              ),
+              Object.entries(entry.provenance).flatMap(([field, value]) => {
+                // The provenance of the body and the summary belongs to the entry, not to a field.
+                if (field === 'body' || field === 'summary') return [[field, value]]
+                return mappedOf(mapping, field) === undefined
+                  ? []
+                  : [[mappedOf(mapping, field), value]]
+              }),
             ),
           }))
           const { resolved: moved, unknown } = yield* withEntryIds(
