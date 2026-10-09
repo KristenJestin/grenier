@@ -1,5 +1,6 @@
 import { WriteEntryInput } from '@grenier/api/model'
 import { writeEntries } from '../../core/entries/index.ts'
+import { unlinkedMentions } from '../../core/links/index.ts'
 import { Effect, Schema, Struct } from 'effect'
 import { defineTool } from '../tool.ts'
 
@@ -14,9 +15,17 @@ export const writeManyTool = defineTool({
   }),
   right: 'write',
   hints: { destructive: true, idempotent: false },
-  // The bodies are left out of the answer: the agent just sent them.
+  // The bodies are left out of the answer: the agent just sent them. Each entry carries the
+  // existing entries it names without linking them, when there are some.
   run: ({ entries }) =>
-    Effect.map(writeEntries(entries), (written) => ({
-      entries: written.map((entry) => Struct.omit(entry, ['body'])),
-    })),
+    Effect.gen(function* () {
+      const written = yield* writeEntries(entries)
+      const mentions = yield* unlinkedMentions(written.map(({ id }) => id))
+      const answerOf = (entry: (typeof written)[number]) => {
+        const answer = Struct.omit(entry, ['body'])
+        const unlinked = mentions.get(entry.id) ?? []
+        return unlinked.length === 0 ? answer : { ...answer, unlinked }
+      }
+      return { entries: written.map(answerOf) }
+    }),
 })

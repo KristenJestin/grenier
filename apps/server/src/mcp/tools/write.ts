@@ -1,6 +1,6 @@
 import { WriteEntryInput } from '@grenier/api/model'
 import { identityOf, writeEntry } from '../../core/entries/index.ts'
-import { referencesOf } from '../../core/links/index.ts'
+import { referencesOf, unlinkedMentions } from '../../core/links/index.ts'
 import { Effect } from 'effect'
 import { defineTool } from '../tool.ts'
 
@@ -12,16 +12,20 @@ export const writeTool = defineTool({
   right: 'write',
   hints: { destructive: true, idempotent: false },
   // The entry's identity only: the agent just sent the rest, and the body may be long. The
-  // references left waiting for their entry come with it, so a typo shows at once.
+  // references left waiting for their entry come with it, so a typo shows at once, and the
+  // existing entries it names without linking.
   run: (input) =>
     Effect.gen(function* () {
       const written = yield* writeEntry(input)
-      return {
+      const answer = {
         entry: yield* identityOf(written),
         // As the caller sees them: a reference to an entry it may not see waits like any other.
         pending_references: (yield* referencesOf(written.body)).flatMap(({ reference, id }) =>
           id === null ? [reference] : [],
         ),
       }
+      // The entries it names without linking them, when there are some: the agent decides.
+      const unlinked = (yield* unlinkedMentions([written.id])).get(written.id) ?? []
+      return unlinked.length === 0 ? answer : { ...answer, unlinked }
     }),
 })
