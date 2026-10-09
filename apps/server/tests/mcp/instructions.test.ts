@@ -328,7 +328,7 @@ describe('the instructions give the session its working memory', () => {
 describe('the instructions say how to find what the owner refers to without naming it', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('look at the recent entries and at what this key wrote first, follow the neighbours, and ask when several subjects fit', () => {
+  test('look at the recent entries and at what this key wrote first, and ask when several subjects fit', () => {
     for (const writes of [true, false]) {
       const told = instructionsFor(types, development, null, writes, true, memoryOf(2))
       expect(told).toContain(
