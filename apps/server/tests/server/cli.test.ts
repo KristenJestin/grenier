@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { writeEntry } from '../../src/core/entries/index.ts'
+import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
 import { reportFinding } from '../../src/core/findings/index.ts'
 import { listInbox } from '../../src/core/inbox/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
-import { defineType, getType } from '../../src/core/types/index.ts'
+import {
+  defineType,
+  getType,
+  proposeTypeDeletion,
+  proposeTypeMerge,
+} from '../../src/core/types/index.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
 const database = ManagedRuntime.make(
@@ -156,6 +161,32 @@ describe('the owner lifts sensitivity from the command line', () => {
       fields: [{ name: 'code', kind: 'text' }],
     })
     expect(cli('type:sensitive', 'locker')).toBe('The type locker is sensitive.\n')
+  })
+})
+
+describe('the owner decides on the proposals of agents from the command line', () => {
+  test('proposal:list shows what waits, proposal:confirm applies one and a second time is refused', async () => {
+    expect(cli('proposal:list')).toBe('No proposal.\n')
+    const [deletion, merge] = await database.runPromise(
+      Effect.gen(function* () {
+        yield* defineType({ name: 'spare', label: 'Spare', description: 'Unused.', fields: [] })
+        yield* defineType({ name: 'film', label: 'Film', description: 'A film.', fields: [] })
+        yield* defineType({ name: 'movie', label: 'Movie', description: 'A film too.', fields: [] })
+        yield* writeEntry({ type: 'film', title: 'Old reel' })
+        return [yield* proposeTypeDeletion('spare'), yield* proposeTypeMerge('film', 'movie', {})]
+      }),
+    )
+    const listed = cli('proposal:list').trim().split('\n')
+    expect(listed).toEqual([
+      `${deletion?.id}\tdelete\tspare\t\tpending\tagent-kitchen`,
+      `${merge?.id}\tmerge\tfilm\tmovie\tpending\tagent-kitchen`,
+    ])
+    expect(cli('proposal:confirm', merge?.id ?? '')).toBe(
+      'The proposal to merge film into movie is confirmed.\n',
+    )
+    expect(cli('proposal:list')).toContain(`${merge?.id}\tmerge\tfilm\tmovie\tconfirmed`)
+    expect(() => cli('proposal:confirm', merge?.id ?? '')).toThrow()
+    expect((await database.runPromise(readEntry('old-reel'))).entry.type).toBe('movie')
   })
 })
 

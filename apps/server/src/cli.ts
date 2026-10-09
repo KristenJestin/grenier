@@ -21,7 +21,7 @@ import { addFileOnce, addToInbox, fileInInbox, inboxRefusalOf } from './core/inb
 import { misfiledPeriods } from './core/links/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
-import { changeField, changeType } from './core/types/index.ts'
+import { changeField, changeType, confirmProposal, listProposals } from './core/types/index.ts'
 import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@grenier/api/schema'
 import { homeOf, loadInstalledEnvironment } from './local/home.ts'
@@ -344,6 +344,30 @@ const fieldSensitive = Command.make(
     ),
 ).pipe(Command.withDescription('Makes a field sensitive, or no longer with --off.'))
 
+const proposalList = Command.make('proposal:list', {}, () =>
+  onDatabase(
+    Effect.map(asOwner(listProposals), (proposals) =>
+      proposals.length === 0
+        ? 'No proposal.'
+        : proposals
+            .map(({ id, action, type, into, status, proposed_by }) =>
+              [id, action, type, into ?? '', status, proposed_by].join('\t'),
+            )
+            .join('\n'),
+    ),
+  ),
+).pipe(Command.withDescription('Lists the proposals of agents to delete or merge a type.'))
+
+const proposalConfirm = Command.make('proposal:confirm', { id: Argument.String('id') }, ({ id }) =>
+  onDatabase(
+    Effect.map(asOwner(confirmProposal(id)), (proposal) =>
+      proposal.action === 'merge'
+        ? `The proposal to merge ${proposal.type} into ${proposal.into} is confirmed.`
+        : `The proposal to delete ${proposal.type} is confirmed.`,
+    ),
+  ),
+).pipe(Command.withDescription('Confirms a proposal: the type is deleted, or merged into another.'))
+
 const findingOptions = {
   kind: optionalText('kind'),
   place: optionalText('place'),
@@ -573,6 +597,8 @@ export const grenier = Command.make('grenier').pipe(
     inboxAdd,
     typeSensitive,
     fieldSensitive,
+    proposalList,
+    proposalConfirm,
     findingsList,
     findingsShow,
     findingsExport,
