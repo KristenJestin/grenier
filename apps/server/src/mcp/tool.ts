@@ -10,25 +10,72 @@ import { Tool } from 'effect/ai'
 export type Database = Layer.Success<typeof database>
 
 /**
+ * What a tool that writes does to the store, for the hints a client reads. `destructive`: it may
+ * overwrite or remove what is there, rather than only add. `idempotent`: the same call again is
+ * accepted and leaves the store as the first did (a repeat that is refused, or that adds one more,
+ * is not). `openWorld`: it reaches beyond Grenier, as `attach_media` does fetching a `url`.
+ */
+export interface Hints {
+  readonly destructive: boolean
+  readonly idempotent: boolean
+  readonly openWorld?: boolean
+}
+
+/** The hints of MCP (`annotations` of a tool), all four always given: a client assumes the worst for one left out. */
+export interface Annotations {
+  readonly readOnlyHint: boolean
+  readonly destructiveHint: boolean
+  readonly idempotentHint: boolean
+  readonly openWorldHint: boolean
+}
+
+/** The hints of a tool: one that reads is read-only and repeatable; one that writes says its own. */
+const annotationsOf = (right: Right, hints: Hints | undefined): Annotations =>
+  hints === undefined
+    ? {
+        readOnlyHint: right === 'read',
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      }
+    : {
+        readOnlyHint: false,
+        destructiveHint: hints.destructive,
+        idempotentHint: hints.idempotent,
+        openWorldHint: hints.openWorld ?? false,
+      }
+
+/**
  * Declares one Grenier tool: its name and description for the agent, the schema its input is
  * decoded with (and declared through `toToolInputSchema`), the right it needs, and what it does.
- * The answer is a JSON object; a refusal is the core's sentences.
+ * A tool that needs the right `read` only reads; any other says what it does to the store with
+ * `hints`. The answer is a JSON object; a refusal is the core's sentences.
  */
-export function defineTool<const Name extends string, I, E>(definition: {
-  readonly name: Name
-  readonly description: string
-  readonly input: Schema.Codec<I, I>
-  readonly right: Right
-  readonly run: (input: I) => Effect.Effect<Schema.JsonObject, E, Database>
-}) {
+export function defineTool<const Name extends string, I, E>(
+  definition: {
+    readonly name: Name
+    readonly description: string
+    readonly input: Schema.Codec<I, I>
+    readonly run: (input: I) => Effect.Effect<Schema.JsonObject, E, Database>
+  } & (
+    | { readonly right: 'read'; readonly hints?: undefined }
+    | { readonly right: Exclude<Right, 'read'>; readonly hints: Hints }
+  ),
+) {
+  const annotations = annotationsOf(definition.right, definition.hints)
   return {
     ...definition,
+    annotations,
     tool: Tool.dynamic(definition.name, {
       description: definition.description,
       parameters: toToolInputSchema(definition.input),
       success: Schema.JsonObject,
       failure: Refused,
-    }),
+    })
+      .annotate(Tool.Readonly, annotations.readOnlyHint)
+      .annotate(Tool.Destructive, annotations.destructiveHint)
+      .annotate(Tool.Idempotent, annotations.idempotentHint)
+      .annotate(Tool.OpenWorld, annotations.openWorldHint),
   }
 }
 

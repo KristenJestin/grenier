@@ -40,6 +40,7 @@ export const linkTool = defineTool({
     'Links two entries with a relation, such as a person `works_at` an organization. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date).',
   input: LinkWithAbout,
   right: 'write',
+  hints: { destructive: true, idempotent: true },
   run: ({ source, target, relation, period = '', field = '', note, valid_from, valid_until }) =>
     Effect.map(
       link(source, target, relation, period, field, { note, valid_from, valid_until }),

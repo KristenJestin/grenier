@@ -22,6 +22,7 @@ export const inboxAddTool = defineTool({
     'Puts something in the inbox for an agent to turn into entries: a `text`, a `url`, or a `file` (base64 `data` with its `name`), with where it came from (`origin`). Nothing enters Grenier as a raw copy.',
   input: InboxInput,
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: (input) => Effect.map(addToInbox(input), (item) => ({ item })),
 })
 
@@ -43,6 +44,7 @@ export const inboxTakeTool = defineTool({
     ids: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: ({ id, ids }) =>
     ids === undefined
       ? Effect.map(takeItem(id === undefined ? {} : { id }), (item) => ({ item }))
@@ -77,6 +79,7 @@ export const inboxReleaseTool = defineTool({
     'Gives back an item you took and cannot finish: it waits again, for another agent or a later session.',
   input: Schema.Struct({ id: Schema.String }),
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: ({ id }) => Effect.map(releaseItem(id), (item) => ({ item })),
 })
 
@@ -86,6 +89,7 @@ export const inboxDoneTool = defineTool({
     "Marks an item you took as processed, with the `entries` (slugs or ids) it produced or updated: each of them then cites the item in its sources. Give an entry as `{ entry, attach: { alt } }` to attach the item's file to it, with what it shows as `alt`; all of it is written, or nothing.",
   input: FinishInput,
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: (input) => Effect.map(finishItem(input), (item) => ({ item })),
 })
 
@@ -94,5 +98,6 @@ export const inboxDismissTool = defineTool({
   description: 'Sets an item aside with a `reason` when it gives no entry.',
   input: DismissInput,
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: (input) => Effect.map(dismissItem(input), (item) => ({ item })),
 })

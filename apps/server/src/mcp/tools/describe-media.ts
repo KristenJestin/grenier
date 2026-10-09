@@ -12,5 +12,6 @@ export const describeMediaTool = defineTool({
     }),
   }),
   right: 'write',
+  hints: { destructive: true, idempotent: true },
   run: ({ media, alt }) => describeMedia(media, alt),
 })

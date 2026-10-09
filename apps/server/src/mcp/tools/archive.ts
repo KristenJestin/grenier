@@ -11,6 +11,7 @@ export const archiveTool = defineTool({
     reason: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
   }),
   right: 'write',
+  hints: { destructive: true, idempotent: true },
   run: ({ entry, reason }) =>
     Effect.gen(function* () {
       const archived = yield* archiveEntry(entry, reason)

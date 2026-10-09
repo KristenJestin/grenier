@@ -17,6 +17,7 @@ export const proposeTypeChangeTool = defineTool({
     }),
   }),
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: ({ action, type, into, mapping }) =>
     Effect.map(
       action === 'delete'

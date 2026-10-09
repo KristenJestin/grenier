@@ -8,6 +8,7 @@ export const unlinkTool = defineTool({
   description: 'Removes a link between two entries.',
   input: LinkInput,
   right: 'write',
+  hints: { destructive: true, idempotent: false },
   run: ({ source, target, relation, period = '', field = '' }) =>
     Effect.as(unlink(source, target, relation, period, field), {
       source,

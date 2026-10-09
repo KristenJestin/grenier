@@ -225,9 +225,14 @@ const InboxTake = Layer.effectDiscard(
     const handlerOf = handlerFor(services, yield* Rights)
     const add = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>) => {
       const handle = handlerOf(tool)
-      const { name, description, input } = tool
+      const { name, description, input, annotations } = tool
       return server.addTool({
-        tool: new McpSchema.Tool({ name, description, inputSchema: toToolInputSchema(input) }),
+        tool: new McpSchema.Tool({
+          name,
+          description,
+          inputSchema: toToolInputSchema(input),
+          annotations,
+        }),
         annotations: Context.empty(),
         handle: (parameters) =>
           handle(parameters).pipe(
