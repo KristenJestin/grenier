@@ -15,7 +15,9 @@ export const grenierReportsTool = defineTool({
     place: Schema.optionalKey(
       Schema.String.annotate({ description: 'Only the findings of this tool or place.' }),
     ),
-    kind: Schema.optionalKey(Schema.Literals(FINDING_KINDS)),
+    kind: Schema.optionalKey(Schema.Literals(FINDING_KINDS)).annotate({
+      description: 'Only the findings of this kind.',
+    }),
     offset: Schema.optionalKey(
       Schema.Int.check(
         Schema.isGreaterThanOrEqualTo(0, { expected: 'a number of at least 0' }),

@@ -23,5 +23,6 @@ export const attachMediaTool = defineTool({
     }),
   }),
   right: 'write',
+  hints: { destructive: false, idempotent: true, openWorld: true },
   run: (input) => attachMedia(input),
 })

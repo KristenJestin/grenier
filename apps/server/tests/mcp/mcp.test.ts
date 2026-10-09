@@ -34,7 +34,7 @@ const Tools = Schema.Struct({
 })
 
 describe('the server answers over stdio', () => {
-  test('it lists the tools, each with an input schema that is a JSON object at the root', async () => {
+  test('it lists the tools of its rights, each with an input schema that is a JSON object at the root', async () => {
     const { result } = await mcp().request('tools/list', {})
     const { tools } = Schema.decodeUnknownSync(Tools)(result)
     expect(tools.map(({ name }) => name).toSorted()).toEqual([
@@ -44,7 +44,6 @@ describe('the server answers over stdio', () => {
       'briefing',
       'change_field',
       'change_type',
-      'confirm_proposal',
       'define_type',
       'describe_media',
       'get_type',
@@ -241,7 +240,6 @@ describe('an agent works through MCP calls only', () => {
     await mcp().call('write', { type: 'note', title: 'Week', body })
     expect(await mcp().call('read', { entry: 'week', headings: true })).toEqual({
       result: {
-        heads_up: [],
         headings: [
           { level: 1, text: 'Journal' },
           { level: 2, text: 'Monday' },
@@ -250,7 +248,7 @@ describe('an agent works through MCP calls only', () => {
       },
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Monday' })).toEqual({
-      result: { heads_up: [], section: '## Monday\nRain all day.\n```\n# not a heading\n```' },
+      result: { section: '## Monday\nRain all day.\n```\n# not a heading\n```' },
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Friday' })).toEqual({
       error: 'The entry `week` has no heading `Friday`: read its headings first.',
@@ -260,13 +258,33 @@ describe('an agent works through MCP calls only', () => {
   test('read gives only the parts asked for, the entry without its body unless asked', async () => {
     const { result } = await mcp().call('read', { entry: 'week', parts: ['links', 'media'] })
     expect(Object.keys(result ?? {}).toSorted()).toEqual(
-      ['backlinks', 'entry', 'heads_up', 'links', 'media'].toSorted(),
+      ['backlinks', 'entry', 'links', 'media'].toSorted(),
     )
     expect(JSON.stringify(result)).not.toContain('Rain all day.')
     expect(result).toMatchObject({ entry: { slug: 'week', title: 'Week' } })
     expect(await mcp().call('read', { entry: 'week', parts: ['body'] })).toMatchObject({
       result: { entry: { slug: 'week', body: expect.stringContaining('Rain') } },
     })
+  })
+})
+
+describe('an unknown key in a call is refused', () => {
+  test('a key the schema does not name is refused, naming it, and nothing is written', async () => {
+    const refused = await mcp().call('write', {
+      type: 'note',
+      title: 'Never written',
+      colour: 'red',
+    })
+    expect(refused).toMatchObject({ error: expect.stringContaining('colour') })
+    expect(await mcp().call('search', { query: 'Never written' })).toMatchObject({
+      result: { results: [] },
+    })
+  })
+
+  test('a limit that is not an integer is refused', async () => {
+    expect(await mcp().call('history', { entry: 'orchard-plan', limit: 1.5 })).toHaveProperty(
+      'error',
+    )
   })
 })
 
@@ -287,7 +305,7 @@ describe('dates come to the agent', () => {
     expect(written).toMatchObject({
       result: { heads_up: [{ entry: { slug: 'kettle-warranty' }, date: ends }] },
     })
-    expect(await mcp().call('list_types', {})).toMatchObject({ result: { heads_up: [] } })
+    expect((await mcp().call('list_types', {})).result).not.toHaveProperty('heads_up')
     const coming = await mcp().call('upcoming', { to: ends })
     expect(coming).toMatchObject({
       result: { occurrences: [{ entry: { slug: 'kettle-warranty' }, deadline: true }] },

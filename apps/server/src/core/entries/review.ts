@@ -37,8 +37,12 @@ export const Unverified = Schema.Struct({
 export type Unverified = typeof Unverified.Type
 
 export const ReviewFilter = Schema.Struct({
-  type: Schema.optionalKey(Schema.String),
-  under: Schema.optionalKey(Schema.String),
+  type: Schema.optionalKey(Schema.String).annotate({
+    description: 'Only the entries of this type, by its name.',
+  }),
+  under: Schema.optionalKey(Schema.String).annotate({
+    description: 'Only the entries filed below this entry: its slug or id.',
+  }),
 })
 export type ReviewFilter = typeof ReviewFilter.Type
 

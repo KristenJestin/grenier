@@ -95,16 +95,63 @@ describe('the instructions start with what the instance is', () => {
   })
 })
 
+describe('the instructions put what matters most first', () => {
+  const types = [
+    { name: 'alpha', description: 'Use it when the user records an alpha.' },
+    { name: 'beta', description: 'Use it when the user records a beta.' },
+    { name: 'gamma', description: 'Use it when the user records a gamma.' },
+  ]
+
+  test('for a key with read and write, diagnostics on, three types and short rules, how to choose a type and the types fall within the first 2,048 characters', () => {
+    const told = instructionsFor(
+      types,
+      { name: 'development', diagnostics: true },
+      'Write in short sentences.',
+      true,
+    )
+    const first = told.slice(0, 2048)
+    expect(first).toContain('Choose the type whose description matches')
+    for (const { name, description } of types)
+      expect(first).toContain(`- \`${name}\`: ${description}`)
+  })
+
+  test('without any type, the instructions say so and what follows starts on its own line', () => {
+    const told = instructionsFor([], { name: 'development', diagnostics: true })
+    expect(told).toContain('There is no type yet.\n\nDiagnostics are on')
+  })
+
+  test('the order is the instance, how to choose a type, the types, then diagnostics, the rules and the inbox standard', () => {
+    const told = instructionsFor(
+      types,
+      { name: 'development', diagnostics: true },
+      'Write in short sentences.',
+      true,
+    )
+    const places = [
+      'shared DEVELOPMENT instance',
+      'Choose the type whose description matches',
+      'The types:',
+      'Diagnostics are on',
+      'The rules of this instance',
+      'How an inbox item becomes entries',
+    ].map((said) => told.indexOf(said))
+    expect(places).toEqual(places.toSorted((a, b) => a - b))
+    expect(places.every((place) => place >= 0)).toBe(true)
+  })
+})
+
 describe('with diagnostics on, the instructions ask the agent to report what goes wrong', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('the paragraph on diagnostics follows the one on the instance', () => {
+  test('the paragraph on diagnostics follows the types', () => {
     const instructions = instructionsFor(types, { name: 'production', diagnostics: true })
-    const [first = '', second = ''] = instructions.split('\n\n')
+    const paragraphs = instructions.split('\n\n')
+    const [first = ''] = paragraphs
+    const at = paragraphs.findIndex((paragraph) => paragraph.startsWith('Diagnostics are on'))
     expect(first).toContain('REAL instance')
-    expect(second.startsWith('Diagnostics are on')).toBe(true)
+    expect(paragraphs[at - 1]).toContain('`alpha`')
     for (const word of ['grenier_report', 'grenier_reports', 'slug', 'unless it blocks the work'])
-      expect(second).toContain(word)
+      expect(paragraphs[at]).toContain(word)
   })
 
   test('without diagnostics, the instructions say nothing of them', () => {
@@ -117,12 +164,12 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
 describe('agents that may write learn how an inbox item becomes entries', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take, the same for every key, carries it', () => {
+  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take refers to it', () => {
     const writer = instructionsFor(types, development, null, true)
     const reader = instructionsFor(types, development, null, false)
     expect(writer).toContain(INBOX_STANDARD)
     expect(reader).not.toContain(INBOX_STANDARD)
-    expect(inboxTakeTool.description).toContain(INBOX_STANDARD)
+    expect(inboxTakeTool.description).toContain('your instructions')
   })
 
   test('it says to report a value the key lacks the right for, and to cite entries as [[slug]]', () => {
@@ -140,14 +187,12 @@ describe('agents that may write learn how an inbox item becomes entries', () => 
     expect(instructionsFor(types, development, null, true)).toContain(
       'Never assume the entries are complete because they exist.',
     )
-    expect(inboxTakeTool.description).toContain(
-      'Never assume the entries are complete because they exist.',
-    )
+    expect(inboxTakeTool.description).toContain('`earlier`')
   })
 
-  test('the rules of the instance come after it, and may add to it', () => {
+  test('the rules of the instance come before it, and may add to it', () => {
     const told = instructionsFor(types, development, 'Write in short sentences.', true)
-    expect(told.indexOf(INBOX_STANDARD)).toBeLessThan(told.indexOf('Write in short sentences.'))
+    expect(told.indexOf('Write in short sentences.')).toBeLessThan(told.indexOf(INBOX_STANDARD))
   })
 })
 

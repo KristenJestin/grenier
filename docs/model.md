@@ -138,25 +138,28 @@ unknown key is refused.
 
 ### How agents learn an instance
 
-An agent connected over MCP receives instructions when its session starts: generic ones, in the
-code, on how to choose a type (from its description, searching before creating, asking when none
-fits), followed by the types of the instance with their descriptions (their names only beyond
-50, with `list_types` for the rest). What a type is for lives in its description, in the data:
-it should say when to use the type, not only what it is.
+An agent connected over MCP receives instructions when its session starts, what matters most
+first: the instance paragraph, generic instructions, in the code, on how to choose a type (from
+its description, searching before creating, asking when none fits), and the types of the instance
+with their descriptions (their names only beyond 50, with `list_types` for the rest); then, when
+they apply, the diagnostics paragraph, the rules of the instance and the inbox standard below.
+Claude Code cuts server instructions at 2,048 characters, so the part an agent cannot do without
+comes first. What a type is for lives in its description, in the data: it should say when to use
+the type, not only what it is.
 
-A key that may write is also told, in its instructions and in the description of `inbox_take`, a
-generic standard for turning an inbox item into entries: the type from the content, one entry per
-subject, fields filled only from what the item says, every fact kept, nothing added without its
+A key that may write is also told, in its instructions (the description of `inbox_take` refers to
+them rather than repeating them), a generic standard for turning an inbox item into entries: the
+type from the content, one entry per subject, fields filled only from what the item says, every fact kept, nothing added without its
 source, a dated text kept in its time, `edits` rather than a retyped body, the item's language,
 sensitive values left out when the key may not write them, and, for an item that brings again
 what Grenier holds, the entries it gave before read and compared with the whole item fact by fact,
 then completed or corrected (what the types and rules now ask for included), never taken as
-complete because they exist. The rules of the instance come after it and may add to it.
+complete because they exist. The rules of the instance come before it and may add to it.
 
 What holds across types (what to ask before writing, what never to write, the style) lives in the
 **rules of the instance**: Markdown kept in the database, set by the owner alone from the command
 line (`rules:set <file>`, `rules:show`), and readable by any key. The instructions give them
-verbatim after the instance and diagnostics paragraphs; beyond 4000 characters, only their
+verbatim after the types and the diagnostics paragraph; beyond 4000 characters, only their
 opening (what comes before their first `##` section), with `instance_rules` to read them whole.
 The code knows that an instance has rules for its agents, nothing of what they say.
 
@@ -373,8 +376,8 @@ gains another date later. A link `fulfills` without a field to a target with sev
 is refused with the list of them, and so is a field that is not a deadline or a recurring date
 of the target. Overdue means a deadline whose last occurrence before today is not fulfilled.
 "Today" is the local date of the server (`TZ`). `briefing(weekend)` covers the coming Saturday
-and Sunday (on a Sunday, that Sunday). Every MCP answer carries `heads_up`; an empty list when
-nothing enters its notice period.
+and Sunday (on a Sunday, that Sunday). An MCP answer carries `heads_up` only when something
+enters its notice period: with nothing to tell, the key is absent.
 
 ## Search
 
@@ -385,11 +388,20 @@ title, summary, the path of ancestors, an excerpt with the matched words in `<ma
 its rank; 20 results by default. The language comes from `SEARCH_LANGUAGE` (a PostgreSQL text
 search configuration, `simple` by default) and accents never matter.
 
-## MCP tools (first set)
+## MCP tools
 
-`define_type`, `write`, `read` (section by section for long entries), `search` (titles, tags and
-summaries first, then full text), `link`, `history`, then `upcoming` and `briefing`. Each tool
-decodes its input with an Effect schema and declares it through `toToolInputSchema`.
+The tools are listed, with the right each needs, in `apps/server/src/mcp/README.md`: `define_type`,
+`write`, `read` (section by section for long entries), `search` (titles, tags and summaries
+first, then full text), `link`, `history`, `upcoming`, `briefing`, the inbox, and the rest. Each
+tool decodes its input with an Effect schema and declares it through `toToolInputSchema`: every
+parameter described, and `additionalProperties: false`, since a key the schema does not name is
+refused.
+
+A key lists only the tools its rights allow, in one fixed order; a tool not listed is refused as
+unknown. `confirm_proposal` needs the right `owner`, which no key given to an agent has. Each tool
+carries the MCP annotations: `readOnlyHint` for the tools that read, `destructiveHint` where a
+write may overwrite what is there, `idempotentHint` where the same call again leaves the same
+state, and `openWorldHint: false` for all but `attach_media`, which may fetch a `url`.
 
 ## Instances
 
@@ -405,7 +417,7 @@ version and the commit. The instance is set by `GRENIER_INSTANCE`, which the ser
 ## Diagnostics
 
 With diagnostics on (`GRENIER_DIAGNOSTICS=on`), the agents also test Grenier itself. Their
-instructions say so after the instance paragraph, and two tools exist that are absent otherwise:
+instructions say so after the types, and two tools exist that are absent otherwise:
 `grenier_report` (right `write`) records a problem with Grenier, and `grenier_reports` (right
 `read`) lists what is recorded, titles only.
 

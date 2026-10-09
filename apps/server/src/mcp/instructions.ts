@@ -39,8 +39,8 @@ const DIAGNOSTICS = [
 
 /**
  * How an item of the inbox becomes entries, whatever the instance and the item: said to every key
- * that may write, and in the description of `inbox_take`. The rules of the instance come after it
- * and may add to it.
+ * that may write, the keys that list `inbox_take`, whose description refers to it. The rules of
+ * the instance come before it and may add to it (the language of the entries, for one).
  */
 export const INBOX_STANDARD = [
   'How an inbox item becomes entries, whatever it holds:',
@@ -88,19 +88,22 @@ it when it is the same thing. When no type fits, ask the user rather than forcin
 is defined with a description that says when to use it.`
 
 const listed = (types: ReadonlyArray<{ readonly name: string; readonly description: string }>) =>
-  types.length > LISTED
-    ? `The types (${types.length}; call \`list_types\` for their descriptions): ${types
-        .map(({ name }) => `\`${name}\``)
-        .join(', ')}.`
-    : `The types:\n${types
-        .map(({ name, description }) => `- \`${name}\`: ${description}`)
-        .join('\n')}`
+  types.length === 0
+    ? 'There is no type yet.'
+    : types.length > LISTED
+      ? `The types (${types.length}; call \`list_types\` for their descriptions): ${types
+          .map(({ name }) => `\`${name}\``)
+          .join(', ')}.`
+      : `The types:\n${types
+          .map(({ name, description }) => `- \`${name}\`: ${description}`)
+          .join('\n')}`
 
 /**
- * What an agent is told when its session starts: what the instance is, what diagnostics ask of it
- * when they are on, how an inbox item becomes entries when it may write, the rules its owner set
- * for every agent, if any, how to choose a type, then the types of the instance with their
- * descriptions, or only their names when there are many.
+ * What an agent is told when its session starts, what matters most first: what the instance is,
+ * how to choose a type, the types of the instance with their descriptions (or only their names
+ * when there are many); then what diagnostics ask of it when they are on, the rules its owner set
+ * for every agent, if any, and how an inbox item becomes entries when it may write. A client may
+ * cut the instructions at 2,048 characters: the later parts are the ones it can lose.
  */
 export const instructionsFor = (
   types: ReadonlyArray<{ readonly name: string; readonly description: string }>,
@@ -110,11 +113,11 @@ export const instructionsFor = (
 ) =>
   [
     INSTANCE[instance.name],
-    ...(instance.diagnostics ? [DIAGNOSTICS] : []),
-    ...(writes ? [INBOX_STANDARD] : []),
-    ...(rules === null ? [] : [rulesSaid(rules)]),
     HOW,
     listed(types),
+    ...(instance.diagnostics ? [DIAGNOSTICS] : []),
+    ...(rules === null ? [] : [rulesSaid(rules)]),
+    ...(writes ? [INBOX_STANDARD] : []),
   ].join('\n\n')
 
 /**

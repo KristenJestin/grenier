@@ -20,12 +20,22 @@ import { checkAcceptedTypes, getType, listTypes, snapshotOf } from './operations
  * item of a list on its own. `dry_run` says what the change would do.
  */
 export const ChangeFieldInput = Schema.Struct({
-  type: Schema.String,
-  field: Schema.String,
-  required: Schema.optionalKey(Schema.Boolean),
-  kind: Schema.optionalKey(Schema.Literals(FIELD_KINDS)),
-  rename: Schema.optionalKey(Schema.String),
-  values: Schema.optionalKey(Schema.Array(Schema.String)),
+  type: Schema.String.annotate({ description: 'The name of the type that has the field.' }),
+  field: Schema.String.annotate({ description: 'The name of the field to change.' }),
+  required: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make the field required, or optional again. Refused while entries would break, unless `default` or `mapping` repairs them.',
+  }),
+  kind: Schema.optionalKey(Schema.Literals(FIELD_KINDS)).annotate({
+    description:
+      'The new kind of the field. Refused while entries would break, unless `mapping` or `default` repairs them.',
+  }),
+  rename: Schema.optionalKey(Schema.String).annotate({
+    description: 'The new name of the field, in snake_case.',
+  }),
+  values: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: 'For an `enum` field: the new list of allowed values.',
+  }),
   types: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))).annotate({
     description:
       'For an `entry` field: the types its entries may be of, or `null` to accept any. Stored values that no longer fit are kept and listed in `mismatched`.',
@@ -34,10 +44,21 @@ export const ChangeFieldInput = Schema.Struct({
     description:
       'Make the field hold a list (each stored value becomes a list of one), or a single value again (refused while an entry holds several).',
   }),
-  sensitive: Schema.optionalKey(Schema.Boolean),
-  default: Schema.optionalKey(Schema.Json),
-  mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
-  dry_run: Schema.optionalKey(Schema.Boolean),
+  sensitive: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make the field sensitive. Making it no longer sensitive is for the owner, from the command line.',
+  }),
+  default: Schema.optionalKey(Schema.Json).annotate({
+    description:
+      'The value given to every entry that lacks one, to repair the entries a change would break.',
+  }),
+  mapping: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)).annotate({
+    description:
+      'Turns old values into new ones: each old value (as text, or as JSON for anything else) and the value it becomes.',
+  }),
+  dry_run: Schema.optionalKey(Schema.Boolean).annotate({
+    description: 'Only say what the change would do, and write nothing.',
+  }),
 })
 export type ChangeFieldInput = typeof ChangeFieldInput.Type
 

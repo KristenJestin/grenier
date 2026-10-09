@@ -78,7 +78,7 @@ describe('JSON Schema for MCP tools', () => {
     expect(JSON.stringify(input)).not.toContain('$ref')
     expect(input).toMatchInlineSnapshot(`
       {
-        "additionalProperties": true,
+        "additionalProperties": false,
         "description": "Writes a note.",
         "properties": {
           "body": {
@@ -102,7 +102,7 @@ describe('JSON Schema for MCP tools', () => {
             "type": "string",
           },
           "place": {
-            "additionalProperties": true,
+            "additionalProperties": false,
             "properties": {
               "path": {
                 "description": "Absolute path of the folder.",

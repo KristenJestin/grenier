@@ -443,7 +443,8 @@
             "name": "type",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Only the entries of this type, by its name."
             },
             "required": false
           },
@@ -451,7 +452,8 @@
             "name": "under",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Only the entries filed below this entry, at any depth: its slug or id."
             },
             "required": false
           },
@@ -474,7 +476,8 @@
               "type": "array",
               "items": {
                 "type": "string"
-              }
+              },
+              "description": "Only the entries that carry every one of these tags."
             },
             "required": false
           },
@@ -1204,13 +1207,16 @@
         "type": "object",
         "properties": {
           "source": {
-            "type": "string"
+            "type": "string",
+            "description": "Where the item came from: `inbox` for an item of the inbox."
           },
           "item": {
-            "type": "string"
+            "type": "string",
+            "description": "The id of the inbox item."
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1223,13 +1229,16 @@
         "type": "object",
         "properties": {
           "identifier": {
-            "type": "string"
+            "type": "string",
+            "description": "An identifier outside Grenier, such as a ticket number or an ISBN."
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "description": "What the identifier names, such as `ticket`."
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1241,10 +1250,12 @@
         "type": "object",
         "properties": {
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "The address of the page the entry comes from."
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1265,7 +1276,8 @@
             "type": "string"
           },
           "note": {
-            "type": "string"
+            "type": "string",
+            "description": "A few words on what this source gave."
           }
         },
         "required": [
@@ -1482,15 +1494,18 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The name of the type, in lowercase kebab-case such as `bank-account`."
           },
           "label": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "The name of the type as people read it."
           },
           "description": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "What the type is and when to use it, in the words a user would say: agents choose a type from it."
           },
           "sensitive": {
             "type": "boolean",
@@ -1504,7 +1519,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/FieldDefinition"
-            }
+            },
+            "description": "The fields of the type; none is a type with a title and a body only."
           }
         },
         "required": [
@@ -1519,7 +1535,8 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "The name of the field, in snake_case such as `monthly_cost`."
           },
           "kind": {
             "type": "string",
@@ -1535,10 +1552,12 @@
               "money",
               "url",
               "entry"
-            ]
+            ],
+            "description": "What the field holds. `enum` needs its `values`; `entry` points to other entries (see `types`); `date` may carry `due` or `recurs`."
           },
           "required": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "A write must give a value for the field (at least one when it is `many`)."
           },
           "values": {
             "type": "array",
@@ -1547,10 +1566,12 @@
               "minLength": 1
             },
             "minItems": 1,
-            "uniqueItems": true
+            "uniqueItems": true,
+            "description": "For an `enum` field only: the values it accepts, at least one, without repeats."
           },
           "sensitive": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "The values of the field are shown and written only by a key with the right `sensitive`."
           },
           "types": {
             "type": "array",
@@ -1569,13 +1590,15 @@
             "type": "object",
             "properties": {
               "notice": {
-                "type": "string"
+                "type": "string",
+                "description": "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."
               }
             },
             "required": [
               "notice"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "For a `date` field only: the date is a deadline, told as coming `notice` before it."
           },
           "recurs": {
             "type": "object",
@@ -1586,24 +1609,28 @@
                   "yearly",
                   "monthly",
                   "weekly"
-                ]
+                ],
+                "description": "How often the date comes back."
               },
               "notice": {
-                "type": "string"
+                "type": "string",
+                "description": "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."
               }
             },
             "required": [
               "every",
               "notice"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "For a `date` field only: the date comes back, `every` year, month or week, told as coming `notice` before each time."
           }
         },
         "required": [
           "name",
           "kind"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "A field of a type: its name, its kind and the rules a value of it follows."
       },
       "About": {
         "type": "object",

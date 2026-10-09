@@ -11,8 +11,12 @@ export const historyTool = defineTool({
     field: Schema.optionalKey(Schema.String).annotate({
       description: 'Only the changes of this field, whole: `title`, `body`, `fields.provider`…',
     }),
-    limit: Schema.optionalKey(Schema.Number),
-    cursor: Schema.optionalKey(Schema.String),
+    limit: Schema.optionalKey(Schema.Int).annotate({
+      description: 'How many events, 20 by default and 100 at most.',
+    }),
+    cursor: Schema.optionalKey(Schema.String).annotate({
+      description: 'The `next_cursor` of the previous page, to read the next one.',
+    }),
   }),
   right: 'read',
   run: ({ entry, field, limit, cursor }) =>

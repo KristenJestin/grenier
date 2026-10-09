@@ -6,6 +6,7 @@ import { Refused } from '../core/refused.ts'
 import { headsUp } from '../core/time/index.ts'
 import { Context, Effect, Layer, Schema } from 'effect'
 import { McpSchema, McpServer, Toolkit } from 'effect/ai'
+import type { Tool } from 'effect/ai'
 import { toToolInputSchema } from '@grenier/api/schema'
 import { RecentCalls } from './calls.ts'
 import { takenContent } from './tools/inbox-take.ts'
@@ -101,12 +102,14 @@ const refusalWith = (refused: Refused, heads_up: Effect.Success<typeof toldNow>)
     : new Refused({ message: `${refused.message}\n\nheads_up: ${JSON.stringify(heads_up)}` })
 
 /**
- * What a tool answers: its answer with the heads-up, or its refusal with the heads-up too. Any
- * other failure is a defect, reported as an internal error.
+ * What a tool answers: its answer with the heads-up, or its refusal with the heads-up too; with
+ * nothing to tell, neither carries one. Any other failure is a defect, reported as an internal error.
  */
 export const answered = <A extends Schema.JsonObject, E, R>(answer: Effect.Effect<A, E, R>) =>
   answer.pipe(
-    Effect.flatMap((data) => Effect.map(toldNow, (heads_up) => ({ ...data, heads_up }))),
+    Effect.flatMap((data) =>
+      Effect.map(toldNow, (heads_up) => (heads_up.length === 0 ? data : { ...data, heads_up })),
+    ),
     Effect.catchIf(
       Schema.is(Refused),
       (refused) =>
@@ -214,65 +217,112 @@ const DiagnosticsHandlers = DiagnosticsTools.toLayer(
   }),
 )
 
+const toolOf = <T extends { readonly tool: Tool.Any }>({ tool }: T) => tool
+
+/** Whether a key with `rights` lists a tool: it holds the right the tool needs. */
+const listedTo = (rights: ReadonlyArray<Right>) => (tool: { readonly right: Right }) =>
+  rights.includes(tool.right)
+
 /**
  * `inbox_take` and `inbox_peek`, beside the toolkit: their answer may hold an image the agent
  * sees, which a tool of the toolkit, answered as JSON, cannot give.
  */
-const InboxTake = Layer.effectDiscard(
+const registerByHand = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>) =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer
     const services = yield* Effect.context<Database>()
-    const handlerOf = handlerFor(services, yield* Rights)
-    const add = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>) => {
-      const handle = handlerOf(tool)
-      const { name, description, input } = tool
-      return server.addTool({
-        tool: new McpSchema.Tool({ name, description, inputSchema: toToolInputSchema(input) }),
-        annotations: Context.empty(),
-        handle: (parameters) =>
-          handle(parameters).pipe(
-            Effect.flatMap((answer) => Effect.provide(takenContent(answer), services)),
-            Effect.catchIf(Schema.is(Refused), ({ message }) =>
-              Effect.succeed(
-                new McpSchema.CallToolResult({
-                  isError: true,
-                  content: [{ type: 'text', text: message }],
-                }),
-              ),
+    const handle = handlerFor(services, yield* Rights)(tool)
+    const { name, description, input, annotations } = tool
+    return yield* server.addTool({
+      tool: new McpSchema.Tool({
+        name,
+        description,
+        inputSchema: toToolInputSchema(input),
+        annotations,
+      }),
+      annotations: Context.empty(),
+      handle: (parameters) =>
+        handle(parameters).pipe(
+          Effect.flatMap((answer) => Effect.provide(takenContent(answer), services)),
+          Effect.catchIf(Schema.is(Refused), ({ message }) =>
+            Effect.succeed(
+              new McpSchema.CallToolResult({
+                isError: true,
+                content: [{ type: 'text', text: message }],
+              }),
             ),
-            Effect.orDie,
           ),
-      })
-    }
-    yield* add(inboxTakeTool)
-    yield* add(inboxPeekTool)
-  }),
-)
+          Effect.orDie,
+        ),
+    })
+  })
 
 /**
- * Every Grenier tool on an MCP server: the toolkit, `inbox_take` and `inbox_peek`; and the tools of diagnostics
- * when they are on (otherwise they do not exist, and a call to one is refused). The server keeps
- * the last call of each tool for itself alone.
+ * Every Grenier tool on an MCP server, only those the key may call, and in the order of `TOOLS`
+ * (then the tools of diagnostics, when they are on; otherwise they do not exist). A tool the key
+ * lacks the right for is not listed, and a call to it is refused as an unknown tool. The server
+ * keeps the last call of each tool for itself alone.
  */
-export const GrenierServer = Layer.unwrap(
+export const GrenierServer = Layer.effectDiscard(
   Effect.gen(function* () {
-    const served = Layer.merge(
-      McpServer.toolkit(GrenierTools).pipe(Layer.provide(GrenierHandlers)),
-      InboxTake,
-    )
-    const withDiagnostics = (yield* Instance).diagnostics
-      ? Layer.merge(
-          served,
-          McpServer.toolkit(DiagnosticsTools).pipe(Layer.provide(DiagnosticsHandlers)),
-        )
-      : served
-    return withDiagnostics.pipe(Layer.provide(Layer.succeed(RecentCalls, new Map())))
+    const listed = listedTo(yield* Rights)
+    const diagnostics = (yield* Instance).diagnostics
+    yield* McpServer.registerToolkit(Toolkit.make(...TOOLKIT_TOOLS.filter(listed).map(toolOf)))
+    if (listed(inboxTakeTool)) yield* registerByHand(inboxTakeTool)
+    if (listed(inboxPeekTool)) yield* registerByHand(inboxPeekTool)
+    if (diagnostics) {
+      yield* McpServer.registerToolkit(
+        Toolkit.make(...DIAGNOSTICS_TOOLS.filter(listed).map(toolOf)),
+      )
+    }
   }),
+).pipe(
+  Layer.provide(Layer.merge(GrenierHandlers, DiagnosticsHandlers)),
+  Layer.provide(Layer.succeed(RecentCalls, new Map())),
 )
 
-/** The names of every tool, as an agent lists them, diagnostics off. */
-export const TOOL_NAMES = [
-  ...Object.keys(GrenierTools.tools),
-  inboxTakeTool.name,
-  inboxPeekTool.name,
+/** The tools of the toolkit, in the fixed order an agent lists them. */
+const TOOLKIT_TOOLS = [
+  defineTypeTool,
+  addFieldTool,
+  getTypeTool,
+  listTypesTool,
+  pendingReferencesTool,
+  instanceRulesTool,
+  writeTool,
+  readTool,
+  archiveTool,
+  searchTool,
+  linkTool,
+  unlinkTool,
+  historyTool,
+  changeFieldTool,
+  changeTypeTool,
+  proposeTypeChangeTool,
+  listProposalsTool,
+  confirmProposalTool,
+  attachMediaTool,
+  describeMediaTool,
+  upcomingTool,
+  briefingTool,
+  unverifiedTool,
+  writeManyTool,
+  inboxAddTool,
+  inboxListTool,
+  inboxReadTool,
+  inboxReleaseTool,
+  inboxDoneTool,
+  inboxDismissTool,
 ]
+
+/** The tools registered by hand, listed after the toolkit's. */
+const BY_HAND = [inboxTakeTool, inboxPeekTool]
+
+/** Every tool of Grenier, in the fixed order an agent lists them. */
+export const TOOLS = [...TOOLKIT_TOOLS, ...BY_HAND]
+
+/** The tools of diagnostics, listed after the others when they are on. */
+export const DIAGNOSTICS_TOOLS = [grenierReportTool, grenierReportsTool]
+
+/** The names of every tool, as an agent lists them, diagnostics off. */
+export const TOOL_NAMES = TOOLS.map(({ name }) => name)

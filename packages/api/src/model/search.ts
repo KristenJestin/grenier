@@ -14,14 +14,27 @@ export const SearchResult = Schema.Struct({
 export type SearchResult = typeof SearchResult.Type
 
 export const SearchOptions = Schema.Struct({
-  type: Schema.optionalKey(Schema.String),
-  under: Schema.optionalKey(Schema.String),
-  archived: Schema.optionalKey(Schema.Boolean),
+  type: Schema.optionalKey(Schema.String).annotate({
+    description: 'Only the entries of this type, by its name.',
+  }),
+  under: Schema.optionalKey(Schema.String).annotate({
+    description: 'Only the entries filed below this entry, at any depth: its slug or id.',
+  }),
+  archived: Schema.optionalKey(Schema.Boolean).annotate({
+    description: 'Also find the archived entries, which are left out unless this is true.',
+  }),
   /** Only the entries that carry every one of these tags. */
-  tag: Schema.optionalKey(Schema.Array(Schema.String)),
+  tag: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: 'Only the entries that carry every one of these tags.',
+  }),
   /** Only the entries the owner verified, or only those waiting for it. */
-  verified: Schema.optionalKey(Schema.Boolean),
-  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
+  verified: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Only the entries the owner has verified (true), or only those still waiting for the owner (false).',
+  }),
+  limit: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })),
+  ).annotate({ description: 'How many results, 20 by default and 100 at most.' }),
 })
 export type SearchOptions = typeof SearchOptions.Type
 

@@ -24,6 +24,7 @@ export const grenierReportTool = defineTool({
     ),
   }),
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: ({ call, same_as, new: another, ...report }) =>
     Effect.gen(function* () {
       const calls = yield* RecentCalls

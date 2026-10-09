@@ -217,34 +217,40 @@ pub struct EntryReadReferencesItem {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub title: ::std::option::Option<::std::string::String>,
 }
-#[doc = "`FieldDefinition`"]
+#[doc = "A field of a type: its name, its kind and the rules a value of it follows."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct FieldDefinition {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub due: ::std::option::Option<FieldDefinitionDue>,
+    #[doc = "What the field holds. `enum` needs its `values`; `entry` points to other entries (see `types`); `date` may carry `due` or `recurs`."]
     pub kind: FieldDefinitionKind,
     #[doc = "The field holds a list of values of its kind, in the order given and without duplicates, such as several sellers or languages; `required` then means at least one. Not with `due` or `recurs`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub many: ::std::option::Option<bool>,
+    #[doc = "The name of the field, in snake_case such as `monthly_cost`."]
     pub name: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub recurs: ::std::option::Option<FieldDefinitionRecurs>,
+    #[doc = "A write must give a value for the field (at least one when it is `many`)."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub required: ::std::option::Option<bool>,
+    #[doc = "The values of the field are shown and written only by a key with the right `sensitive`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub sensitive: ::std::option::Option<bool>,
     #[doc = "On an `entry` field only: the names of the types its entries may be of, such as `[\"organization\"]`; a write naming an entry of another type is refused. Without it, any entry is accepted."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub types: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    #[doc = "For an `enum` field only: the values it accepts, at least one, without repeats."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub values: ::std::option::Option<::std::vec::Vec<FieldDefinitionValuesItem>>,
 }
-#[doc = "`FieldDefinitionDue`"]
+#[doc = "For a `date` field only: the date is a deadline, told as coming `notice` before it."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct FieldDefinitionDue {
+    #[doc = "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."]
     pub notice: ::std::string::String,
 }
-#[doc = "`FieldDefinitionKind`"]
+#[doc = "What the field holds. `enum` needs its `values`; `entry` points to other entries (see `types`); `date` may carry `due` or `recurs`."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -331,13 +337,15 @@ impl ::std::convert::TryFrom<::std::string::String> for FieldDefinitionKind {
         value.parse()
     }
 }
-#[doc = "`FieldDefinitionRecurs`"]
+#[doc = "For a `date` field only: the date comes back, `every` year, month or week, told as coming `notice` before each time."]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct FieldDefinitionRecurs {
+    #[doc = "How often the date comes back."]
     pub every: FieldDefinitionRecursEvery,
+    #[doc = "How long before the date it is told as coming, an ISO 8601 duration such as `P60D` or `P2W`."]
     pub notice: ::std::string::String,
 }
-#[doc = "`FieldDefinitionRecursEvery`"]
+#[doc = "How often the date comes back."]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -731,6 +739,7 @@ impl ::std::convert::From<SourceItem> for Source {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceEntry {
     pub entry: ::std::string::String,
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
     pub slug: ::std::string::String,
@@ -739,25 +748,33 @@ pub struct SourceEntry {
 #[doc = "`SourceIdentifier`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceIdentifier {
+    #[doc = "An identifier outside Grenier, such as a ticket number or an ISBN."]
     pub identifier: ::std::string::String,
+    #[doc = "What the identifier names, such as `ticket`."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub label: ::std::option::Option<::std::string::String>,
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`SourceItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceItem {
+    #[doc = "The id of the inbox item."]
     pub item: ::std::string::String,
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
+    #[doc = "Where the item came from: `inbox` for an item of the inbox."]
     pub source: ::std::string::String,
 }
 #[doc = "`SourceUrl`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SourceUrl {
+    #[doc = "A few words on what this source gave."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub note: ::std::option::Option<::std::string::String>,
+    #[doc = "The address of the page the entry comes from."]
     pub url: ::std::string::String,
 }
 #[doc = "`TreeEntry`"]
@@ -775,9 +792,13 @@ pub struct TreeEntry {
 #[doc = "`TypeDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct TypeDefinition {
+    #[doc = "What the type is and when to use it, in the words a user would say: agents choose a type from it."]
     pub description: TypeDefinitionDescription,
+    #[doc = "The fields of the type; none is a type with a title and a body only."]
     pub fields: ::std::vec::Vec<FieldDefinition>,
+    #[doc = "The name of the type as people read it."]
     pub label: TypeDefinitionLabel,
+    #[doc = "The name of the type, in lowercase kebab-case such as `bank-account`."]
     pub name: ::std::string::String,
     #[doc = "Entries of the type filed under an entry of the same type are read in their parent, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -786,7 +807,7 @@ pub struct TypeDefinition {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub sensitive: ::std::option::Option<bool>,
 }
-#[doc = "`TypeDefinitionDescription`"]
+#[doc = "What the type is and when to use it, in the words a user would say: agents choose a type from it."]
 #[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
 pub struct TypeDefinitionDescription(::std::string::String);
@@ -836,7 +857,7 @@ impl<'de> ::serde::Deserialize<'de> for TypeDefinitionDescription {
             })
     }
 }
-#[doc = "`TypeDefinitionLabel`"]
+#[doc = "The name of the type as people read it."]
 #[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
 pub struct TypeDefinitionLabel(::std::string::String);

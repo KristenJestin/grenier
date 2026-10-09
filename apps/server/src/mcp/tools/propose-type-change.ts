@@ -7,7 +7,9 @@ export const proposeTypeChangeTool = defineTool({
   name: 'propose_type_change',
   description: 'Proposes to delete a type or merge it into another. Only the owner can confirm it.',
   input: Schema.Struct({
-    action: Schema.Literals(['delete', 'merge']),
+    action: Schema.Literals(['delete', 'merge']).annotate({
+      description: '`delete` a type no entry uses any more, or `merge` it into another.',
+    }),
     type: Schema.String.annotate({ description: 'The type to delete, or to merge into `into`.' }),
     into: Schema.optionalKey(Schema.String).annotate({
       description: 'For a merge: the type that stays.',
@@ -17,6 +19,7 @@ export const proposeTypeChangeTool = defineTool({
     }),
   }),
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: ({ action, type, into, mapping }) =>
     Effect.map(
       action === 'delete'

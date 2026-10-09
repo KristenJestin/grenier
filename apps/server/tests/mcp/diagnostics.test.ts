@@ -71,12 +71,12 @@ describe('diagnostics are off unless GRENIER_DIAGNOSTICS is on', () => {
     ).toBe(0)
   })
 
-  test('with diagnostics both tools are listed, and the instructions say so after the instance', async () => {
+  test('with diagnostics both tools are listed, and the instructions say so after the types', async () => {
     expect(await toolsOf(on)).toEqual(expect.arrayContaining(['grenier_report', 'grenier_reports']))
     const instructions = started(on).instructions ?? ''
     expect(instructions.startsWith('This is the shared DEVELOPMENT instance')).toBe(true)
-    expect(instructions.indexOf('Diagnostics are on')).toBeGreaterThan(0)
-    expect(instructions.indexOf('Diagnostics are on')).toBeLessThan(
+    expect(instructions.indexOf('Grenier keeps entries')).toBeGreaterThan(0)
+    expect(instructions.indexOf('Diagnostics are on')).toBeGreaterThan(
       instructions.indexOf('Grenier keeps entries'),
     )
   })

@@ -12,5 +12,6 @@ export const addFieldTool = defineTool({
     field: FieldDefinition,
   }),
   right: 'write',
+  hints: { destructive: false, idempotent: false },
   run: ({ type, field }) => Effect.map(addField(type, field), (extended) => ({ type: extended })),
 })
