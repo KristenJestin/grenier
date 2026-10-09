@@ -47,7 +47,7 @@ function sharedOnce(input: ToolInputSchema, { property, as }: Sharing): ToolInpu
 
 /**
  * The input schema of an MCP tool, generated from the Effect schema the tool decodes with. Every
- * Grenier MCP tool takes its input schema from here and from nowhere else.
+ * Hippocampe MCP tool takes its input schema from here and from nowhere else.
  *
  * A tool refuses a key its schema does not name, so every object says `additionalProperties:
  * false`. Everything is inlined, since an agent reads the schema rather than resolving references; only

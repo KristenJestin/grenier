@@ -14,12 +14,12 @@ import { Instance, instanceFromEnvironment } from './core/instance.ts'
 import { refuseLegacyVariables } from './core/legacy-variables.ts'
 import { Effect, Layer } from 'effect'
 import { HttpRouter } from 'effect/http'
-import { GrenierRoutes, MCP_BODY_LIMIT, recordingDefects } from './grenier.ts'
+import { HippocampeRoutes, MCP_BODY_LIMIT, recordingDefects } from './hippocampe.ts'
 import { nightlyExport } from './export/nightly.ts'
 
 /** The HTTP server, on the address of the environment as it is when it starts. */
 const server = () =>
-  HttpRouter.serve(GrenierRoutes, {
+  HttpRouter.serve(HippocampeRoutes, {
     disableLogger: true,
     middleware: recordingDefects,
   }).pipe(

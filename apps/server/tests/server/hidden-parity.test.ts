@@ -12,7 +12,7 @@ import { connect } from './http-client.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
 const SECRET = 'a-secret-for-the-tests-only-0123456789abcdef'
-const media = mkdtempSync(join(tmpdir(), 'grenier-parity-'))
+const media = mkdtempSync(join(tmpdir(), 'hippocampe-parity-'))
 const database = ManagedRuntime.make(
   Layer.provideMerge(
     Auth.layer.pipe(

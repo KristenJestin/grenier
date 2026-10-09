@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * The owner's command line, built with `effect/cli`: `grenier --help` lists every command, and
- * `grenier <command> --help` says what it takes. The owner account, the keys of the agents, the
+ * The owner's command line, built with `effect/cli`: `hippo --help` lists every command, and
+ * `hippo <command> --help` says what it takes. The owner account, the keys of the agents, the
  * confirming of suppositions, the inbox, the findings, the rules and the export. A key's secret is printed
  * once, at its creation, and kept nowhere in clear.
  */
@@ -147,7 +147,7 @@ const ownerCreate = Command.make(
         return `The owner ${email} is created.`
       }),
     ),
-).pipe(Command.withDescription('Creates the owner of this Grenier.'))
+).pipe(Command.withDescription('Creates the owner of this Hippocampe.'))
 
 const keyCreate = Command.make(
   'key:create',
@@ -466,7 +466,7 @@ const findingsExport = Command.make('findings:export', findingOptions, (filter) 
   onDatabase(
     Effect.gen(function* () {
       const found = yield* findingsWithOccurrences(yield* findingFilter(filter))
-      return ['# Findings of Grenier', ...found.map(markdownOf)].join('\n\n')
+      return ['# Findings of Hippocampe', ...found.map(markdownOf)].join('\n\n')
     }),
   ),
 ).pipe(Command.withDescription('Writes the findings as Markdown on standard output.'))
@@ -568,7 +568,7 @@ const serviceInstall = Command.make(
   {
     email: Flag.String('email').pipe(
       Flag.withDefault('owner@localhost'),
-      Flag.withDescription('The owner of this Grenier.'),
+      Flag.withDescription('The owner of this Hippocampe.'),
     ),
     instance: Flag.String('instance').pipe(
       Flag.withDefault('production'),
@@ -581,7 +581,7 @@ const serviceInstall = Command.make(
   (options) => onSystem(service.install(home(), options)),
 ).pipe(
   Command.withDescription(
-    'Installs Grenier as a service of this user: started with the session, on 127.0.0.1 only.',
+    'Installs Hippocampe as a service of this user: started with the session, on 127.0.0.1 only.',
   ),
 )
 
@@ -597,7 +597,7 @@ const serviceUninstall = Command.make(
 ).pipe(Command.withDescription('Stops and removes the service; the data stays unless --purge.'))
 
 const serviceCommand = Command.make('service').pipe(
-  Command.withDescription('Grenier as a service of this user, with systemd.'),
+  Command.withDescription('Hippocampe as a service of this user, with systemd.'),
   Command.withSubcommands([
     serviceInstall,
     serviceUninstall,
@@ -630,9 +630,9 @@ const backupCommand = Command.make(
   ({ to }) => onSystem(service.backup(home(), given(to))),
 ).pipe(Command.withDescription('Copies the database and the media of the installed service.'))
 
-/** Every command of Grenier. */
-export const grenier = Command.make('grenier').pipe(
-  Command.withDescription('Grenier, a personal knowledge system kept by AI agents.'),
+/** Every command of Hippocampe. */
+export const hippo = Command.make('hippo').pipe(
+  Command.withDescription('Hippocampe, a personal knowledge system kept by AI agents.'),
   Command.withSubcommands([
     ownerCreate,
     keyCreate,
@@ -666,13 +666,13 @@ if (import.meta.main) {
     console.error(stale)
     process.exitCode = 1
   } else {
-    // A command run on a machine where Grenier is installed reaches that Grenier.
+    // A command run on a machine where Hippocampe is installed reaches that Hippocampe.
     loadInstalledEnvironment()
     // The version a release builds in (`bun build --define`), unless the environment gives one;
     // in a clone, none: the server says `unknown`.
     const built = process.env.HIPPOCAMPE_BUILT_VERSION
     if (built !== undefined) process.env['HIPPOCAMPE_VERSION'] ??= built
-    Command.run(grenier, { version: process.env['HIPPOCAMPE_VERSION'] ?? 'unknown' }).pipe(
+    Command.run(hippo, { version: process.env['HIPPOCAMPE_VERSION'] ?? 'unknown' }).pipe(
       Effect.provide(BunServices.layer),
       // The command line has said what was wrong already.
       Effect.catch(() =>

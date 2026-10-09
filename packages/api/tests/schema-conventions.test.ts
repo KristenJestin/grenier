@@ -193,7 +193,7 @@ describe('Standard Schema for forms', () => {
       name: 'This field is missing.',
       port: 'This field must be a finite number.',
     })
-    expect(fieldErrors(toFormSchema(Settings), { name: 'grenier', port: '4321' })).toEqual({})
+    expect(fieldErrors(toFormSchema(Settings), { name: 'hippocampe', port: '4321' })).toEqual({})
   })
 })
 
@@ -222,7 +222,7 @@ describe('Messages shown to people', () => {
   })
 
   test('a field of the wrong type is named with the type it must have', () => {
-    expect(formatSchemaError(failureOf({ name: 'grenier', port: 'x' }))).toBe(
+    expect(formatSchemaError(failureOf({ name: 'hippocampe', port: 'x' }))).toBe(
       'The field `port` must be a number.',
     )
   })

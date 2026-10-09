@@ -108,8 +108,8 @@ describe('diagnostics over HTTP', () => {
       const { result } = await client.request('tools/list', {})
       return Schema.decodeUnknownSync(Tools)(result).tools.map(({ name }) => name)
     }
-    expect(await namesOf(on)).toContain('grenier_report')
-    expect(await namesOf(off)).not.toContain('grenier_report')
+    expect(await namesOf(on)).toContain('report')
+    expect(await namesOf(off)).not.toContain('report')
   })
 
   test('an unexpected error of a route is a bug at that route with diagnostics on, and nothing off', async () => {

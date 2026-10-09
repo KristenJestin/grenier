@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Grenier",
+    "title": "Hippocampe",
     "version": "0.0.0"
   },
   "paths": {
@@ -1389,7 +1389,7 @@
         "properties": {
           "identifier": {
             "type": "string",
-            "description": "An identifier outside Grenier, such as a ticket number or an ISBN."
+            "description": "An identifier outside Hippocampe, such as a ticket number or an ISBN."
           },
           "label": {
             "type": "string",
@@ -1879,7 +1879,7 @@
   "tags": [
     {
       "name": "About",
-      "description": "Which Grenier this is: production or development, its version and commit."
+      "description": "Which Hippocampe this is: production or development, its version and commit."
     },
     {
       "name": "Types",
