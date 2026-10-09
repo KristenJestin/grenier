@@ -11,14 +11,14 @@ import { MENTIONS, replaceMentions } from './store.ts'
 
 const { entries, pendingReferences: pending } = tables
 
-const named = rowsOf(
-  Schema.Struct({
-    id: Schema.String,
-    title: Schema.String,
-    type: Schema.String,
-    slug: Schema.String,
-  }),
-)
+const Referenced = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  type: Schema.String,
+  slug: Schema.String,
+  aliases: Schema.Array(Schema.String),
+})
+const named = rowsOf(Referenced)
 const waiting = rowsOf(Schema.Struct({ source_id: Schema.String, slug: Schema.String }))
 const citing = rowsOf(
   Schema.Struct({
@@ -30,20 +30,52 @@ const citing = rowsOf(
 )
 
 /**
- * The entry a reference names: the one with that slug, else the one with that alias. With
- * `visible`, as the caller may see it: none when no entry has it, or only one it may not see.
+ * The entry each reference names, found in one query: the one with that slug, else the one with
+ * that alias (the first slug, when several have it). With `visible`, as the caller may see it:
+ * none when no entry has it, or only one it may not see.
  */
-const entryReferenced = Effect.fn('entryReferenced')(function* (reference: string, visible = true) {
+const entriesReferenced = Effect.fn('entriesReferenced')(function* (
+  references: ReadonlyArray<string>,
+  visible = true,
+) {
+  if (references.length === 0) return new Map<string, typeof Referenced.Type>()
   const db = yield* drizzle
   const { hidesType } = yield* sensitivity
+  const names = sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(references)}::jsonb))`
+  // In the order of the slugs: the first entry that has an alias is the one it names.
   const found = yield* named(
     db
-      .select({ id: entries.id, title: entries.title, type: entries.type, slug: entries.slug })
+      .select({
+        id: entries.id,
+        title: entries.title,
+        type: entries.type,
+        slug: entries.slug,
+        aliases: entries.aliases,
+      })
       .from(entries)
-      .where(or(eq(entries.slug, reference), sql`${entries.aliases} ? ${reference}`))
-      .orderBy(sql`${entries.slug} = ${reference} DESC`, asc(entries.slug)),
+      .where(or(sql`${entries.slug} = ANY(${names})`, sql`${entries.aliases} ?| ${names}`))
+      .orderBy(asc(entries.slug)),
   )
-  return found.find(({ type }) => !visible || !hidesType(type))
+  const bySlug = new Map(found.map((entry) => [entry.slug, entry]))
+  const byAlias = new Map<string, Array<typeof Referenced.Type>>()
+  for (const entry of found) {
+    for (const alias of entry.aliases) {
+      const holders = byAlias.get(alias) ?? []
+      holders.push(entry)
+      byAlias.set(alias, holders)
+    }
+  }
+  const resolved = new Map<string, typeof Referenced.Type>()
+  for (const reference of references) {
+    const slugged = bySlug.get(reference)
+    const candidates = [
+      ...(slugged === undefined ? [] : [slugged]),
+      ...(byAlias.get(reference) ?? []),
+    ]
+    const entry = candidates.find(({ type }) => !visible || !hidesType(type))
+    if (entry !== undefined) resolved.set(reference, entry)
+  }
+  return resolved
 })
 
 /**
@@ -51,13 +83,12 @@ const entryReferenced = Effect.fn('entryReferenced')(function* (reference: strin
  * reference waiting for its entry, or to one the caller may not see).
  */
 export const referencesOf = Effect.fn('referencesOf')(function* (body: string) {
-  return yield* Effect.forEach(referencesIn(body), (reference) =>
-    Effect.map(entryReferenced(reference), (found) => ({
-      reference,
-      id: found?.id ?? null,
-      title: found?.title ?? null,
-    })),
-  )
+  const references = referencesIn(body)
+  const resolved = yield* entriesReferenced(references)
+  return references.map((reference) => {
+    const found = resolved.get(reference)
+    return { reference, id: found?.id ?? null, title: found?.title ?? null }
+  })
 })
 
 /**
@@ -87,12 +118,12 @@ export const keepReferences = Effect.fn('keepReferences')(function* (
 ) {
   const db = yield* drizzle
   yield* lockReferences(referencesIn(body))
-  const resolved = yield* Effect.forEach(referencesIn(body), (reference) =>
-    Effect.map(entryReferenced(reference, false), (found) => ({
-      reference,
-      id: found?.id ?? null,
-    })),
-  )
+  const references = referencesIn(body)
+  const found = yield* entriesReferenced(references, false)
+  const resolved = references.map((reference) => ({
+    reference,
+    id: found.get(reference)?.id ?? null,
+  }))
   yield* replaceMentions(
     source,
     resolved.flatMap(({ id }) => (id === null || id === source ? [] : [id])),

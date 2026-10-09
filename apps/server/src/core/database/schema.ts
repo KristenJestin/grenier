@@ -125,6 +125,8 @@ export const entries = pgTable(
       foreignColumns: [table.id],
     }),
     index('entries_parent_id').on(table.parent_id),
+    // The entries that have an alias, as the references of a body look them up (`?|`).
+    index('entries_aliases').using('gin', table.aliases),
     index('entries_search').using('gin', sql.raw(`(${SEARCHABLE})`)),
     // A source given whole, and the entries of the types whose fields a caller may not see.
     index('entries_sources').using('gin', table.sources.op('jsonb_path_ops')),
