@@ -1,4 +1,5 @@
 import { link, unlink } from '../../core/links/index.ts'
+import { Refused } from '../../core/refused.ts'
 import { Effect, Schema } from 'effect'
 import { defineTool, Reference, refuseExtra } from '../tool.ts'
 
@@ -20,6 +21,10 @@ const LinkInput = Schema.Struct({
 /** A link, with what it says of itself: a note and the dates it held between. */
 const LinkWithAbout = Schema.Struct({
   ...LinkInput.fields,
+  provenance: Schema.optionalKey(Schema.Literals(['extracted', 'inferred'])).annotate({
+    description:
+      'Required to make a link: `extracted` when the link is known, read in a source (the source entry then needs a source), `inferred` when you suppose it. Not for `remove`.',
+  }),
   note: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
     description:
       'A short text on the link, 200 characters at most: the role or the detail the relation does not say, such as `accountant` for `works_at`, or `graphics card` for `bought_from`. `null` removes it.',
@@ -41,7 +46,7 @@ const LinkWithAbout = Schema.Struct({
 export const linkTool = defineTool({
   name: 'link',
   description:
-    'Links two entries with a relation, such as a person `works_at` an organization. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date). `remove: true` removes the link instead.',
+    'Links two entries with a relation, such as a person `works_at` an organization, and says whether the link is known (`extracted`) or supposed (`inferred`) in `provenance`, always. A link may say more with a `note` (a role: `accountant`) and the dates it held, `valid_from` and `valid_until`. Linking the same source, target and relation again changes only its note and dates: a key left out stays, `null` removes it. `read` gives them on links and backlinks. A link `fulfills` closes one date of the target for one period: give the `period` and the date `field` (inferred when the target has a single deadline or recurring date). `remove: true` removes the link instead.',
   input: LinkWithAbout,
   right: 'write',
   hints: { destructive: true, idempotent: false },
@@ -51,6 +56,7 @@ export const linkTool = defineTool({
     relation,
     period = '',
     field = '',
+    provenance,
     note,
     valid_from,
     valid_until,
@@ -58,7 +64,7 @@ export const linkTool = defineTool({
   }) =>
     remove === true
       ? Effect.andThen(
-          refuseExtra('Removing a link', { note, valid_from, valid_until }),
+          refuseExtra('Removing a link', { provenance, note, valid_from, valid_until }),
           Effect.as(unlink(source, target, relation, period, field), {
             source,
             target,
@@ -68,17 +74,30 @@ export const linkTool = defineTool({
             removed: true,
           }),
         )
-      : Effect.map(
-          link(source, target, relation, period, field, { note, valid_from, valid_until }),
-          (linked) => ({
-            source,
-            target,
-            relation,
-            period,
-            field: linked.field,
-            note: linked.note,
-            valid_from: linked.valid_from,
-            valid_until: linked.valid_until,
-          }),
-        ),
+      : provenance === undefined
+        ? Effect.fail(
+            new Refused({
+              message:
+                'The field `provenance` is required with a link: say `extracted` (known, read in a source) or `inferred` (supposed by you).',
+            }),
+          )
+        : Effect.map(
+            link(source, target, relation, period, field, {
+              provenance,
+              note,
+              valid_from,
+              valid_until,
+            }),
+            (linked) => ({
+              source,
+              target,
+              relation,
+              period,
+              field: linked.field,
+              provenance: linked.provenance,
+              note: linked.note,
+              valid_from: linked.valid_from,
+              valid_until: linked.valid_until,
+            }),
+          ),
 })

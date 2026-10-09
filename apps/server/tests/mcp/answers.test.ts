@@ -28,7 +28,12 @@ beforeAll(() =>
         description: 'A bill to pay once.',
         fields: [{ name: 'due_on', kind: 'date', due: { notice: 'P7D' } }],
       })
-      yield* writeEntry({ type: 'bill', title: 'Water bill', fields: { due_on: '2030-05-10' } })
+      yield* writeEntry({
+        type: 'bill',
+        title: 'Water bill',
+        fields: { due_on: '2030-05-10' },
+        provenance: { due_on: 'inferred' },
+      })
     }),
   ),
 )

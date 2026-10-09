@@ -66,13 +66,19 @@ describe('an agent works through MCP calls only', () => {
         fields: [{ name: 'mood', kind: 'enum', values: ['calm', 'busy'] }],
       }),
     ).toMatchObject({ result: { type: { name: 'note' }, warnings: [] } })
-    await mcp().call('write', { type: 'note', title: 'Orchard plan', summary: 'Trees to plant.' })
+    await mcp().call('write', {
+      type: 'note',
+      title: 'Orchard plan',
+      summary: 'Trees to plant.',
+      provenance: { summary: 'inferred' },
+    })
     expect(
       await mcp().call('write', {
         type: 'note',
         title: 'Spring tasks',
         body: 'Follow the [[orchard-plan]].',
         fields: { mood: 'busy' },
+        provenance: { mood: 'inferred', body: 'inferred' },
       }),
     ).toMatchObject({ result: { entry: { slug: 'spring-tasks' } } })
     expect(await mcp().call('read', { entry: 'orchard-plan' })).toMatchObject({
@@ -81,7 +87,11 @@ describe('an agent works through MCP calls only', () => {
     expect(await mcp().call('search', { query: 'orchard' })).toMatchObject({
       result: { results: [{ slug: 'orchard-plan' }, { slug: 'spring-tasks' }] },
     })
-    await mcp().call('write', { entry: 'spring-tasks', fields: { mood: 'calm' } })
+    await mcp().call('write', {
+      entry: 'spring-tasks',
+      fields: { mood: 'calm' },
+      provenance: { mood: 'inferred' },
+    })
     expect(
       await mcp().call('read', {
         entry: 'spring-tasks',
@@ -114,7 +124,12 @@ describe('an agent works through MCP calls only', () => {
         fields: [{ name: 'stage', kind: 'text' }],
       }),
     ).toMatchObject({ result: { type: { fields: [{ name: 'stage', kind: 'text' }] } } })
-    await mcp().call('write', { type: 'project', title: 'Garden', fields: { stage: 'digging' } })
+    await mcp().call('write', {
+      type: 'project',
+      title: 'Garden',
+      fields: { stage: 'digging' },
+      provenance: { stage: 'inferred' },
+    })
     await mcp().call('write', { type: 'project', title: 'Pond', parent: 'garden' })
     expect(await mcp().call('read', { entry: 'garden' })).toMatchObject({
       result: {
@@ -135,7 +150,12 @@ describe('an agent works through MCP calls only', () => {
 
   test('link and unlink two entries, seen from both ends', async () => {
     await mcp().call('write', { type: 'project', title: 'Shed' })
-    await mcp().call('link', { source: 'shed', target: 'garden', relation: 'about' })
+    await mcp().call('link', {
+      provenance: 'inferred',
+      source: 'shed',
+      target: 'garden',
+      relation: 'about',
+    })
     expect(await mcp().call('read', { entry: 'garden' })).toMatchObject({
       result: { backlinks: [{ relation: 'about', slug: 'shed' }] },
     })
@@ -163,6 +183,7 @@ describe('an agent works through MCP calls only', () => {
         type: 'colleague',
         title: 'Noa Wren',
         fields: { employers: ['slate-yard', 'shed'] },
+        provenance: { employers: 'inferred' },
       }),
     ).toMatchObject({
       error:
@@ -172,9 +193,11 @@ describe('an agent works through MCP calls only', () => {
       type: 'colleague',
       title: 'Noa Wren',
       fields: { employers: ['slate-yard', 'bright-mill'] },
+      provenance: { employers: 'inferred' },
     })
     expect(
       await mcp().call('link', {
+        provenance: 'inferred',
         source: 'noa-wren',
         target: 'bright-mill',
         relation: 'works_at',
@@ -201,6 +224,7 @@ describe('an agent works through MCP calls only', () => {
       type: 'note',
       title: 'Long page',
       body: 'A line of text.\n'.repeat(1000),
+      provenance: { body: 'inferred' },
     })
     expect(written).toMatchObject({ result: { entry: { slug: 'long-page', title: 'Long page' } } })
     expect(JSON.stringify(written)).not.toContain('A line of text.')
@@ -211,7 +235,12 @@ describe('an agent works through MCP calls only', () => {
 
   test('a refused write answers with the sentences of the core, not a stack trace', async () => {
     expect(
-      await mcp().call('write', { type: 'note', title: 'Bad', fields: { mood: 'angry' } }),
+      await mcp().call('write', {
+        type: 'note',
+        title: 'Bad',
+        fields: { mood: 'angry' },
+        provenance: { mood: 'inferred' },
+      }),
     ).toEqual({ error: 'The field `fields.mood` must be one of `calm`, `busy`.' })
     expect(await mcp().call('write', { type: 'note', title: 42 })).toEqual({
       error: 'The field `title` must be text.',
@@ -230,7 +259,12 @@ describe('an agent works through MCP calls only', () => {
       '## Tuesday',
       'Sun.',
     ].join('\n')
-    await mcp().call('write', { type: 'note', title: 'Week', body })
+    await mcp().call('write', {
+      type: 'note',
+      title: 'Week',
+      body,
+      provenance: { body: 'inferred' },
+    })
     expect(await mcp().call('read', { entry: 'week', headings: true })).toEqual({
       result: {
         headings: [
@@ -335,6 +369,7 @@ describe('dates come to the agent', () => {
       type: 'warranty',
       title: 'Kettle warranty',
       fields: { ends },
+      provenance: { ends: 'inferred' },
     })
     expect(written).toMatchObject({
       result: { heads_up: [{ entry: { slug: 'kettle-warranty' }, date: ends }] },
@@ -347,6 +382,7 @@ describe('dates come to the agent', () => {
     await mcp().call('write', { type: 'note', title: 'Kettle replaced' })
     expect(
       await mcp().call('link', {
+        provenance: 'inferred',
         source: 'kettle-replaced',
         target: 'kettle-warranty',
         relation: 'fulfills',
@@ -485,7 +521,12 @@ describe('the rights come from GRENIER_RIGHTS', () => {
       fields: [{ name: 'code', kind: 'text', sensitive: true }],
     })
     expect(
-      await mcp().call('write', { type: 'locker', title: 'Gym locker', fields: { code: '0042' } }),
+      await mcp().call('write', {
+        type: 'locker',
+        title: 'Gym locker',
+        fields: { code: '0042' },
+        provenance: { code: 'inferred' },
+      }),
     ).toEqual({
       error:
         'The field `fields.code` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right `sensitive`.',
@@ -497,7 +538,12 @@ describe('the rights come from GRENIER_RIGHTS', () => {
       GRENIER_RIGHTS: 'read,write,sensitive',
     })
     try {
-      await trusted.call('write', { type: 'locker', title: 'Gym locker', fields: { code: '0042' } })
+      await trusted.call('write', {
+        type: 'locker',
+        title: 'Gym locker',
+        fields: { code: '0042' },
+        provenance: { code: 'inferred' },
+      })
       expect(await trusted.call('read', { entry: 'gym-locker' })).toMatchObject({
         result: { entry: { fields: { code: '0042' } } },
       })
@@ -560,25 +606,40 @@ describe('each session starts with its working memory', () => {
   })
 })
 
-describe('an agent tells the owner what waits for review', () => {
-  test('it lists the unverified entries, newest first, and may not verify one', async () => {
+describe('an agent tells the owner what is supposed', () => {
+  test('it lists the suppositions, newest first, and a write needs the provenance of what it says', async () => {
     await mcp().call('define_type', {
       name: 'dish',
       label: 'Dish',
       description: 'Use it for something cooked.',
-      fields: [],
+      fields: [{ name: 'origin', kind: 'text' }],
     })
-    await mcp().call('write', { type: 'dish', title: 'Onion soup' })
+    await mcp().call('write', {
+      type: 'dish',
+      title: 'Onion soup',
+      fields: { origin: 'France' },
+      provenance: { origin: 'inferred' },
+    })
     expect(
-      await mcp().call('search', { verified: false, type: 'dish', neighbors: 0 }),
+      await mcp().call('search', { supposed: true, type: 'dish', neighbors: 0 }),
     ).toMatchObject({
-      result: { results: [{ slug: 'onion-soup', type: 'dish', by: 'agent-test' }] },
+      result: {
+        results: [
+          {
+            slug: 'onion-soup',
+            type: 'dish',
+            by: 'agent-test',
+            supposed: [{ what: 'origin', by: 'agent-test' }],
+          },
+        ],
+      },
     })
     expect(await mcp().call('briefing', { period: 'today' })).toMatchObject({
-      result: { waiting: { unverified: { count: expect.any(Number), first: expect.any(Array) } } },
+      result: { waiting: { supposed: { count: expect.any(Number), first: expect.any(Array) } } },
     })
-    expect(await mcp().call('write', { entry: 'onion-soup', verified: true })).toEqual({
-      error: 'The field `verified` can be set to true by the owner only.',
+    expect(await mcp().call('write', { entry: 'onion-soup', fields: { origin: 'Lyon' } })).toEqual({
+      error:
+        'The field `provenance.origin` is required with `fields.origin`: say `extracted` (known, read in a source), `inferred` (supposed by you) or `ambiguous` (sources disagree).',
     })
   })
 })
@@ -588,8 +649,18 @@ describe('an agent writes several entries in one call', () => {
     expect(
       await mcp().call('write', {
         entries: [
-          { type: 'note', title: 'Hedge plan', body: 'See [[hedge-plants]].' },
-          { type: 'note', title: 'Hedge plants', body: 'For the [[hedge-plan]].' },
+          {
+            type: 'note',
+            title: 'Hedge plan',
+            body: 'See [[hedge-plants]].',
+            provenance: { body: 'inferred' },
+          },
+          {
+            type: 'note',
+            title: 'Hedge plants',
+            body: 'For the [[hedge-plan]].',
+            provenance: { body: 'inferred' },
+          },
         ],
       }),
     ).toMatchObject({ result: { entries: [{ slug: 'hedge-plan' }, { slug: 'hedge-plants' }] } })
@@ -601,10 +672,27 @@ describe('an agent writes several entries in one call', () => {
 
 describe('an agent adds a part at the top of a body', () => {
   test('write takes prepend, alone or in entries, and its description says so', async () => {
-    await mcp().call('write', { type: 'note', title: 'Frog log', body: 'Spawn in the pond.\n' })
-    await mcp().call('write', { entry: 'frog-log', body: 'Tadpoles.', prepend: true })
     await mcp().call('write', {
-      entries: [{ entry: 'frog-log', body: 'Frogs on the lawn.', prepend: true }],
+      type: 'note',
+      title: 'Frog log',
+      body: 'Spawn in the pond.\n',
+      provenance: { body: 'inferred' },
+    })
+    await mcp().call('write', {
+      entry: 'frog-log',
+      body: 'Tadpoles.',
+      prepend: true,
+      provenance: { body: 'inferred' },
+    })
+    await mcp().call('write', {
+      entries: [
+        {
+          entry: 'frog-log',
+          body: 'Frogs on the lawn.',
+          prepend: true,
+          provenance: { body: 'inferred' },
+        },
+      ],
     })
     expect(await mcp().call('read', { entry: 'frog-log', parts: ['body'] })).toMatchObject({
       result: { entry: { body: 'Frogs on the lawn.\n\nTadpoles.\n\nSpawn in the pond.\n' } },

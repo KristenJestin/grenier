@@ -77,7 +77,7 @@ const BESIDE: Record<Part, ReadonlyArray<Exclude<keyof Read, 'entry'>>> = {
 
 /** The keys of the entry that come only with a part: its body, its fields. */
 const WITHIN: Partial<Record<Part, ReadonlyArray<string>>> = {
-  body: ['body'],
+  body: ['body', 'provenance'],
   fields: ['fields', 'provenance', 'sources'],
 }
 
@@ -95,7 +95,7 @@ const partsOf = (read: Read, parts: ReadonlyArray<Part>) => {
 
 export const readTool = defineTool({
   name: 'read',
-  description: `Reads an entry with its place in the tree, its children and its links both ways, each link with its relation, its note and its dates (\`valid_from\`, \`valid_until\`), but without its body: ask for it with \`parts: ["body"]\`. The parent and the successor are given by slug (\`parent\`, \`superseded_by\`) with their id beside (\`parent_id\`, \`superseded_by_id\`); \`titles\` gives the titles of the entries its \`entry\` fields name, by slug with their id. \`parts: ["history"]\` gives its history instead, newest first, a page at a time (\`limit\`, 20 by default and 100 at most; then \`cursor\` with the \`next_cursor\` given): a long text, such as a body, comes as its size and an excerpt, and \`field\` reads the changes of that one field whole. A long entry is read in parts: \`parts\` to have only some of it, \`headings\` for the headings of its body, then \`section\` for the text under one of them. \`depth\` 2 or 3 adds a \`graph\`: the entries within that many edges (parent, links, \`entry\` fields) with the edges between them, at most ${GRAPH_CAP} entries, nearest first, \`cut: true\` when there were more. Follow it as far as it helps.`,
+  description: `Reads an entry with its place in the tree, its children and its links both ways, each link with its relation, whether it is known or supposed (\`provenance\`), its note and its dates (\`valid_from\`, \`valid_until\`), but without its body: ask for it with \`parts: ["body"]\`. The parent and the successor are given by slug (\`parent\`, \`superseded_by\`) with their id beside (\`parent_id\`, \`superseded_by_id\`); \`titles\` gives the titles of the entries its \`entry\` fields name, by slug with their id. \`parts: ["history"]\` gives its history instead, newest first, a page at a time (\`limit\`, 20 by default and 100 at most; then \`cursor\` with the \`next_cursor\` given): a long text, such as a body, comes as its size and an excerpt, and \`field\` reads the changes of that one field whole. A long entry is read in parts: \`parts\` to have only some of it, \`headings\` for the headings of its body, then \`section\` for the text under one of them. \`depth\` 2 or 3 adds a \`graph\`: the entries within that many edges (parent, links, \`entry\` fields) with the edges between them, at most ${GRAPH_CAP} entries, nearest first, \`cut: true\` when there were more. Follow it as far as it helps.`,
   input: Schema.Struct({
     entry: Reference,
     headings: Schema.optionalKey(Schema.Boolean).annotate({
@@ -106,7 +106,7 @@ export const readTool = defineTool({
     }),
     parts: Schema.optionalKey(Schema.Array(Schema.Literals(PARTS))).annotate({
       description:
-        'Only these parts, with the entry itself: `fields` (with its sources and the titles of the entries its fields name), `body`, `links` (both ways), `media`, `children`, `references`, `cited_by`, `path` (with its ancestors), `history`. Without `parts`, all of them but `body` and `history`.',
+        'Only these parts, with the entry itself: `fields` (with their `provenance`, known or supposed, that of the `body` and the `summary` too, its sources and the titles of the entries its fields name), `body`, `links` (both ways), `media`, `children`, `references`, `cited_by`, `path` (with its ancestors), `history`. Without `parts`, all of them but `body` and `history`.',
     }),
     depth: Schema.optionalKey(
       Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_DEPTH })),

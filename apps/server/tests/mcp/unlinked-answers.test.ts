@@ -24,6 +24,7 @@ describe('write lists the unlinked mentions of what it wrote', () => {
         type: 'thing',
         title: 'Winter plan',
         body: 'Empty the Garden Shed, then sand the long bench.',
+        provenance: { body: 'inferred' },
       }),
     )
     expect(answer).toMatchObject({
@@ -41,6 +42,7 @@ describe('write lists the unlinked mentions of what it wrote', () => {
         type: 'thing',
         title: 'Spring plan',
         body: 'Empty the [[garden-shed]], then sand the [[workshop-bench|long bench]].',
+        provenance: { body: 'inferred' },
       }),
     )
     expect(answer).not.toHaveProperty('unlinked')
@@ -48,10 +50,19 @@ describe('write lists the unlinked mentions of what it wrote', () => {
 
   test('an update that cites what it named answers nothing more: the mentions are those still unlinked', async () => {
     await run(
-      writeTool.run({ type: 'thing', title: 'Summer plan', body: 'Visit the garden shed.' }),
+      writeTool.run({
+        type: 'thing',
+        title: 'Summer plan',
+        body: 'Visit the garden shed.',
+        provenance: { body: 'inferred' },
+      }),
     )
     const fixed = await run(
-      writeTool.run({ entry: 'summer-plan', body: 'Visit the [[garden-shed]].' }),
+      writeTool.run({
+        entry: 'summer-plan',
+        body: 'Visit the [[garden-shed]].',
+        provenance: { body: 'inferred' },
+      }),
     )
     expect(fixed).not.toHaveProperty('unlinked')
   })
@@ -62,9 +73,24 @@ describe('write with entries lists them per entry', () => {
     const answer = await run(
       writeTool.run({
         entries: [
-          { type: 'thing', title: 'Batch one', body: 'Looks at the garden shed.' },
-          { type: 'thing', title: 'Batch two', body: 'Cites the [[garden-shed]].' },
-          { type: 'thing', title: 'Batch three', body: 'Sand the workshop bench.' },
+          {
+            type: 'thing',
+            title: 'Batch one',
+            body: 'Looks at the garden shed.',
+            provenance: { body: 'inferred' },
+          },
+          {
+            type: 'thing',
+            title: 'Batch two',
+            body: 'Cites the [[garden-shed]].',
+            provenance: { body: 'inferred' },
+          },
+          {
+            type: 'thing',
+            title: 'Batch three',
+            body: 'Sand the workshop bench.',
+            provenance: { body: 'inferred' },
+          },
         ],
       }),
     )
@@ -76,8 +102,9 @@ describe('write with entries lists them per entry', () => {
       ],
     })
     expect(answer['entries']).toHaveLength(3)
-    expect(JSON.stringify(answer)).not.toContain('"body"')
-    const [, second] = Array.isArray(answer['entries']) ? answer['entries'] : []
+    const listed = Array.isArray(answer['entries']) ? answer['entries'] : []
+    for (const each of listed) expect(each).not.toHaveProperty('body')
+    const [, second] = listed
     expect(second).not.toHaveProperty('unlinked')
   })
 
@@ -85,8 +112,18 @@ describe('write with entries lists them per entry', () => {
     const answer = await run(
       writeTool.run({
         entries: [
-          { type: 'thing', title: 'Tool rack', body: 'Hangs by the cold frame.' },
-          { type: 'thing', title: 'Cold frame', body: 'Next to the tool rack.' },
+          {
+            type: 'thing',
+            title: 'Tool rack',
+            body: 'Hangs by the cold frame.',
+            provenance: { body: 'inferred' },
+          },
+          {
+            type: 'thing',
+            title: 'Cold frame',
+            body: 'Next to the tool rack.',
+            provenance: { body: 'inferred' },
+          },
         ],
       }),
     )
