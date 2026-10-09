@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { INBOX_STANDARD, instructionsFor } from '../../src/mcp/instructions.ts'
+import {
+  INBOX_STANDARD,
+  instructionsFor,
+  RECENT_LIMIT,
+  WRITING_STANDARD,
+} from '../../src/mcp/instructions.ts'
+import type { WorkingMemory } from '../../src/mcp/instructions.ts'
 import { inboxTakeTool } from '../../src/mcp/tools/inbox.ts'
+import { TOOLS } from '../../src/mcp/tools.ts'
 
 const development = { name: 'development', diagnostics: false } as const
 const production = { name: 'production', diagnostics: false } as const
@@ -53,6 +60,18 @@ describe('agents learn how to choose a type from the instructions', () => {
     ]
     expect(domains.filter((word) => code.toLowerCase().includes(word))).toEqual([])
   })
+})
+
+/** A working memory of `count` recent entries, newest first, written by two keys. */
+const memoryOf = (count: number): WorkingMemory => ({
+  key: 'agent-laptop',
+  recent: Array.from({ length: count }, (_, index) => ({
+    slug: `page-${index}`,
+    title: `Page number ${index}`,
+    type: 'thing',
+    updated: `2026-10-09T14:${String(59 - index).padStart(2, '0')}:12.345678Z`,
+    by: index % 2 === 0 ? 'agent-laptop' : 'agent-phone',
+  })),
 })
 
 describe('the instructions start with what the instance is', () => {
@@ -115,6 +134,21 @@ describe('the instructions put what matters most first', () => {
       expect(first).toContain(`- \`${name}\`: ${description}`)
   })
 
+  test('with a full working memory, the types still fall within the first 2,048 characters', () => {
+    const told = instructionsFor(
+      types,
+      { name: 'development', diagnostics: true },
+      'Write in short sentences.',
+      true,
+      true,
+      memoryOf(RECENT_LIMIT),
+    )
+    const first = told.slice(0, 2048)
+    expect(first).toContain('Choose the type whose description matches')
+    for (const { name, description } of types)
+      expect(first).toContain(`- \`${name}\`: ${description}`)
+  })
+
   test('without any type, the instructions say so and what follows starts on its own line', () => {
     const told = instructionsFor([], { name: 'development', diagnostics: true })
     expect(told).toContain(
@@ -123,20 +157,25 @@ describe('the instructions put what matters most first', () => {
     expect(told).toContain('as far as they help.\n\nDiagnostics are on')
   })
 
-  test('the order is the instance, how to choose a type, the types, how to recall, then diagnostics, the rules and the inbox standard', () => {
+  test('the order is the instance, how to choose a type, the types, the working memory, how to find, then diagnostics, the rules, the writing standard and the inbox standard', () => {
     const told = instructionsFor(
       types,
       { name: 'development', diagnostics: true },
       'Write in short sentences.',
       true,
+      true,
+      memoryOf(3),
     )
     const places = [
       'shared DEVELOPMENT instance',
       'Choose the type whose description matches',
       'The types:',
+      'This session writes as the key',
+      'When the owner refers to something without naming it',
       'search it before answering',
       'Diagnostics are on',
       'The rules of this instance',
+      'How to write an entry',
       'How an inbox item becomes entries',
     ].map((said) => told.indexOf(said))
     expect(places).toEqual(places.toSorted((a, b) => a - b))
@@ -165,23 +204,61 @@ describe('with diagnostics on, the instructions ask the agent to report what goe
   })
 })
 
-describe('agents that may write learn how an inbox item becomes entries', () => {
+describe('agents that may write learn how to write an entry', () => {
   const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
 
-  test('a key with write gets the paragraph in its instructions, a read-only key does not; the description of inbox_take refers to it', () => {
+  test('a key with write gets the writing standard in its instructions, a read-only key does not', () => {
+    const writer = instructionsFor(types, development, null, true)
+    const reader = instructionsFor(types, development, null, false)
+    expect(writer).toContain(WRITING_STANDARD)
+    expect(reader).not.toContain(WRITING_STANDARD)
+    expect(reader).not.toContain('How to write an entry')
+  })
+
+  test('it asks to link what the entry concerns, to give a parent only for what it is part of, to write a summary that stands alone and to search before creating', () => {
+    expect(WRITING_STANDARD).toContain('Link the entry to every existing entry it concerns')
+    expect(WRITING_STANDARD).toContain('`[[slug]]`')
+    expect(WRITING_STANDARD).toContain('or use `link`')
+    expect(WRITING_STANDARD).toContain('Give a `parent` only when the entry is part of it')
+    expect(WRITING_STANDARD).toContain('leave the entry at the root otherwise')
+    expect(WRITING_STANDARD).toContain(
+      'Write a summary that stands alone: what the entry is, about what or whom, and when, readable by an agent that knows nothing of the conversation',
+    )
+    expect(WRITING_STANDARD).toContain('Search before creating, and update the existing entry')
+  })
+
+  test('it says that unlinked mentions are for the agent to judge, not links Grenier made', () => {
+    expect(WRITING_STANDARD).toContain('`unlinked`')
+    expect(WRITING_STANDARD).toContain('read them and link those that are really meant')
+  })
+
+  test('it says to report a value the key lacks the right for', () => {
+    expect(WRITING_STANDARD).toContain(
+      '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
+    )
+  })
+
+  test('the inbox standard keeps what is specific to items and refers to the writing standard', () => {
     const writer = instructionsFor(types, development, null, true)
     const reader = instructionsFor(types, development, null, false)
     expect(writer).toContain(INBOX_STANDARD)
     expect(reader).not.toContain(INBOX_STANDARD)
+    expect(INBOX_STANDARD).toContain('on top of the writing standard')
+    expect(INBOX_STANDARD).not.toContain('Cite another entry')
+    expect(INBOX_STANDARD).not.toContain('`sensitive`')
+    expect(INBOX_STANDARD).not.toContain('keep every fact')
     expect(inboxTakeTool.description).toContain('your instructions')
   })
 
-  test('it says to report a value the key lacks the right for, and to cite entries as [[slug]]', () => {
-    expect(INBOX_STANDARD).toContain(
-      '- A write refused for the rights of this key names the right it lacks (`sensitive`): leave that value out, say in the entry what was left out, and tell the owner the key lacks that right, even when the rules of the instance allow the value.',
-    )
-    expect(INBOX_STANDARD).toContain(
-      '- Cite another entry as `[[slug]]`, never by its title in plain text: the link is kept and follows renames.',
+  test('no tool description repeats the writing standard', () => {
+    const lines = WRITING_STANDARD.split('\n').slice(1)
+    for (const { name, description } of TOOLS)
+      expect(
+        lines.filter((line) => description.includes(line.slice(2))),
+        name,
+      ).toEqual([])
+    expect(TOOLS.find(({ name }) => name === 'write')?.description).not.toContain(
+      'Search before creating',
     )
   })
 
@@ -194,9 +271,71 @@ describe('agents that may write learn how an inbox item becomes entries', () => 
     expect(inboxTakeTool.description).toContain('`earlier`')
   })
 
-  test('the rules of the instance come before it, and may add to it', () => {
+  test('the rules of the instance come before both standards, and may add to them', () => {
     const told = instructionsFor(types, development, 'Write in short sentences.', true)
-    expect(told.indexOf('Write in short sentences.')).toBeLessThan(told.indexOf(INBOX_STANDARD))
+    expect(told.indexOf('Write in short sentences.')).toBeLessThan(told.indexOf(WRITING_STANDARD))
+    expect(told.indexOf(WRITING_STANDARD)).toBeLessThan(told.indexOf(INBOX_STANDARD))
+  })
+})
+
+describe('the instructions give the session its working memory', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+
+  test('they name the key the session writes as, and list the entries changed most recently, newest first, with type, when and by which key', () => {
+    const told = instructionsFor(types, development, null, true, true, memoryOf(3))
+    expect(told).toContain('This session writes as the key `agent-laptop`.')
+    expect(told).toContain('- `page-0` (thing) Page number 0: 2026-10-09T14:59Z, by `agent-laptop`')
+    expect(told).toContain('- `page-1` (thing) Page number 1: 2026-10-09T14:58Z, by `agent-phone`')
+    expect(told.indexOf('`page-0`')).toBeLessThan(told.indexOf('`page-2`'))
+  })
+
+  test('a key that only reads is told the key it reads with', () => {
+    const told = instructionsFor(types, development, null, false, true, memoryOf(1))
+    expect(told).toContain('This session reads with the key `agent-laptop`.')
+  })
+
+  test('a title is given on one line and cut when long; an unknown author is left out', () => {
+    const told = instructionsFor(types, development, null, true, true, {
+      key: 'agent-laptop',
+      recent: [
+        {
+          slug: 'long-one',
+          title: `Line one\nline two ${'x'.repeat(200)}`,
+          type: 'thing',
+          updated: '2026-10-09T10:00:00.000000Z',
+          by: null,
+        },
+      ],
+    })
+    const line = told.split('\n').find((each) => each.startsWith('- `long-one`')) ?? ''
+    expect(line).toMatch(/^- `long-one` \(thing\) Line one line two x+…: 2026-10-09T10:00Z$/)
+  })
+
+  test('without recent entries, only the key is said', () => {
+    const told = instructionsFor(types, development, null, true, true, {
+      key: 'agent-laptop',
+      recent: [],
+    })
+    expect(told).toContain('This session writes as the key `agent-laptop`.')
+    expect(told).not.toContain('changed most recently')
+  })
+
+  test('without a working memory, the instructions say nothing of a key', () => {
+    expect(instructionsFor(types, development, null, true)).not.toContain('This session')
+  })
+})
+
+describe('the instructions say how to find what the owner refers to without naming it', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+
+  test('look at the recent entries and at what this key wrote first, and ask when several subjects fit', () => {
+    for (const writes of [true, false]) {
+      const told = instructionsFor(types, development, null, writes, true, memoryOf(2))
+      expect(told).toContain(
+        'look first at the recently changed entries above and at what this key wrote, before searching words.',
+      )
+      expect(told).toContain('When several subjects fit, name them and ask, rather than guess.')
+    }
   })
 })
 

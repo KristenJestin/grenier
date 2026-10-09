@@ -141,20 +141,50 @@ unknown key is refused.
 An agent connected over MCP receives instructions when its session starts, what matters most
 first: the instance paragraph, generic instructions, in the code, on how to choose a type (from
 its description, searching before creating, asking when none fits), and the types of the instance
-with their descriptions (their names only beyond 50, with `list_types` for the rest); then, when
-they apply, the diagnostics paragraph, the rules of the instance and the inbox standard below.
-Claude Code cuts server instructions at 2,048 characters, so the part an agent cannot do without
-comes first. What a type is for lives in its description, in the data: it should say when to use
-the type, not only what it is.
+with their descriptions (their names only beyond 50, with `list_types` for the rest); then its
+working memory and how to find what the owner refers to without naming it (below), and, when they
+apply, the diagnostics paragraph, the rules of the instance, the writing standard and the inbox
+standard below. Claude Code cuts server instructions at 2,048 characters, so the part an agent
+cannot do without comes first. What a type is for lives in its description, in the data: it should
+say when to use the type, not only what it is.
 
-A key that may write is also told, in its instructions (the description of `inbox_take` refers to
-them rather than repeating them), a generic standard for turning an inbox item into entries: the
-type from the content, one entry per subject, fields filled only from what the item says, every fact kept, nothing added without its
-source, a dated text kept in its time, `edits` rather than a retyped body, the item's language,
-sensitive values left out when the key may not write them, and, for an item that brings again
-what Grenier holds, the entries it gave before read and compared with the whole item fact by fact,
-then completed or corrected (what the types and rules now ask for included), never taken as
-complete because they exist. The rules of the instance come before it and may add to it.
+A key that may write is also told, in its instructions, how to write an entry, whatever it comes
+from. This **writing standard** is said once there and repeated in no tool description: search
+before creating, and update the entry when it is the same subject; one entry per subject that
+would be searched or followed on its own; link the entry to every existing entry it concerns, with
+`[[slug]]` in the body (never the title in plain text) or with `link`; give a `parent` only when
+the entry is part of it, and leave the entry at the root otherwise; write a summary that stands
+alone (what, about what or whom, and when, readable by an agent that knows nothing of the
+conversation); fields filled only from what the source says, with their `provenance`; every fact
+kept; nothing added without its source; a dated text kept in its time; the language of what is
+given; and sensitive values left out when the key may not write them. The **inbox standard**
+(the description of `inbox_take` refers to it rather than repeating it) keeps what is specific to
+an item: a long item split by part or by period, and, for an item that brings again what Grenier
+holds, the entries it gave before read and compared with the whole item fact by fact, then
+completed or corrected (what the types and rules now ask for included), never taken as complete
+because they exist. The rules of the instance come before both and may add to them.
+
+### Working memory
+
+Agents work like a memory: what one writes, another finds again later, from a vague mention
+("pick up where we were") with no hand-over between them. So the instructions of a session also
+say the key the session works as (the actor of its writes) and list the 10 entries changed most
+recently that the key may see, newest first, each with its slug, type, title, when it changed
+(UTC, to the minute) and the key that changed it last. An archived entry is not listed, and an
+entry of a sensitive type is left out for a key without the right `sensitive`, as everywhere. The
+instructions then say how to use it: when the owner refers to something without naming it, look at
+these entries and at what this key wrote before searching words; follow the neighbours of a
+likely entry (`read` gives its parent, its children and its links); when several subjects fit,
+name them and ask rather than guess.
+
+The list is built for each session, as it starts, never kept: a session keeps what it was told,
+and the next one is told what changed since. The HTTP server compares the instructions it builds
+with those of the server it kept for the key and replaces a server told otherwise, so no session
+is given a list that is stale. "When" is the entry's `updated`. "By which key" is the actor of the
+latest event that moved it (created, updated, archived, or a body rewritten by a rename) in the
+event log: a link or a medium added later by another key leaves `updated`, and so the author,
+where they were. The same definition serves `search` (its `by`, and the `by` filter) and
+`unverified`: one SQL expression, `LAST_WRITER` in `src/core/entries/last-writer.ts`.
 
 What holds across types (what to ask before writing, what never to write, the style) lives in the
 **rules of the instance**: Markdown kept in the database, set by the owner alone from the command
@@ -212,6 +242,11 @@ no folder object: any entry may have children. A project entry is both the proje
 the container of its notes and decisions. An area (an entry whose type carries no field) groups
 entries by domain.
 
+The parent means "is part of": a component in a machine, a note in a project, a section of a
+journal. Every other relation between two entries is a link (see "Links"). An entry at the root is
+fine when it is linked to what it concerns; filing an entry under a parent it is only about makes
+it harder to find, not easier. Recall counts parents and links alike.
+
 The nightly Markdown export follows the parents to rebuild a folder hierarchy.
 
 An object made of parts (a computer and its disks) is one entry per part, filed under the whole.
@@ -245,6 +280,21 @@ at every write and kept as links:
   to an alias links to the entry that has it. To a key without the right `sensitive`, a reference
   to an entry it may not see waits like any other;
 - renaming a slug rewrites the references in every body that points to it.
+
+**Unlinked mentions.** The answer of `write`, and that of each entry of a `write_many`, also lists
+as `unlinked: [{ slug, title, found }]` the existing entries whose title or alias appears whole in
+the title, summary or body just written, when the entry written neither cites nor links them.
+`found` is the words of the text that name the entry, as written. A name matches between word
+boundaries, case and accents folded ("cafe noir" finds "Café Noir"); a `[[reference]]` is a
+citation, not prose, and is not read. Left out: the entry itself, entries the key may not see (a
+sensitive type, for a key without the right `sensitive`), archived entries, titles and aliases of
+fewer than 4 characters, and entries already connected to the one written: cited, linked in
+either direction, its parent or one of its children. At most 10, the longest match first, then by
+slug; `unlinked` is absent when there is none. It is a computation on names, deterministic and
+without AI: the agent decides whether an entry is really meant, and links it (or not). The
+database narrows the names to those contained in the text (`unaccent` and `lower` on both
+sides) in one query for the whole write, the code confirms the word boundaries; the cost is one
+pass over the titles and aliases of the store per write, not one query per candidate.
 
 A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link
 points to the slug either way. The references of a body are kept as links of relation
@@ -391,8 +441,9 @@ search configuration, `simple` by default) and accents never matter.
 Without a query, a search lists the entries by most recent change (`sort` `updated`, the default
 then; with a query the default stays `relevance`), bounded by `since` and `until`, and by `by`,
 the key that changed an entry last. When and by whom come from the event log (the actor of the
-entry's last event, leaving aside a `[[reference]]` that resolved by itself when its target was
-created), not from a column of the entry. Over MCP each result also carries these two and its
+latest event that moved the entry's `updated`: created, updated, archived, or its body rewritten by
+a rename; a link, a medium or a `[[reference]]` that resolved by itself leaves it alone), not from
+a column of the entry. Over MCP each result also carries these two and its
 neighbors, the entries next to it, chosen by fixed rules: explicit links, then the parent, then
 the entries named by its `entry` fields, then the entries its body cites, the most recently
 updated first among equals, each with how it is joined and never its body. `read` over MCP leaves

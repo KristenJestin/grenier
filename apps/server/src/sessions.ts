@@ -11,8 +11,9 @@ export interface McpHandler {
 
 /**
  * The MCP sessions of the HTTP server, each bound to the key that opened it. A request without a
- * session goes to the server of its key as the types are now; a session that request opens keeps
- * that server for itself, so the next one gets a server of its own. A request with a session runs
+ * session goes to the server of its key as the types and the working memory are now (the
+ * instructions it was built with are compared with those of this moment, and a server told
+ * otherwise is replaced); a session that request opens keeps that server for itself, so the next one gets a server of its own. A request with a session runs
  * on that session's server, and only for the key that opened it. A session or a server left
  * without a request for `idle` is forgotten, and a server nothing uses any longer is freed: the
  * memory follows what is in use, not what ever was.

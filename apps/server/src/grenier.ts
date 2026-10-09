@@ -102,12 +102,14 @@ const mcp = HttpRouter.use((router) =>
           )
         }
         const session = request.headers['mcp-session-id']
-        // A session keeps the instructions it started with.
+        // A session keeps the instructions it started with, built as it starts: the entries they
+        // list are those of this moment, and a server kept for the key is replaced when they differ.
         const told =
           session === undefined
             ? yield* instructions.pipe(
                 Effect.provideService(Instance, instance),
                 Effect.provideService(Rights, verified.success.rights),
+                Effect.provideService(Actor, verified.success.name),
               )
             : ''
         const web = yield* HttpServerRequest.toWeb(request)

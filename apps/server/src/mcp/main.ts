@@ -60,6 +60,7 @@ const program = Effect.gen(function* () {
     instructions: yield* instructions.pipe(
       Effect.provideService(Instance, instance),
       Effect.provideService(Rights, rights),
+      Effect.provideService(Actor, actor),
     ),
     protocols: PROTOCOLS,
   }).pipe(Layer.provide(BunStdio.layer))
