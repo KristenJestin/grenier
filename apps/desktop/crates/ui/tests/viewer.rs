@@ -238,3 +238,74 @@ fn a_drag_of_the_sidebar_edge_says_its_width_once_when_it_ends(cx: &mut TestAppC
     let width = viewer.read_with(cx, |viewer, _| viewer.sidebar_width());
     assert!(width > px(300.), "the sidebar is wider: {width:?}");
 }
+
+/// A viewer whose tree draws the monitor under both computers.
+fn viewer_with_a_shared_entry(
+    cx: &mut TestAppContext,
+) -> (
+    Entity<Viewer>,
+    &mut VisualTestContext,
+    Rc<RefCell<Vec<Intent>>>,
+) {
+    let (viewer, cx, intents) = viewer(cx);
+    cx.update(|_, cx| {
+        viewer.update(cx, |viewer, cx| {
+            viewer.set_tree(
+                Load::Ready(vec![
+                    node(
+                        "desktop",
+                        vec![node("monitor", vec![]), node("keyboard", vec![])],
+                    ),
+                    node("laptop", vec![node("monitor", vec![])]),
+                    node("garden", vec![]),
+                ]),
+                cx,
+            );
+        })
+    });
+    (viewer, cx, intents)
+}
+
+#[gpui_kit::test]
+fn down_walks_through_an_entry_drawn_under_two_places_and_reaches_every_line(
+    cx: &mut TestAppContext,
+) {
+    let (viewer, cx, intents) = viewer_with_a_shared_entry(cx);
+    cx.update(|_, cx| viewer.update(cx, |viewer, cx| viewer.select(&"desktop".into(), cx)));
+    cx.simulate_keystrokes("down down down down down");
+    assert_eq!(
+        *intents.borrow(),
+        vec![
+            Intent::Open("desktop".into()),
+            Intent::Open("monitor".into()),
+            Intent::Open("keyboard".into()),
+            Intent::Open("laptop".into()),
+            Intent::Open("monitor".into()),
+            Intent::Open("garden".into())
+        ]
+    );
+    // And back up the same way: from the second monitor, the group above it.
+    cx.simulate_keystrokes("up up");
+    assert_eq!(
+        intents.borrow()[6..],
+        [
+            Intent::Open("monitor".into()),
+            Intent::Open("laptop".into())
+        ]
+    );
+}
+
+#[gpui_kit::test]
+fn left_goes_to_the_parent_of_the_occurrence_selected(cx: &mut TestAppContext) {
+    let (viewer, cx, intents) = viewer_with_a_shared_entry(cx);
+    cx.update(|_, cx| viewer.update(cx, |viewer, cx| viewer.select(&"laptop".into(), cx)));
+    cx.simulate_keystrokes("down left");
+    assert_eq!(
+        *intents.borrow(),
+        vec![
+            Intent::Open("laptop".into()),
+            Intent::Open("monitor".into()),
+            Intent::Open("laptop".into())
+        ]
+    );
+}
