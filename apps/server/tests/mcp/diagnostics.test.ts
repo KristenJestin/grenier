@@ -16,15 +16,15 @@ let off: Awaited<ReturnType<typeof startServer>> | undefined
 beforeAll(async () => {
   on = await startServer({
     DATABASE_URL: await withDiagnostics.runPromise(urlOf),
-    GRENIER_ACTOR: 'agent-tester',
-    GRENIER_DIAGNOSTICS: 'on',
-    GRENIER_VERSION: '1.2.3',
-    GRENIER_COMMIT: 'abc1234',
+    HIPPOCAMPE_ACTOR: 'agent-tester',
+    HIPPOCAMPE_DIAGNOSTICS: 'on',
+    HIPPOCAMPE_VERSION: '1.2.3',
+    HIPPOCAMPE_COMMIT: 'abc1234',
   })
   off = await startServer({
     DATABASE_URL: await withoutDiagnostics.runPromise(urlOf),
-    GRENIER_ACTOR: 'agent-tester',
-    GRENIER_DIAGNOSTICS: 'off',
+    HIPPOCAMPE_ACTOR: 'agent-tester',
+    HIPPOCAMPE_DIAGNOSTICS: 'off',
   })
 }, 60_000)
 
@@ -55,7 +55,7 @@ const report = {
   expected: 'The entry `garden-shed`.',
 }
 
-describe('diagnostics are off unless GRENIER_DIAGNOSTICS is on', () => {
+describe('diagnostics are off unless HIPPOCAMPE_DIAGNOSTICS is on', () => {
   test('without diagnostics the two tools are absent, and a stale call is refused and writes nothing', async () => {
     const tools = await toolsOf(off)
     expect(tools).not.toContain('grenier_report')
@@ -84,12 +84,12 @@ describe('diagnostics are off unless GRENIER_DIAGNOSTICS is on', () => {
   test('a value other than on or off stops the server, in one sentence', async () => {
     const { code, stderr } = await startAndExit({
       DATABASE_URL: await withoutDiagnostics.runPromise(urlOf),
-      GRENIER_ACTOR: 'agent-tester',
-      GRENIER_INSTANCE: 'development',
-      GRENIER_DIAGNOSTICS: 'yes',
+      HIPPOCAMPE_ACTOR: 'agent-tester',
+      HIPPOCAMPE_INSTANCE: 'development',
+      HIPPOCAMPE_DIAGNOSTICS: 'yes',
     })
     expect(code).toBe(1)
-    expect(stderr.trim()).toBe('GRENIER_DIAGNOSTICS must be `on` or `off`: `yes` is not one.')
+    expect(stderr.trim()).toBe('HIPPOCAMPE_DIAGNOSTICS must be `on` or `off`: `yes` is not one.')
   })
 })
 

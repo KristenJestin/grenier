@@ -55,8 +55,8 @@ async function startWith(diagnostics: 'on' | 'off') {
       DATABASE_URL: url,
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
-      GRENIER_INSTANCE: 'local',
-      GRENIER_DIAGNOSTICS: diagnostics,
+      HIPPOCAMPE_INSTANCE: 'local',
+      HIPPOCAMPE_DIAGNOSTICS: diagnostics,
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   })

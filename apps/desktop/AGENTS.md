@@ -44,7 +44,7 @@ cargo fmt --check
 ## Releases and updates
 
 A release of Grenier builds the viewer from its tag (`.github/workflows/release.yml`), its version
-taken from the tag (`GRENIER_VERSION` at build time, `unknown` in a local build; shown at the foot
+taken from the tag (`HIPPOCAMPE_VERSION` at build time, `unknown` in a local build; shown at the foot
 of the sidebar and by `grenier-desktop --version`), packs it with `scripts/package.sh` and attaches
 the archives and their checksums to the release. `scripts/update.sh` installs or updates it on
 Linux from the latest release; its tests (`crates/app/tests/update_script.rs`) run it against a
@@ -88,7 +88,7 @@ Windows, a release build has no console: in PowerShell, `$env:RUST_LOG="debug"`,
 
 The application reads `grenier/desktop.json` in the system's configuration folder
 (`~/.config/grenier/desktop.json` on Linux, `%APPDATA%\grenier\desktop.json` on Windows), or
-the file `GRENIER_DESKTOP_CONFIG` names:
+the file `HIPPOCAMPE_DESKTOP_CONFIG` names:
 
 ```json
 { "server": "http://127.0.0.1:3000", "key_file": "~/.config/grenier/key" }

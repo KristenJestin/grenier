@@ -95,7 +95,7 @@ The server, in development, on `PORT` (3000 by default): `/mcp` (MCP, protocol 2
 the older revisions), `/health`, `/media/<hash>`, and the read API (`GET /api/about`,
 `/api/types`, `/api/entries/{slug or id}`, `/api/search?q=…`), its OpenAPI document at
 `/api/openapi.json` and its documentation page at `/api/docs`. It needs `BETTER_AUTH_SECRET` and
-`GRENIER_INSTANCE` in `.env`; every request to
+`HIPPOCAMPE_INSTANCE` in `.env`; every request to
 `/mcp` and to the API carries a key, whose name is the actor of its writes (the API needs the
 right `read`). A refused key is answered 401 with its reason, in the body and in
 `WWW-Authenticate`; Grenier offers no OAuth. From `apps/server`:
@@ -145,7 +145,7 @@ before it listens, and keeps data in the `postgres` and `media` volumes):
 
 ```
 cp .env.production.example .env.production        # then set BETTER_AUTH_SECRET in it
-docker compose up -d                              # a local instance; GRENIER_INSTANCE=production
+docker compose up -d                              # a local instance; HIPPOCAMPE_INSTANCE=production
                                                   # docker compose up -d for the real one
 docker compose exec grenier bun src/cli.ts key:create --name local --rights read,write \
   --owner owner@example.org                       # prints the key, once
@@ -153,31 +153,31 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
   --header "Authorization: Bearer <the key printed above>"
 ```
 
-`GRENIER_PORT` and `POSTGRES_PORT` change the published ports; `GRENIER_BIND=0.0.0.0` publishes
+`HIPPOCAMPE_PORT` and `POSTGRES_PORT` change the published ports; `HIPPOCAMPE_BIND=0.0.0.0` publishes
 the server to the network.
 
 Each Grenier knows which instance it is, from three variables read at start-up by the server and
 by the stdio MCP server:
 
-- `GRENIER_INSTANCE`, required: `local` (a stack on a developer's machine, throwaway data; the
+- `HIPPOCAMPE_INSTANCE`, required: `local` (a stack on a developer's machine, throwaway data; the
   default of `.env.example` and of `docker-compose.yml`), `development` (the shared test server)
   or `production` (the owner's real data). Missing or unknown, the server refuses to start in one
   sentence. The MCP server is announced as `grenier-local`, `grenier-dev` or `grenier`, and its
-  instructions start with what the instance holds. `GRENIER_INSTANCE_LABEL`, optional, names it
+  instructions start with what the instance holds. `HIPPOCAMPE_INSTANCE_LABEL`, optional, names it
   for display (`GET /api/about`).
-- `GRENIER_DIAGNOSTICS`: `on` or `off` (the default). On, agents also test Grenier and report
+- `HIPPOCAMPE_DIAGNOSTICS`: `on` or `off` (the default). On, agents also test Grenier and report
   with `grenier_report`, and unexpected server errors are recorded (see `docs/model.md`).
-- `GRENIER_VERSION` and `GRENIER_COMMIT`, `unknown` when not set; the image takes them as build
-  arguments: `docker build -f apps/server/Dockerfile --build-arg GRENIER_VERSION=1.4.0
-  --build-arg GRENIER_COMMIT=$(git rev-parse --short HEAD) .` (compose passes them from its own
+- `HIPPOCAMPE_VERSION` and `HIPPOCAMPE_COMMIT`, `unknown` when not set; the image takes them as build
+  arguments: `docker build -f apps/server/Dockerfile --build-arg HIPPOCAMPE_VERSION=1.4.0
+  --build-arg HIPPOCAMPE_COMMIT=$(git rev-parse --short HEAD) .` (compose passes them from its own
   environment). `/health` answers `{ status, instance, version, commit }`, `GET /api/about` the
   same with the label.
 
 The server speaks plain HTTP: published on a network, every key crosses it in clear, in the
 `Authorization` header of each request. Reach it from other machines only through an encrypted
 path: a private network such as Tailscale, or a reverse proxy that terminates TLS in front of it.
-By default it listens on `127.0.0.1` only; `GRENIER_HOST` changes that (the image sets `GRENIER_HOST=0.0.0.0`
-inside the container, and compose publishes the port on `GRENIER_BIND`).
+By default it listens on `127.0.0.1` only; `HIPPOCAMPE_HOST` changes that (the image sets `HIPPOCAMPE_HOST=0.0.0.0`
+inside the container, and compose publishes the port on `HIPPOCAMPE_BIND`).
 
 The clients never hand-write what they exchange with the server: `bun run generate` writes the
 OpenAPI document of the read API from the schemas (`packages/api/openapi.json`, no server needed),

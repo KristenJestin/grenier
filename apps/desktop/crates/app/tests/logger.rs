@@ -15,7 +15,7 @@ fn an_error_logged_by_gpui_reaches_standard_error() {
         .env("WAYLAND_SOCKET", "not-a-descriptor")
         .env("WAYLAND_DISPLAY", "grenier-no-such-display")
         .env("XDG_RUNTIME_DIR", &runtime)
-        .env("GRENIER_DESKTOP_CONFIG", runtime.join("desktop.json"))
+        .env("HIPPOCAMPE_DESKTOP_CONFIG", runtime.join("desktop.json"))
         .output()
         .expect("the viewer runs");
     let said = String::from_utf8_lossy(&ran.stderr);

@@ -121,10 +121,10 @@ beforeAll(async () => {
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
       MEDIA_DIR: mediaDirectory,
-      GRENIER_INSTANCE: 'development',
-      GRENIER_INSTANCE_LABEL: 'Test bench',
-      GRENIER_VERSION: '1.2.3-test',
-      GRENIER_COMMIT: 'abc1234',
+      HIPPOCAMPE_INSTANCE: 'development',
+      HIPPOCAMPE_INSTANCE_LABEL: 'Test bench',
+      HIPPOCAMPE_VERSION: '1.2.3-test',
+      HIPPOCAMPE_COMMIT: 'abc1234',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -1069,16 +1069,16 @@ describe('the server knows which instance it is', () => {
       started.on('exit', (code) => resolve({ code, stderr }))
     })
 
-  test('without GRENIER_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
+  test('without HIPPOCAMPE_INSTANCE, or with one it does not know, it refuses to start in one sentence', async () => {
     const missing = await startAndExit({})
     expect(missing.code).toBe(1)
     expect(missing.stderr.trim()).toBe(
-      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
+      'The environment variable HIPPOCAMPE_INSTANCE is missing: set it to `production`, `development` or `local`.',
     )
-    const unknown = await startAndExit({ GRENIER_INSTANCE: 'Production' })
+    const unknown = await startAndExit({ HIPPOCAMPE_INSTANCE: 'Production' })
     expect(unknown.code).toBe(1)
     expect(unknown.stderr.trim()).toBe(
-      'GRENIER_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
+      'HIPPOCAMPE_INSTANCE must be `production`, `development` or `local`: `Production` is not one.',
     )
   })
 

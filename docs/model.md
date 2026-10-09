@@ -592,11 +592,11 @@ connected to more than one at once, so each says what it is: its MCP server is a
 `grenier`, `grenier-dev` or `grenier-local`, with the version of the server, and its instructions
 start with a paragraph on what the instance holds and when to use it (never test data in
 production, never real data elsewhere). `/health` and `GET /api/about` tell the instance, the
-version and the commit. The instance is set by `GRENIER_INSTANCE`, which the server requires.
+version and the commit. The instance is set by `HIPPOCAMPE_INSTANCE`, which the server requires.
 
 ## Diagnostics
 
-With diagnostics on (`GRENIER_DIAGNOSTICS=on`), the agents also test Grenier itself. Their
+With diagnostics on (`HIPPOCAMPE_DIAGNOSTICS=on`), the agents also test Grenier itself. Their
 instructions say so after the types, and two tools exist that are absent otherwise:
 `grenier_report` (right `write`) records a problem with Grenier, and `grenier_reports` (right
 `read`) lists what is recorded, titles only.

@@ -16,7 +16,7 @@ use crate::client::{Client, Key};
 use ui::text as words;
 
 /// The environment variable that names another configuration file.
-pub const CONFIG_VARIABLE: &str = "GRENIER_DESKTOP_CONFIG";
+pub const CONFIG_VARIABLE: &str = "HIPPOCAMPE_DESKTOP_CONFIG";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,7 +79,7 @@ fn remember_in(path: &Path, name: &str, value: serde_json::Value) {
     }
 }
 
-/// The configuration file: the one `GRENIER_DESKTOP_CONFIG` names, else `grenier/desktop.json`
+/// The configuration file: the one `HIPPOCAMPE_DESKTOP_CONFIG` names, else `grenier/desktop.json`
 /// in the system's configuration folder.
 pub fn path() -> Option<PathBuf> {
     std::env::var_os(CONFIG_VARIABLE)

@@ -17,8 +17,8 @@ let diagnosedReader: Started | undefined
 const start = async (url: string, rights: string, extra: Readonly<Record<string, string>> = {}) => {
   const started = await startServer({
     DATABASE_URL: url,
-    GRENIER_ACTOR: `agent-${rights.replaceAll(',', '-')}`,
-    GRENIER_RIGHTS: rights,
+    HIPPOCAMPE_ACTOR: `agent-${rights.replaceAll(',', '-')}`,
+    HIPPOCAMPE_RIGHTS: rights,
     ...extra,
   })
   servers.push(started)
@@ -33,9 +33,9 @@ beforeAll(async () => {
   )
   reader = await start(url, 'read')
   writer = await start(url, 'read,write')
-  diagnosed = await start(url, 'read,write', { GRENIER_DIAGNOSTICS: 'on' })
+  diagnosed = await start(url, 'read,write', { HIPPOCAMPE_DIAGNOSTICS: 'on' })
   owner = await start(url, 'read,write,owner')
-  diagnosedReader = await start(url, 'read', { GRENIER_DIAGNOSTICS: 'on' })
+  diagnosedReader = await start(url, 'read', { HIPPOCAMPE_DIAGNOSTICS: 'on' })
 }, 60_000)
 
 afterAll(async () => {

@@ -13,11 +13,11 @@ fn the_viewer_prints_its_version_and_opens_no_window() {
         String::from_utf8_lossy(&printed.stdout),
         format!(
             "grenier-desktop {}\n",
-            option_env!("GRENIER_VERSION").unwrap_or("unknown")
+            option_env!("HIPPOCAMPE_VERSION").unwrap_or("unknown")
         )
     );
     assert_eq!(
         app::VERSION,
-        option_env!("GRENIER_VERSION").unwrap_or("unknown")
+        option_env!("HIPPOCAMPE_VERSION").unwrap_or("unknown")
     );
 }

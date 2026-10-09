@@ -13,7 +13,7 @@ let server: Awaited<ReturnType<typeof startServer>> | undefined
 
 beforeAll(async () => {
   const url = await database.runPromise(scratchUrl)
-  server = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test' })
+  server = await startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-test' })
 })
 
 afterAll(async () => {
@@ -441,24 +441,27 @@ describe('dates come to the agent', () => {
   })
 })
 
-describe('the actor comes from GRENIER_ACTOR', () => {
-  test('without GRENIER_ACTOR the server refuses to start, in one sentence', async () => {
+describe('the actor comes from HIPPOCAMPE_ACTOR', () => {
+  test('without HIPPOCAMPE_ACTOR the server refuses to start, in one sentence', async () => {
     const url = await database.runPromise(scratchUrl)
     const { code, stderr } = await startAndExit({ DATABASE_URL: url })
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
-      'The environment variable GRENIER_ACTOR is missing: set it to the name of the agent that writes, such as `agent-laptop`.',
+      'The environment variable HIPPOCAMPE_ACTOR is missing: set it to the name of the agent that writes, such as `agent-laptop`.',
     )
   })
 })
 
-describe('the instance comes from GRENIER_INSTANCE', () => {
-  test('without GRENIER_INSTANCE the server refuses to start, in one sentence', async () => {
+describe('the instance comes from HIPPOCAMPE_INSTANCE', () => {
+  test('without HIPPOCAMPE_INSTANCE the server refuses to start, in one sentence', async () => {
     const url = await database.runPromise(scratchUrl)
-    const { code, stderr } = await startAndExit({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test' })
+    const { code, stderr } = await startAndExit({
+      DATABASE_URL: url,
+      HIPPOCAMPE_ACTOR: 'agent-test',
+    })
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
-      'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.',
+      'The environment variable HIPPOCAMPE_INSTANCE is missing: set it to `production`, `development` or `local`.',
     )
   })
 
@@ -466,12 +469,12 @@ describe('the instance comes from GRENIER_INSTANCE', () => {
     const url = await database.runPromise(scratchUrl)
     const { code, stderr } = await startAndExit({
       DATABASE_URL: url,
-      GRENIER_ACTOR: 'agent-test',
-      GRENIER_INSTANCE: 'staging',
+      HIPPOCAMPE_ACTOR: 'agent-test',
+      HIPPOCAMPE_INSTANCE: 'staging',
     })
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
-      'GRENIER_INSTANCE must be `production`, `development` or `local`: `staging` is not one.',
+      'HIPPOCAMPE_INSTANCE must be `production`, `development` or `local`: `staging` is not one.',
     )
   })
 
@@ -486,8 +489,8 @@ describe('the instance comes from GRENIER_INSTANCE', () => {
     const url = await database.runPromise(scratchUrl)
     const local = await startServer({
       DATABASE_URL: url,
-      GRENIER_ACTOR: 'agent-test',
-      GRENIER_INSTANCE: 'local',
+      HIPPOCAMPE_ACTOR: 'agent-test',
+      HIPPOCAMPE_INSTANCE: 'local',
     })
     try {
       expect(local.serverInfo).toEqual({ name: 'grenier-local', version: 'unknown' })
@@ -501,10 +504,10 @@ describe('the instance comes from GRENIER_INSTANCE', () => {
     const url = await database.runPromise(scratchUrl)
     const production = await startServer({
       DATABASE_URL: url,
-      GRENIER_ACTOR: 'agent-test',
-      GRENIER_INSTANCE: 'production',
-      GRENIER_VERSION: '1.2.3',
-      GRENIER_COMMIT: 'abc1234',
+      HIPPOCAMPE_ACTOR: 'agent-test',
+      HIPPOCAMPE_INSTANCE: 'production',
+      HIPPOCAMPE_VERSION: '1.2.3',
+      HIPPOCAMPE_COMMIT: 'abc1234',
     })
     try {
       expect(production.serverInfo).toEqual({ name: 'grenier', version: '1.2.3' })
@@ -517,7 +520,7 @@ describe('the instance comes from GRENIER_INSTANCE', () => {
   })
 })
 
-describe('the rights come from GRENIER_RIGHTS', () => {
+describe('the rights come from HIPPOCAMPE_RIGHTS', () => {
   test('by default the server reads and writes, and sees no sensitive value', async () => {
     await mcp().call('define_type', {
       name: 'locker',
@@ -539,8 +542,8 @@ describe('the rights come from GRENIER_RIGHTS', () => {
     const url = await database.runPromise(scratchUrl)
     const trusted = await startServer({
       DATABASE_URL: url,
-      GRENIER_ACTOR: 'agent-trusted',
-      GRENIER_RIGHTS: 'read,write,sensitive',
+      HIPPOCAMPE_ACTOR: 'agent-trusted',
+      HIPPOCAMPE_RIGHTS: 'read,write,sensitive',
     })
     try {
       await trusted.call('write', {
@@ -564,12 +567,12 @@ describe('the rights come from GRENIER_RIGHTS', () => {
     const url = await database.runPromise(scratchUrl)
     const { code, stderr } = await startAndExit({
       DATABASE_URL: url,
-      GRENIER_ACTOR: 'agent-test',
-      GRENIER_RIGHTS: 'read,admin',
+      HIPPOCAMPE_ACTOR: 'agent-test',
+      HIPPOCAMPE_RIGHTS: 'read,admin',
     })
     expect(code).toBe(1)
     expect(stderr.trim()).toBe(
-      'GRENIER_RIGHTS must list rights among `read`, `write`, `sensitive`, `owner`, separated by commas: `admin` is not one.',
+      'HIPPOCAMPE_RIGHTS must list rights among `read`, `write`, `sensitive`, `owner`, separated by commas: `admin` is not one.',
     )
   })
 })
@@ -583,7 +586,7 @@ describe('each session starts with the types of the instance', () => {
       fields: [],
     })
     const url = await database.runPromise(scratchUrl)
-    const next = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-next' })
+    const next = await startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-next' })
     try {
       expect(next.instructions).toContain(
         '- `gadget`: Use it when the user mentions a small device they own.',
@@ -599,7 +602,7 @@ describe('each session starts with its working memory', () => {
   test('a session names its key and lists the entries changed most recently, with the key that changed them', async () => {
     await mcp().call('write', { type: 'gadget', title: 'Memory gadget' })
     const url = await database.runPromise(scratchUrl)
-    const next = await startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-memory' })
+    const next = await startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-memory' })
     try {
       expect(next.instructions).toContain('This session writes as the key `agent-memory`.')
       expect(next.instructions).toMatch(

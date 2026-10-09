@@ -42,7 +42,7 @@ The table is written after each run, so a run cut short keeps what it measured. 
    See `fixture.ts`. Every date a task cares about is relative to the day of the run.
 2. For each task and each repeat: copies that database (`CREATE DATABASE … TEMPLATE`), runs the
    task's setup on the copy (some put items in the inbox), starts the real Grenier server on a free
-   port against the copy (`GRENIER_INSTANCE=local`, diagnostics off), and runs the agent.
+   port against the copy (`HIPPOCAMPE_INSTANCE=local`, diagnostics off), and runs the agent.
 3. The agent is Claude Code, headless (`claude -p --output-format stream-json --verbose`), with
    the bench's Grenier as its only source of tools: `--strict-mcp-config` with a generated
    configuration, no built-in tool (`--tools ""`), no settings file (`--setting-sources ""`), no

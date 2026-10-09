@@ -24,7 +24,7 @@ if (own === undefined) {
 // A dependency of the package of the platform: looked for from there.
 const postgres = found(`@embedded-postgres/${platform}`, own)
 const executable = join(own, 'bin', 'grenier')
-const env = { ...process.env, GRENIER_EXECUTABLE: executable }
-if (postgres !== undefined) env.GRENIER_POSTGRES_BINARIES = join(postgres, 'native')
+const env = { ...process.env, HIPPOCAMPE_EXECUTABLE: executable }
+if (postgres !== undefined) env.HIPPOCAMPE_POSTGRES_BINARIES = join(postgres, 'native')
 const ran = spawnSync(executable, process.argv.slice(2), { stdio: 'inherit', env })
 process.exit(ran.status ?? 1)

@@ -60,7 +60,7 @@ export const startServer = async (config: {
       PORT: String(port),
       BETTER_AUTH_SECRET: config.authSecret,
       MEDIA_DIR: config.mediaDir,
-      GRENIER_INSTANCE: 'local',
+      HIPPOCAMPE_INSTANCE: 'local',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

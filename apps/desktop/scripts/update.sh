@@ -8,7 +8,7 @@
 set -eu
 
 update() {
-  API="${GRENIER_RELEASES_API:-https://api.github.com/repos/KristenJestin/grenier/releases/latest}"
+  API="${HIPPOCAMPE_RELEASES_API:-https://api.github.com/repos/KristenJestin/grenier/releases/latest}"
   DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
   BIN="$HOME/.local/bin"
   APPS="$DATA/applications"

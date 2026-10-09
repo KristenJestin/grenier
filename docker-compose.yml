@@ -25,16 +25,16 @@ services:
       context: .
       dockerfile: apps/server/Dockerfile
       args:
-        GRENIER_VERSION: ${GRENIER_VERSION:-unknown}
-        GRENIER_COMMIT: ${GRENIER_COMMIT:-unknown}
+        HIPPOCAMPE_VERSION: ${HIPPOCAMPE_VERSION:-unknown}
+        HIPPOCAMPE_COMMIT: ${HIPPOCAMPE_COMMIT:-unknown}
     env_file:
       - path: .env.production
         required: true
     environment:
-      # A stack started from this file is a local one unless told: `GRENIER_INSTANCE=production`.
-      GRENIER_INSTANCE: ${GRENIER_INSTANCE:-local}
+      # A stack started from this file is a local one unless told: `HIPPOCAMPE_INSTANCE=production`.
+      HIPPOCAMPE_INSTANCE: ${HIPPOCAMPE_INSTANCE:-local}
     ports:
-      - '${GRENIER_BIND:-127.0.0.1}:${GRENIER_PORT:-3000}:3000'
+      - '${HIPPOCAMPE_BIND:-127.0.0.1}:${HIPPOCAMPE_PORT:-3000}:3000'
     volumes:
       - media:/data/media
       - export:/data/export

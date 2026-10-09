@@ -28,7 +28,7 @@ const cli = (...args: ReadonlyArray<string>) =>
 
 /** A session starting now, as an agent, with the given environment. */
 const session = (env: Readonly<Record<string, string>> = {}) =>
-  startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test', ...env })
+  startServer({ DATABASE_URL: url, HIPPOCAMPE_ACTOR: 'agent-test', ...env })
 
 const RULES = `Ask before writing anything private about someone else.
 
@@ -63,7 +63,7 @@ describe('the instance gives its rules to every agent', () => {
     expect(cli('rules:set', file).stdout).toBe('The rules of this instance are set.\n')
     expect(cli('rules:show').stdout).toBe(RULES)
 
-    const server = await session({ GRENIER_DIAGNOSTICS: 'on' })
+    const server = await session({ HIPPOCAMPE_DIAGNOSTICS: 'on' })
     const paragraphs = server.instructions?.split('\n\n') ?? []
     const at = paragraphs.findIndex((paragraph) => paragraph.includes('rules of this instance'))
     // After the instance, how to choose a type, the types, the working memory, how to recall and

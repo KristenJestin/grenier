@@ -67,18 +67,18 @@ const DATABASE_UNIT = 'grenier-postgres.service'
 
 /** How the service runs Grenier: this executable, or Bun and this script in a clone. */
 export const commandOfGrenier = () => {
-  const given = process.env['GRENIER_EXECUTABLE']
+  const given = process.env['HIPPOCAMPE_EXECUTABLE']
   if (given !== undefined) return [given]
   const script = process.argv[1] ?? ''
   return script.endsWith('.ts') ? [process.execPath, script] : [process.execPath]
 }
 
 /**
- * Where the PostgreSQL binaries the package carries are: `GRENIER_POSTGRES_BINARIES`, or the
+ * Where the PostgreSQL binaries the package carries are: `HIPPOCAMPE_POSTGRES_BINARIES`, or the
  * package installed beside Grenier.
  */
 const postgresSource = () =>
-  process.env['GRENIER_POSTGRES_BINARIES'] ??
+  process.env['HIPPOCAMPE_POSTGRES_BINARIES'] ??
   join(
     dirname(createRequire(import.meta.url).resolve('@embedded-postgres/linux-x64/package.json')),
     'native',
@@ -186,8 +186,8 @@ export const install = Effect.fn('install')(function* (home: Home, options: Inst
     writeFileSync(
       home.environment,
       [
-        `GRENIER_INSTANCE=${options.instance}`,
-        `GRENIER_HOST=127.0.0.1`,
+        `HIPPOCAMPE_INSTANCE=${options.instance}`,
+        `HIPPOCAMPE_HOST=127.0.0.1`,
         `PORT=${options.port}`,
         `DATABASE_URL=postgres://grenier:${password}@127.0.0.1:${options.databasePort}/postgres`,
         `BETTER_AUTH_SECRET=${randomBytes(32).toString('base64url')}`,
@@ -201,7 +201,7 @@ export const install = Effect.fn('install')(function* (home: Home, options: Inst
   const environment = readEnvironment(home.environment)
   const databasePort = Number(new URL(environment['DATABASE_URL'] ?? '').port)
   const port = Number(environment['PORT'] ?? options.port)
-  const instance = environment['GRENIER_INSTANCE'] ?? options.instance
+  const instance = environment['HIPPOCAMPE_INSTANCE'] ?? options.instance
   // Installed already, the file decides: an install never moves a database under its server.
   const kept =
     !fresh &&

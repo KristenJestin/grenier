@@ -34,14 +34,14 @@ export const mcpServerName = (name: InstanceName) =>
 
 export class InstanceMissing extends Schema.TaggedError<InstanceMissing>()('InstanceMissing', {}) {
   override readonly message =
-    'The environment variable GRENIER_INSTANCE is missing: set it to `production`, `development` or `local`.'
+    'The environment variable HIPPOCAMPE_INSTANCE is missing: set it to `production`, `development` or `local`.'
 }
 
 export class InstanceUnknown extends Schema.TaggedError<InstanceUnknown>()('InstanceUnknown', {
   value: Schema.String,
 }) {
   override get message() {
-    return `GRENIER_INSTANCE must be \`production\`, \`development\` or \`local\`: \`${this.value}\` is not one.`
+    return `HIPPOCAMPE_INSTANCE must be \`production\`, \`development\` or \`local\`: \`${this.value}\` is not one.`
   }
 }
 
@@ -50,27 +50,30 @@ export class DiagnosticsUnknown extends Schema.TaggedError<DiagnosticsUnknown>()
   { value: Schema.String },
 ) {
   override get message() {
-    return `GRENIER_DIAGNOSTICS must be \`on\` or \`off\`: \`${this.value}\` is not one.`
+    return `HIPPOCAMPE_DIAGNOSTICS must be \`on\` or \`off\`: \`${this.value}\` is not one.`
   }
 }
 
 /**
- * The instance of the environment: `GRENIER_INSTANCE` (required), `GRENIER_INSTANCE_LABEL`,
- * `GRENIER_VERSION` and `GRENIER_COMMIT` (`unknown` when not set), and `GRENIER_DIAGNOSTICS`
+ * The instance of the environment: `HIPPOCAMPE_INSTANCE` (required), `HIPPOCAMPE_INSTANCE_LABEL`,
+ * `HIPPOCAMPE_VERSION` and `HIPPOCAMPE_COMMIT` (`unknown` when not set), and `HIPPOCAMPE_DIAGNOSTICS`
  * (`on` or `off`, off when not set).
  */
 export const instanceFromEnvironment = Effect.gen(function* () {
-  const value = yield* Config.String('GRENIER_INSTANCE').pipe(Config.withDefault(''), Effect.orDie)
+  const value = yield* Config.String('HIPPOCAMPE_INSTANCE').pipe(
+    Config.withDefault(''),
+    Effect.orDie,
+  )
   if (value.trim() === '') return yield* new InstanceMissing()
   const name = yield* Schema.decodeUnknownEffect(InstanceName)(value).pipe(
     Effect.mapError(() => new InstanceUnknown({ value })),
   )
   const optional = (variable: string) =>
     Config.String(variable).pipe(Config.withDefault(''), Effect.orDie)
-  const label = yield* optional('GRENIER_INSTANCE_LABEL')
-  const version = yield* optional('GRENIER_VERSION')
-  const commit = yield* optional('GRENIER_COMMIT')
-  const diagnostics = (yield* optional('GRENIER_DIAGNOSTICS')) || 'off'
+  const label = yield* optional('HIPPOCAMPE_INSTANCE_LABEL')
+  const version = yield* optional('HIPPOCAMPE_VERSION')
+  const commit = yield* optional('HIPPOCAMPE_COMMIT')
+  const diagnostics = (yield* optional('HIPPOCAMPE_DIAGNOSTICS')) || 'off'
   if (diagnostics !== 'on' && diagnostics !== 'off')
     return yield* new DiagnosticsUnknown({ value: diagnostics })
   return {

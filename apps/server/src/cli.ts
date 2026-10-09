@@ -26,6 +26,7 @@ import { layer as database, migrate } from './core/database/index.ts'
 import { formatSchemaError } from '@hippocampe/api/schema'
 import { homeOf, loadInstalledEnvironment } from './local/home.ts'
 import * as service from './local/service.ts'
+import { legacyVariableSentence } from './core/legacy-variables.ts'
 import { serveProgram } from './serve.ts'
 import { Console, Effect, Layer, Option, Schema } from 'effect'
 import { Argument, Command, Flag } from 'effect/cli'
@@ -659,20 +660,27 @@ export const grenier = Command.make('grenier').pipe(
 )
 
 if (import.meta.main) {
-  // A command run on a machine where Grenier is installed reaches that Grenier.
-  loadInstalledEnvironment()
-  // The version a release builds in (`bun build --define`), unless the environment gives one;
-  // in a clone, none: the server says `unknown`.
-  const built = process.env.GRENIER_BUILT_VERSION
-  if (built !== undefined) process.env['GRENIER_VERSION'] ??= built
-  Command.run(grenier, { version: process.env['GRENIER_VERSION'] ?? 'unknown' }).pipe(
-    Effect.provide(BunServices.layer),
-    // The command line has said what was wrong already.
-    Effect.catch(() =>
-      Effect.sync(() => {
-        process.exitCode = 1
-      }),
-    ),
-    BunRuntime.runMain,
-  )
+  // Never read silently: a variable of the old name is refused, before anything else runs.
+  const stale = legacyVariableSentence(process.env)
+  if (stale !== undefined) {
+    console.error(stale)
+    process.exitCode = 1
+  } else {
+    // A command run on a machine where Grenier is installed reaches that Grenier.
+    loadInstalledEnvironment()
+    // The version a release builds in (`bun build --define`), unless the environment gives one;
+    // in a clone, none: the server says `unknown`.
+    const built = process.env.HIPPOCAMPE_BUILT_VERSION
+    if (built !== undefined) process.env['HIPPOCAMPE_VERSION'] ??= built
+    Command.run(grenier, { version: process.env['HIPPOCAMPE_VERSION'] ?? 'unknown' }).pipe(
+      Effect.provide(BunServices.layer),
+      // The command line has said what was wrong already.
+      Effect.catch(() =>
+        Effect.sync(() => {
+          process.exitCode = 1
+        }),
+      ),
+      BunRuntime.runMain,
+    )
+  }
 }

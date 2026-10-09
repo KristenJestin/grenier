@@ -46,7 +46,11 @@ describe('the cache of the tests sees what the tests read', () => {
 
   test('the root .env and the variables the tests read are part of their hash', () => {
     const tasks = plan()
-    for (const id of ['@hippocampe/server#test', '@hippocampe/api#test', '@hippocampe/tools#test']) {
+    for (const id of [
+      '@hippocampe/server#test',
+      '@hippocampe/api#test',
+      '@hippocampe/tools#test',
+    ]) {
       const { inputs, env } = tasks.get(id)!.resolvedTaskDefinition
       expect(inputs.some((input) => input.endsWith('.env') && !input.includes('*'))).toBe(true)
       expect(env).toEqual(expect.arrayContaining(['DATABASE_URL', 'SEARCH_LANGUAGE']))

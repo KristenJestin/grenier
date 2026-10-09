@@ -30,7 +30,7 @@ const ToolResult = Schema.Struct({
  */
 export async function startServer(env: Readonly<Record<string, string>>) {
   const server = spawn(process.execPath, [MAIN], {
-    env: { PATH: process.env['PATH'] ?? '', GRENIER_INSTANCE: 'development', ...env },
+    env: { PATH: process.env['PATH'] ?? '', HIPPOCAMPE_INSTANCE: 'development', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   const waiting = new Map<number, (response: Response) => void>()

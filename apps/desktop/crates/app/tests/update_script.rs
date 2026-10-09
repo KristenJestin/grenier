@@ -149,7 +149,7 @@ fn run(
         .args(arguments)
         .env("HOME", home)
         .env_remove("XDG_DATA_HOME")
-        .env("GRENIER_RELEASES_API", latest)
+        .env("HIPPOCAMPE_RELEASES_API", latest)
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .output()
         .unwrap()

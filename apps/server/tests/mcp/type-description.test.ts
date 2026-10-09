@@ -8,7 +8,11 @@ let url = ''
 
 /** A session starting now, as an agent whose key has `read` and `write`, not `owner`. */
 const session = () =>
-  startServer({ DATABASE_URL: url, GRENIER_ACTOR: 'agent-test', GRENIER_RIGHTS: 'read,write' })
+  startServer({
+    DATABASE_URL: url,
+    HIPPOCAMPE_ACTOR: 'agent-test',
+    HIPPOCAMPE_RIGHTS: 'read,write',
+  })
 
 beforeAll(async () => {
   url = await database.runPromise(

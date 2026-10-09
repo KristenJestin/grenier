@@ -47,7 +47,7 @@ port=$((40000 + $$ % 10000))
 database_pid=$!
 
 server_port=$((port + 1))
-HOME="$scratch/home" GRENIER_INSTANCE=local PORT="$server_port" \
+HOME="$scratch/home" HIPPOCAMPE_INSTANCE=local PORT="$server_port" \
   DATABASE_URL="postgres://grenier:proof@127.0.0.1:$port/postgres" \
   BETTER_AUTH_SECRET="proof-of-the-package-0123456789abcdef0123" MEDIA_DIR="$scratch/media" \
   "$grenier" serve >"$scratch/server.log" 2>&1 &

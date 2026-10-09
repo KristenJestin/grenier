@@ -68,8 +68,8 @@ beforeAll(() => {
       { source: 'native/lib/libicuuc.so.60.2', target: 'native/lib/libicuuc.so.60' },
     ]),
   )
-  process.env['GRENIER_POSTGRES_BINARIES'] = binaries
-  process.env['GRENIER_EXECUTABLE'] = '/opt/grenier/bin/grenier'
+  process.env['HIPPOCAMPE_POSTGRES_BINARIES'] = binaries
+  process.env['HIPPOCAMPE_EXECUTABLE'] = '/opt/grenier/bin/grenier'
 })
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
@@ -78,8 +78,8 @@ describe('grenier service install', () => {
   test('folders, a private environment, the database, two units started, an owner and a key', async () => {
     const said = await run(service.install(home, options))
     const environment = readFileSync(home.environment, 'utf8')
-    expect(environment).toMatch(/^GRENIER_INSTANCE=production$/m)
-    expect(environment).toMatch(/^GRENIER_HOST=127\.0\.0\.1$/m)
+    expect(environment).toMatch(/^HIPPOCAMPE_INSTANCE=production$/m)
+    expect(environment).toMatch(/^HIPPOCAMPE_HOST=127\.0\.0\.1$/m)
     expect(environment).toMatch(
       /^DATABASE_URL=postgres:\/\/grenier:[\w-]+@127\.0\.0\.1:7469\/postgres$/m,
     )

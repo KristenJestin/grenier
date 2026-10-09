@@ -45,7 +45,7 @@ execFileSync(
   [
     'build',
     '--compile',
-    `--define=process.env.GRENIER_BUILT_VERSION=${JSON.stringify(version)}`,
+    `--define=process.env.HIPPOCAMPE_BUILT_VERSION=${JSON.stringify(version)}`,
     'src/cli.ts',
     '--outfile',
     join(platform, 'bin', 'grenier'),

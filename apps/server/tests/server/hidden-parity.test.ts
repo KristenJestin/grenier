@@ -60,7 +60,7 @@ beforeAll(async () => {
       PORT: String(port),
       BETTER_AUTH_SECRET: SECRET,
       MEDIA_DIR: media,
-      GRENIER_INSTANCE: 'local',
+      HIPPOCAMPE_INSTANCE: 'local',
     },
     stdio: ['ignore', 'ignore', 'ignore'],
   })
