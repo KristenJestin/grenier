@@ -937,6 +937,10 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           problems.push(
             'The field `edits` changes the body of an existing entry: give `entry`, and no `body` with it.',
           )
+        } else if ((append === true || prepend === true) && given.body?.trim() === '') {
+          problems.push(
+            `The field \`body\` is the part to ${append === true ? 'append' : 'prepend'}: give it some text, not only whitespace.`,
+          )
         }
         problems.push(...edited.problems)
         const instants = { created, updated }

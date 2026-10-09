@@ -78,6 +78,30 @@ describe('a part added at the top of a body', () => {
     expect(await bodyOf('wasp-log')).toBe('Nest found.\n')
   })
 
+  test('a part made only of whitespace is refused by prepend and by append, and changes nothing', async () => {
+    await plain(writeEntry({ type: 'note', title: 'Gnat log', body: 'Lamp on.\n' }))
+    const parts = ['  ', '\n\n', ' \t\n']
+    const prepended = await Promise.all(
+      parts.map((part) => refusalOf(writeEntry({ entry: 'gnat-log', body: part, prepend: true }))),
+    )
+    const appended = await Promise.all(
+      parts.map((part) => refusalOf(writeEntry({ entry: 'gnat-log', body: part, append: true }))),
+    )
+    expect(new Set(prepended)).toEqual(
+      new Set(['The field `body` is the part to prepend: give it some text, not only whitespace.']),
+    )
+    expect(new Set(appended)).toEqual(
+      new Set(['The field `body` is the part to append: give it some text, not only whitespace.']),
+    )
+    expect(await bodyOf('gnat-log')).toBe('Lamp on.\n')
+  })
+
+  test('a part with text around its whitespace is kept as it is', async () => {
+    await plain(writeEntry({ type: 'note', title: 'Fly log', body: 'Window shut.\n' }))
+    await plain(writeEntry({ entry: 'fly-log', body: '  Indented note.', prepend: true }))
+    expect(await bodyOf('fly-log')).toBe('  Indented note.\n\nWindow shut.\n')
+  })
+
   test('prepend on an entry that does not exist is refused as append is', async () => {
     const appended = await refusalOf(
       writeEntry({ entry: 'cricket-log', body: 'Night.', append: true }),

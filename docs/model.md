@@ -55,10 +55,11 @@ the `body` given is added at the end of the current body: a body too long for on
 journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
 sees a whole number of parts. With `prepend: true`, the `body` given goes at the top, one blank
 line before the current body, in one write: a journal kept newest first, or a "Resume here" that
-comes before the rest; `append` and `prepend` together, or either with `edits`, are refused.
-With `edits: [{ find, replace }]`, a few words of the body change in place: each `find` must match the body, as the edits before it left it, exactly once, or the
-write is refused naming each edit that matches twice or never; all apply in one write and one
-event, so an agent never retypes a long body to change a word.
+comes before the rest; `append` and `prepend` together, or either with `edits`, are refused, and
+so is a part made only of whitespace. With `edits: [{ find, replace }]`, a few words of the body
+change in place: each `find` must match the body, as the edits before it left it, exactly once,
+or the write is refused naming each edit that matches twice or never; all apply in one write and
+one event, so an agent never retypes a long body to change a word.
 
 ## Types are data
 
