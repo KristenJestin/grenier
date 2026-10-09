@@ -10,4 +10,5 @@ export {
   writeEntry,
 } from './operations.ts'
 export { slugsOf } from './slugs.ts'
+export { recentEntries } from './recent.ts'
 export { ReviewFilter, setVerified, Unverified, unverified } from './review.ts'
