@@ -8,7 +8,9 @@ export const archiveTool = defineTool({
     'Archives an entry; nothing is ever deleted. Say why in `reason`, in a few words (`Replaced by the 2026 contract.`): it is read with `archived_at`, so that no one takes the archive for a mistake. Archived already, a new `reason` replaces the old one, its date kept.',
   input: Schema.Struct({
     entry: Reference,
-    reason: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+    reason: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))).annotate({
+      description: 'Why it is archived, in a few words (200 characters at most).',
+    }),
   }),
   right: 'write',
   hints: { destructive: true, idempotent: true },

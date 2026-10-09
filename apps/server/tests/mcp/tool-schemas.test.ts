@@ -16,6 +16,20 @@ function nested(schema: Schema.Json): ReadonlyArray<Readonly<Record<string, Sche
   })
 }
 
+/** An object schema: its properties by name. */
+const Properties = Schema.Struct({ properties: Schema.Record(Schema.String, Schema.Json) })
+
+/** Whether a property says what it is: a description of its own, or of every way it may be. */
+const hasDescription = (property: Schema.Json): boolean =>
+  Option.match(
+    Schema.decodeUnknownOption(
+      Schema.Struct({
+        description: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
+      }),
+    )(property),
+    { onNone: () => false, onSome: ({ description }) => description !== undefined },
+  )
+
 /** The input schema of a tool as plain JSON, the way a client receives it. */
 const jsonOf = (tool: { readonly input: Schema.Top }) =>
   Schema.decodeUnknownSync(Schema.Json)(toToolInputSchema(tool.input))
@@ -41,5 +55,22 @@ describe('input schemas tell the truth about unknown keys', () => {
     )(jsonOf(historyTool))
     expect(properties['limit']).toMatchObject({ type: 'integer' })
     expect(JSON.stringify(properties['limit'])).not.toContain('Infinity')
+  })
+})
+
+describe('every parameter of every tool is described', () => {
+  test('a property without a description fails, at any depth', () => {
+    const bare = schemas.flatMap(({ name, schema }) =>
+      nested(schema).flatMap((node) =>
+        Option.match(Schema.decodeUnknownOption(Properties)(node), {
+          onNone: () => [],
+          onSome: ({ properties }) =>
+            Object.entries(properties)
+              .filter(([, property]) => !hasDescription(property))
+              .map(([property]) => `${name}.${property}`),
+        }),
+      ),
+    )
+    expect([...new Set(bare)].toSorted()).toEqual([])
   })
 })

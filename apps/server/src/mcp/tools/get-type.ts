@@ -6,7 +6,9 @@ export const getTypeTool = defineTool({
   name: 'get_type',
   description:
     'Reads a type and its fields. Its description says what the type is and when to use it.',
-  input: Schema.Struct({ name: Schema.String }),
+  input: Schema.Struct({
+    name: Schema.String.annotate({ description: 'The name of the type.' }),
+  }),
   right: 'read',
   run: ({ name }) => Effect.map(getType(name), (type) => ({ type })),
 })

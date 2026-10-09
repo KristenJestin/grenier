@@ -21,12 +21,24 @@ export const ITEM_STATUSES = ['pending', 'taken', 'processed', 'dismissed'] as c
  * and where it came from. One object, so that an MCP tool takes it at its root.
  */
 export const InboxInput = Schema.Struct({
-  kind: Schema.Literals(['text', 'url', 'file']),
-  text: Schema.optionalKey(Schema.String),
-  url: Schema.optionalKey(Schema.String),
-  name: Schema.optionalKey(Schema.String),
-  data: Schema.optionalKey(Schema.String),
-  origin: Schema.optionalKey(Schema.String),
+  kind: Schema.Literals(['text', 'url', 'file']).annotate({
+    description:
+      'What the item is: a `text`, a `url` or a `file`. A `text` needs `text`, a `url` needs `url`, a `file` needs `name` and `data`.',
+  }),
+  text: Schema.optionalKey(Schema.String).annotate({ description: 'For a `text` item: the text.' }),
+  url: Schema.optionalKey(Schema.String).annotate({
+    description: 'For a `url` item: the address, kept as given (the server does not fetch it).',
+  }),
+  name: Schema.optionalKey(Schema.String).annotate({
+    description: 'For a `file` item: the name of the file, with its extension.',
+  }),
+  data: Schema.optionalKey(Schema.String).annotate({
+    description: 'For a `file` item: the content of the file in base64.',
+  }),
+  origin: Schema.optionalKey(Schema.String).annotate({
+    description:
+      'Where the item comes from, such as an app or a person, to list the inbox by origin.',
+  }),
 })
 export type InboxInput = typeof InboxInput.Type
 
@@ -201,7 +213,9 @@ export const addToInbox = Effect.fn('addToInbox')(function* (input: InboxInput) 
 })
 
 export const InboxFilter = Schema.Struct({
-  status: Schema.optionalKey(Schema.Literals(ITEM_STATUSES)),
+  status: Schema.optionalKey(Schema.Literals(ITEM_STATUSES)).annotate({
+    description: 'Only the items with this status.',
+  }),
   origin: Schema.optionalKey(Schema.String.annotate({ description: 'This origin exactly.' })),
   origin_prefix: Schema.optionalKey(
     Schema.String.annotate({ description: 'The origins that start with this text.' }),
@@ -585,18 +599,23 @@ export const takeItems = Effect.fn('takeItems')(function* (ids: ReadonlyArray<st
 })
 
 export const FinishInput = Schema.Struct({
-  id: Schema.String,
+  id: Schema.String.annotate({ description: 'The id of the item you took.' }),
   entries: Schema.Array(
     Schema.Union([
       Schema.String,
       Schema.Struct({
-        entry: Schema.String,
-        attach: Schema.Struct({ alt: Schema.optionalKey(Schema.String) }).annotate({
+        entry: Schema.String.annotate({ description: 'The slug or id of the entry.' }),
+        attach: Schema.Struct({
+          alt: Schema.optionalKey(Schema.String).annotate({ description: 'What the file shows.' }),
+        }).annotate({
           description: "Attaches the item's file to this entry, with what it shows as `alt`.",
         }),
       }),
     ]),
-  ),
+  ).annotate({
+    description:
+      "The entries the item produced or updated, by slug or id, at least one. Give `{ entry, attach: { alt } }` for the entry that gets the item's file.",
+  }),
 })
 export type FinishInput = typeof FinishInput.Type
 
@@ -698,8 +717,10 @@ export const releaseItem = Effect.fn('releaseItem')(function* (id: string) {
 })
 
 export const DismissInput = Schema.Struct({
-  id: Schema.String,
-  reason: Schema.String.check(Schema.isNonEmpty({ expected: 'a reason that is not empty' })),
+  id: Schema.String.annotate({ description: 'The id of the item to set aside.' }),
+  reason: Schema.String.check(
+    Schema.isNonEmpty({ expected: 'a reason that is not empty' }),
+  ).annotate({ description: 'Why the item gives no entry, in a few words.' }),
 })
 export type DismissInput = typeof DismissInput.Type
 

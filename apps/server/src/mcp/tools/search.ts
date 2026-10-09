@@ -7,7 +7,13 @@ export const searchTool = defineTool({
   name: 'search',
   description:
     'Searches entries in full text: titles, aliases, tags and summaries first, then bodies.',
-  input: Schema.Struct({ query: Schema.String, ...SearchOptions.fields }),
+  input: Schema.Struct({
+    query: Schema.String.annotate({
+      description:
+        'The words to search for: in titles, aliases, tags and summaries, then in bodies.',
+    }),
+    ...SearchOptions.fields,
+  }),
   right: 'read',
   run: ({ query, ...options }) => Effect.map(search(query, options), (results) => ({ results })),
 })

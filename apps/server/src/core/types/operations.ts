@@ -206,11 +206,17 @@ export const addField = Effect.fn('addField')(function* (
  * same type are read in their parent. What it does not give stays.
  */
 export const ChangeTypeInput = Schema.Struct({
-  type: Schema.String,
+  type: Schema.String.annotate({ description: 'The name of the type to change.' }),
   label: Schema.optionalKey(TypeDefinition.fields.label),
   description: Schema.optionalKey(TypeDefinition.fields.description),
-  sensitive: Schema.optionalKey(Schema.Boolean),
-  read_in_parent: Schema.optionalKey(Schema.Boolean),
+  sensitive: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Make every entry of the type sensitive (shown only to a key with the right `sensitive`). Only the owner lifts it, from the command line.',
+  }),
+  read_in_parent: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Entries of the type filed under an entry of the same type are read as the parts of their parent, in its page.',
+  }),
 })
 export type ChangeTypeInput = typeof ChangeTypeInput.Type
 

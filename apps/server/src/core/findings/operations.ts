@@ -36,7 +36,10 @@ export const FindingReport = Schema.Struct({
     Schema.isNonEmpty({ expected: 'text that is not empty' }),
     Schema.isMaxLength(200, { expected: 'text of 200 characters at most' }),
   ).annotate({ description: 'The problem in one line, naming entries by slug only.' }),
-  kind: Schema.Literals(FINDING_KINDS),
+  kind: Schema.Literals(FINDING_KINDS).annotate({
+    description:
+      'What kind of problem: a `bug`, a `tool_error`, an `unclear_refusal`, a `missing_capability`, a `wrong_state`, something `slow`, `model_friction` (the data model gets in the way) or `other`.',
+  }),
   place: Schema.String.check(
     Schema.isNonEmpty({ expected: 'text that is not empty' }),
     Schema.isMaxLength(200, { expected: 'text of 200 characters at most' }),

@@ -9,17 +9,34 @@ export const HIDDEN = '[hidden]'
 /** How a field's value was obtained: read in a source, inferred from it, or left unsure. */
 export const PROVENANCES = ['extracted', 'inferred', 'ambiguous'] as const
 
-const About = { note: Schema.optionalKey(Schema.String) }
+const About = {
+  note: Schema.optionalKey(Schema.String).annotate({
+    description: 'A few words on what this source gave.',
+  }),
+}
 
 /** A URL source, an external identifier, or an item of the inbox. */
 const Elsewhere = [
-  Schema.Struct({ url: Schema.String, ...About }).annotate({ identifier: 'SourceUrl' }),
   Schema.Struct({
-    identifier: Schema.String,
-    label: Schema.optionalKey(Schema.String),
+    url: Schema.String.annotate({ description: 'The address of the page the entry comes from.' }),
+    ...About,
+  }).annotate({ identifier: 'SourceUrl' }),
+  Schema.Struct({
+    identifier: Schema.String.annotate({
+      description: 'An identifier outside Grenier, such as a ticket number or an ISBN.',
+    }),
+    label: Schema.optionalKey(Schema.String).annotate({
+      description: 'What the identifier names, such as `ticket`.',
+    }),
     ...About,
   }).annotate({ identifier: 'SourceIdentifier' }),
-  Schema.Struct({ source: Schema.String, item: Schema.String, ...About }).annotate({
+  Schema.Struct({
+    source: Schema.String.annotate({
+      description: 'Where the item came from: `inbox` for an item of the inbox.',
+    }),
+    item: Schema.String.annotate({ description: 'The id of the inbox item.' }),
+    ...About,
+  }).annotate({
     identifier: 'SourceItem',
   }),
 ] as const
@@ -30,7 +47,10 @@ const Elsewhere = [
  * each may say a short note.
  */
 export const SourceGiven = Schema.Union([
-  Schema.Struct({ entry: Schema.String, ...About }),
+  Schema.Struct({
+    entry: Schema.String.annotate({ description: 'The slug or id of the entry it comes from.' }),
+    ...About,
+  }),
   ...Elsewhere,
 ])
 export type SourceGiven = typeof SourceGiven.Type
@@ -117,29 +137,95 @@ export type TreeEntry = typeof TreeEntry.Type
  * reported at once.
  */
 export const WriteEntryInput = Schema.Struct({
-  entry: Schema.optionalKey(Schema.String),
-  type: Schema.optionalKey(Schema.String),
-  title: Schema.optionalKey(Schema.String),
-  slug: Schema.optionalKey(Schema.String),
-  aliases: Schema.optionalKey(Schema.Array(Schema.String)),
-  tags: Schema.optionalKey(Schema.Array(Schema.String)),
-  parent: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
-  provenance: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
-  sources: Schema.optionalKey(Schema.Array(SourceGiven)),
-  body: Schema.optionalKey(Schema.String),
-  append: Schema.optionalKey(Schema.Boolean),
-  prepend: Schema.optionalKey(Schema.Boolean),
+  entry: Schema.optionalKey(Schema.String).annotate({
+    description: 'The slug or id of the entry to update. Leave it out to create an entry.',
+  }),
+  type: Schema.optionalKey(Schema.String).annotate({
+    description:
+      "The name of the entry's type: required to create an entry. Another type on an update changes the type of the entry, refused while its values would not fit.",
+  }),
+  title: Schema.optionalKey(Schema.String).annotate({
+    description: 'The title of the entry: required to create an entry.',
+  }),
+  slug: Schema.optionalKey(Schema.String).annotate({
+    description:
+      'The address of the entry: lowercase words joined by dashes, unique. Made from the title when left out; changing it renames the entry and the `[[references]]` to it follow.',
+  }),
+  aliases: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description:
+      'Other names of the entry, which a search and a `[[reference]]` find it by. The list replaces the one stored.',
+  }),
+  tags: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: 'Short labels a search can filter by. The list replaces the one stored.',
+  }),
+  parent: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description:
+      'The slug or id of the entry this one is filed under; `null` files it at the top of the tree.',
+  }),
+  fields: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)).annotate({
+    description:
+      "The values of the fields of the entry's type, by field name. Only the keys given change; a `null` removes a value.",
+  }),
+  provenance: Schema.optionalKey(
+    Schema.Record(Schema.String, Schema.NullOr(Schema.String)),
+  ).annotate({
+    description:
+      'How each value of `fields` was obtained, by field name: `extracted` (read in a source), `inferred` or `ambiguous`. A `null` removes it.',
+  }),
+  sources: Schema.optionalKey(Schema.Array(SourceGiven)).annotate({
+    description:
+      'Where the entry comes from: another entry, a URL, an external identifier or an inbox item. The list replaces the one stored.',
+  }),
+  body: Schema.optionalKey(Schema.String).annotate({
+    description:
+      'The text of the entry, in Markdown; cite another entry as `[[slug]]`. With `append` or `prepend`, only the part to add.',
+  }),
+  append: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Add `body` at the end of the body stored: a body too long for one call is written in parts.',
+  }),
+  prepend: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Add `body` at the top of the body stored, one blank line before it: a journal kept newest first.',
+  }),
   edits: Schema.optionalKey(
-    Schema.Array(Schema.Struct({ find: Schema.String, replace: Schema.String })),
-  ),
-  summary: Schema.optionalKey(Schema.String),
-  verified: Schema.optionalKey(Schema.Boolean),
-  valid_from: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  valid_until: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  superseded_by: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  created: Schema.optionalKey(Schema.String),
-  updated: Schema.optionalKey(Schema.String),
+    Schema.Array(
+      Schema.Struct({
+        find: Schema.String.annotate({
+          description: 'The text to change, exactly as it is in the body; it must match once.',
+        }),
+        replace: Schema.String.annotate({ description: 'The text that takes its place.' }),
+      }),
+    ),
+  ).annotate({
+    description:
+      'Changes of a few words of the body of an existing entry, applied in order: give `entry`, and no `body`.',
+  }),
+  summary: Schema.optionalKey(Schema.String).annotate({
+    description: 'One or two sentences on what the entry is, shown in search results and lists.',
+  }),
+  verified: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      'Whether the owner has reviewed the entry. Only the owner sets it to true; a write by another key sets it back to false.',
+  }),
+  valid_from: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description:
+      'The first day what the entry says holds, such as `2026-01-01`; `null` removes it.',
+  }),
+  valid_until: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description: 'The last day what the entry says holds, such as `2026-12-31`; `null` removes it.',
+  }),
+  superseded_by: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description: 'The slug or id of the entry that replaces this one; `null` removes it.',
+  }),
+  created: Schema.optionalKey(Schema.String).annotate({
+    description:
+      'When a note was first written, a date such as `2026-10-05` or a date and time: to keep the real date of an old note.',
+  }),
+  updated: Schema.optionalKey(Schema.String).annotate({
+    description:
+      'The time of the last change, a date or a date and time: only when the entry is created, otherwise the time of the write.',
+  }),
 })
 export type WriteEntryInput = typeof WriteEntryInput.Type
 
