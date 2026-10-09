@@ -4,6 +4,7 @@ import { Rights } from '../auth/rights.ts'
 import { rowsOf } from '../database/rows.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
+import { LAST_WRITER } from './last-writer.ts'
 import { findEntry, TREE_DEPTH, writeEntry } from './operations.ts'
 
 /**
@@ -65,10 +66,7 @@ export const unverified = Effect.fn('unverified')(function* (filter: ReviewFilte
     ) CYCLE id SET looped USING trail
     SELECT e.id::text AS id, e.slug, e.type, e.title,
       to_char(e.updated AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated,
-      -- Who last wrote it, not the link a reference resolved by itself when its entry came.
-      (SELECT actor FROM events WHERE entry_id = e.id
-        AND NOT (action = 'link' AND changes -> 0 ->> 'field' = 'links.mentions')
-        ORDER BY id DESC LIMIT 1) AS by
+      ${sql.literal(LAST_WRITER)} AS by
     FROM entries e
     WHERE NOT e.verified AND e.archived_at IS NULL
       AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
