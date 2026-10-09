@@ -328,7 +328,7 @@ place that holds today as the entry's parent, and a place that is over among its
   first stay.
 - **No loop.** A place that holds today may not make an entry part of itself or of one of its own
   parts, at any depth, through the places that hold: the write or the link is refused in one
-  sentence. A place that is over, or has not begun, makes no loop. Every change of a place (a
+  sentence. A place that is over, or has not begun, makes no loop, so the check covers only the links that hold today: a link dated in the future may close a loop on the day it begins. Reads tolerate it (a walk of the tree never visits an entry twice, and `path` stops where it would repeat). Every change of a place (a
   write that names `parent`, `link` and `unlink` with `part_of`) takes the tree lock first, then
   the slugs, then the rows, so that two moves can never close a loop together.
 - **One stay at a time.** Two stays of an entry in one place never hold on the same days, so a

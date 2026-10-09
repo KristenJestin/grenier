@@ -98,6 +98,9 @@ describe('an entry is written and read back with every base field', () => {
     )
     const { entry } = await run(readEntry('internet-at-home'))
     expect(entry).toEqual(written)
+    expect((await run(readEntry('internet-at-home'))).part_of).toEqual([
+      expect.objectContaining({ id: holder.id, provenance: 'inferred', valid_until: null }),
+    ])
     expect(entry).toMatchObject({
       type: 'contract',
       title: 'Internet at home',
