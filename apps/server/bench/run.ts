@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { Effect, Schedule } from 'effect'
 import { createScratchDatabase, dropScratchDatabase } from '../src/core/testing.ts'
 import { seedInstance } from './fixture.ts'
-import { startServer } from './grenier-server.ts'
+import { startServer } from './hippocampe-server.ts'
 import { measure } from './measure.ts'
 import type { RunRecord } from './measure.ts'
 import { reportOf } from './report.ts'
@@ -50,7 +50,7 @@ const logLine = (record: RunRecord) =>
 
 /**
  * Runs the bench: makes the invented instance in a database of its own, then for each task a fresh
- * copy of it, a Grenier server on that copy, the agent, and the check on what it left; every
+ * copy of it, a Hippocampe server on that copy, the agent, and the check on what it left; every
  * database is dropped at the end, whatever happened (an interruption included). The table and the
  * raw runs are written after each run, so a run cut short keeps what it measured.
  */
@@ -63,7 +63,7 @@ export const runBench = async (options: BenchOptions) => {
   process.once('SIGINT', interrupted)
   process.once('SIGTERM', interrupted)
   const authSecret = crypto.randomUUID() + crypto.randomUUID()
-  const media = mkdtempSync(join(tmpdir(), 'grenier-bench-media-'))
+  const media = mkdtempSync(join(tmpdir(), 'hippocampe-bench-media-'))
   cleanups.add(async () => rmSync(media, { recursive: true, force: true }))
   const records: Array<RunRecord> = []
   const day = today()
@@ -84,7 +84,7 @@ export const runBench = async (options: BenchOptions) => {
 
   /** One run of one task, on a copy of the template of its own. */
   const runOnce = async (task: Task, repeat: number, template: string, key: string) => {
-    const name = unique('grenier_bench_run')
+    const name = unique('hippocampe_bench_run')
     const drop = () => Effect.runPromise(dropScratchDatabase(name))
     cleanups.add(drop)
     const url = await copyOf(template, name)
@@ -124,7 +124,7 @@ export const runBench = async (options: BenchOptions) => {
   }
 
   try {
-    const template = unique('grenier_bench_template')
+    const template = unique('hippocampe_bench_template')
     cleanups.add(() => Effect.runPromise(dropScratchDatabase(template)))
     const templateUrl = await Effect.runPromise(createScratchDatabase(template))
     const seeding = runtimeOn(templateUrl, authSecret)

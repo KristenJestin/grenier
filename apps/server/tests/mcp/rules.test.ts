@@ -10,7 +10,7 @@ import { ScratchDatabase, scratchDatabase } from '../../src/core/testing.ts'
 import { startServer } from './stdio-client.ts'
 
 const APP = new URL('../..', import.meta.url).pathname
-const scratch = mkdtempSync(join(tmpdir(), 'grenier-rules-'))
+const scratch = mkdtempSync(join(tmpdir(), 'hippocampe-rules-'))
 const database = ManagedRuntime.make(scratchDatabase)
 let url = ''
 
@@ -68,7 +68,7 @@ describe('the instance gives its rules to every agent', () => {
     const at = paragraphs.findIndex((paragraph) => paragraph.includes('rules of this instance'))
     // After the instance, how to choose a type, the types, the working memory, how to recall and
     // diagnostics; before how to write an entry and how an inbox item becomes entries.
-    expect(paragraphs[1]).toMatch(/^Grenier keeps entries/)
+    expect(paragraphs[1]).toMatch(/^Hippocampe keeps entries/)
     expect(paragraphs[3]).toMatch(/^There is no type yet/)
     expect(paragraphs[4]).toMatch(/^This session writes as the key/)
     expect(paragraphs[5]).toMatch(/^When the owner refers to something without naming it/)

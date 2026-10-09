@@ -70,7 +70,7 @@ export const reportOf = (
   ]
   const failed = records.filter(({ success }) => !success)
   return [
-    `# Grenier bench: ${about.model}`,
+    `# Hippocampe bench: ${about.model}`,
     '',
     `- Date: ${about.date}`,
     `- Agent: ${about.runner}, model \`${about.model}\`, ${about.repeat} run(s) per task`,

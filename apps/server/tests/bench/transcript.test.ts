@@ -10,8 +10,8 @@ const SESSION = [
     type: 'system',
     subtype: 'init',
     model: 'claude-test-1',
-    tools: ['mcp__grenier__search', 'mcp__grenier__write'],
-    mcp_servers: [{ name: 'grenier', status: 'connected', source: 'dynamic' }],
+    tools: ['mcp__hippocampe__search', 'mcp__hippocampe__write'],
+    mcp_servers: [{ name: 'hippocampe', status: 'connected', source: 'dynamic' }],
   }),
   line({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }),
   line({
@@ -22,7 +22,7 @@ const SESSION = [
         {
           type: 'tool_use',
           id: 'call-1',
-          name: 'mcp__grenier__search',
+          name: 'mcp__hippocampe__search',
           input: { query: 'kettle' },
         },
       ],
@@ -38,7 +38,12 @@ const SESSION = [
     type: 'assistant',
     message: {
       content: [
-        { type: 'tool_use', id: 'call-2', name: 'mcp__grenier__write', input: { title: 'Kettle' } },
+        {
+          type: 'tool_use',
+          id: 'call-2',
+          name: 'mcp__hippocampe__write',
+          input: { title: 'Kettle' },
+        },
       ],
     },
   }),
@@ -62,7 +67,7 @@ const SESSION = [
         {
           type: 'tool_use',
           id: 'call-3',
-          name: 'mcp__grenier__write',
+          name: 'mcp__hippocampe__write',
           input: { title: 'Kettle', type: 'note' },
         },
       ],
@@ -123,11 +128,11 @@ describe('reading the stream of a session of the agent', () => {
     })
   })
 
-  test('the tools the session really had, and whether Grenier connected, come from its init', () => {
+  test('the tools the session really had, and whether Hippocampe connected, come from its init', () => {
     expect(parseTranscript(SESSION)).toMatchObject({
       model: 'claude-test-1',
-      sessionTools: ['mcp__grenier__search', 'mcp__grenier__write'],
-      mcpStatus: [{ name: 'grenier', status: 'connected' }],
+      sessionTools: ['mcp__hippocampe__search', 'mcp__hippocampe__write'],
+      mcpStatus: [{ name: 'hippocampe', status: 'connected' }],
     })
   })
 

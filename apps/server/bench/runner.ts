@@ -5,10 +5,10 @@ import { join } from 'node:path'
 import { parseTranscript, TOOL_PREFIX } from './transcript.ts'
 import type { Transcript } from './transcript.ts'
 
-/** What an agent is asked to do, and how it reaches Grenier. */
+/** What an agent is asked to do, and how it reaches Hippocampe. */
 export interface AgentRequest {
   readonly prompt: string
-  /** The address of the MCP endpoint of the Grenier under measurement. */
+  /** The address of the MCP endpoint of the Hippocampe under measurement. */
   readonly mcpUrl: string
   /** The secret of the key the agent writes with. */
   readonly key: string
@@ -34,7 +34,7 @@ export interface AgentRunner {
 }
 
 /**
- * Claude Code, headless (`claude -p`), with the Grenier of the bench as its only tool source: the
+ * Claude Code, headless (`claude -p`), with the Hippocampe of the bench as its only tool source: the
  * MCP configuration is the one generated here (`--strict-mcp-config`), the built-in tools are
  * off, no settings file is read, and it starts from an empty folder, so no CLAUDE.md, project
  * setting, skill or MCP server of the machine reaches the session. What the session really had is
@@ -43,14 +43,14 @@ export interface AgentRunner {
 export const claudeCode = (executable = 'claude'): AgentRunner => ({
   name: 'claude-code',
   run: async (request) => {
-    const folder = mkdtempSync(join(tmpdir(), 'grenier-bench-agent-'))
+    const folder = mkdtempSync(join(tmpdir(), 'hippocampe-bench-agent-'))
     try {
       const config = join(folder, 'mcp.json')
       writeFileSync(
         config,
         JSON.stringify({
           mcpServers: {
-            grenier: {
+            hippocampe: {
               type: 'http',
               url: request.mcpUrl,
               headers: { authorization: `Bearer ${request.key}` },
@@ -73,7 +73,7 @@ export const claudeCode = (executable = 'claude'): AgentRunner => ({
           '--tools',
           '',
           '--allowedTools',
-          'mcp__grenier',
+          'mcp__hippocampe',
           '--permission-mode',
           'dontAsk',
           '--setting-sources',
@@ -98,7 +98,7 @@ export const claudeCode = (executable = 'claude'): AgentRunner => ({
       const transcript = parseTranscript(raw)
       const strangers = transcript.sessionTools.filter((tool) => !tool.startsWith(TOOL_PREFIX))
       const connected = transcript.mcpStatus.some(
-        ({ name, status }) => name === 'grenier' && status === 'connected',
+        ({ name, status }) => name === 'hippocampe' && status === 'connected',
       )
       return {
         transcript,
@@ -108,7 +108,7 @@ export const claudeCode = (executable = 'claude'): AgentRunner => ({
           : strangers.length > 0
             ? `the session had tools beyond the bench's: ${strangers.join(', ')}`
             : !connected
-              ? 'the session did not connect to the Grenier of the bench'
+              ? 'the session did not connect to the Hippocampe of the bench'
               : undefined,
       }
     } finally {

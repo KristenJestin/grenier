@@ -465,7 +465,7 @@ describe('the instance comes from HIPPOCAMPE_INSTANCE', () => {
     )
   })
 
-  test('an instance Grenier does not know stops the server, in one sentence', async () => {
+  test('an instance Hippocampe does not know stops the server, in one sentence', async () => {
     const url = await database.runPromise(scratchUrl)
     const { code, stderr } = await startAndExit({
       DATABASE_URL: url,
@@ -478,14 +478,14 @@ describe('the instance comes from HIPPOCAMPE_INSTANCE', () => {
     )
   })
 
-  test('the development instance announces itself as grenier-dev, and says so first', async () => {
-    expect(mcp().serverInfo.name).toBe('grenier-dev')
+  test('the development instance announces itself as hippocampe-dev, and says so first', async () => {
+    expect(mcp().serverInfo.name).toBe('hippocampe-dev')
     expect(
-      mcp().instructions?.startsWith('This is the shared DEVELOPMENT instance of Grenier'),
+      mcp().instructions?.startsWith('This is the shared DEVELOPMENT instance of Hippocampe'),
     ).toBe(true)
   })
 
-  test('a local instance announces itself as grenier-local, and says so first', async () => {
+  test('a local instance announces itself as hippocampe-local, and says so first', async () => {
     const url = await database.runPromise(scratchUrl)
     const local = await startServer({
       DATABASE_URL: url,
@@ -493,14 +493,14 @@ describe('the instance comes from HIPPOCAMPE_INSTANCE', () => {
       HIPPOCAMPE_INSTANCE: 'local',
     })
     try {
-      expect(local.serverInfo).toEqual({ name: 'grenier-local', version: 'unknown' })
-      expect(local.instructions?.startsWith('This is a LOCAL instance of Grenier')).toBe(true)
+      expect(local.serverInfo).toEqual({ name: 'hippocampe-local', version: 'unknown' })
+      expect(local.instructions?.startsWith('This is a LOCAL instance of Hippocampe')).toBe(true)
     } finally {
       local.close()
     }
   })
 
-  test('the production instance announces itself as grenier, with the version of the server', async () => {
+  test('the production instance announces itself as hippocampe, with the version of the server', async () => {
     const url = await database.runPromise(scratchUrl)
     const production = await startServer({
       DATABASE_URL: url,
@@ -510,9 +510,9 @@ describe('the instance comes from HIPPOCAMPE_INSTANCE', () => {
       HIPPOCAMPE_COMMIT: 'abc1234',
     })
     try {
-      expect(production.serverInfo).toEqual({ name: 'grenier', version: '1.2.3' })
+      expect(production.serverInfo).toEqual({ name: 'hippocampe', version: '1.2.3' })
       expect(
-        production.instructions?.startsWith("This is the user's REAL instance of Grenier"),
+        production.instructions?.startsWith("This is the user's REAL instance of Hippocampe"),
       ).toBe(true)
     } finally {
       production.close()
@@ -537,7 +537,7 @@ describe('the rights come from HIPPOCAMPE_RIGHTS', () => {
       }),
     ).toEqual({
       error:
-        'The field `fields.code` is sensitive: this key may not write it; ask the owner of Grenier for a key with the right `sensitive`.',
+        'The field `fields.code` is sensitive: this key may not write it; ask the owner of Hippocampe for a key with the right `sensitive`.',
     })
     const url = await database.runPromise(scratchUrl)
     const trusted = await startServer({
@@ -563,7 +563,7 @@ describe('the rights come from HIPPOCAMPE_RIGHTS', () => {
     }
   })
 
-  test('a right Grenier does not know stops the server, in one sentence', async () => {
+  test('a right Hippocampe does not know stops the server, in one sentence', async () => {
     const url = await database.runPromise(scratchUrl)
     const { code, stderr } = await startAndExit({
       DATABASE_URL: url,

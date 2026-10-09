@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * The Grenier MCP server on stdio, for an agent that starts it as a subprocess:
+ * The Hippocampe MCP server on stdio, for an agent that starts it as a subprocess:
  *
  *   HIPPOCAMPE_ACTOR=agent-laptop bun run --cwd apps/server mcp
  *
@@ -20,7 +20,7 @@ import { Config, Effect, Layer, Logger, Schema } from 'effect'
 import { McpServer } from 'effect/ai'
 import { instructions } from './instructions.ts'
 import { PROTOCOLS } from './protocols.ts'
-import { GrenierServer } from './tools.ts'
+import { HippocampeServer } from './tools.ts'
 
 class ActorMissing extends Schema.TaggedError<ActorMissing>()('ActorMissing', {}) {
   override readonly message =
@@ -66,7 +66,7 @@ const program = Effect.gen(function* () {
     ),
     protocols: PROTOCOLS,
   }).pipe(Layer.provide(BunStdio.layer))
-  return yield* Layer.launch(GrenierServer.pipe(Layer.provide(server))).pipe(
+  return yield* Layer.launch(HippocampeServer.pipe(Layer.provide(server))).pipe(
     Effect.provideService(Actor, actor),
     Effect.provideService(Rights, rights),
     Effect.provideService(Instance, instance),

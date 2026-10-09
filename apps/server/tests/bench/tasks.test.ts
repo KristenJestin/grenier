@@ -19,7 +19,7 @@ const SECRET = 'a-secret-for-the-tests-only-0123456789abcdef'
 const TODAY = new Intl.DateTimeFormat('en-CA', { dateStyle: 'short' }).format(new Date())
 const named = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
 
-const template = named('grenier_bench_test_template')
+const template = named('hippocampe_bench_test_template')
 
 beforeAll(async () => {
   const url = await Effect.runPromise(createScratchDatabase(template))
@@ -33,7 +33,7 @@ afterAll(() => Effect.runPromise(dropScratchDatabase(template)))
 
 describe('the invented instance', () => {
   test('about a hundred entries, written through the core, with their links and what is known or supposed in them', async () => {
-    const name = named('grenier_bench_test_instance')
+    const name = named('hippocampe_bench_test_instance')
     const url = await Effect.runPromise(createScratchDatabase(name, template))
     const runtime = runtimeOn(url, SECRET)
     try {
@@ -76,7 +76,7 @@ describe('the invented instance', () => {
   })
 
   test('every date a task asks about is relative to the day of the run', async () => {
-    const name = named('grenier_bench_test_dates')
+    const name = named('hippocampe_bench_test_dates')
     const url = await Effect.runPromise(createScratchDatabase(name, template))
     const runtime = runtimeOn(url, SECRET)
     try {
@@ -116,7 +116,7 @@ describe('every task has a check that asks for something and a reference solutio
 
   for (const task of TASKS) {
     describe(task.id, () => {
-      const name = named('grenier_bench_test_task')
+      const name = named('hippocampe_bench_test_task')
       let runtime: ReturnType<typeof runtimeOn>
       let world: ReturnType<typeof worldOf>
       let startedAt = ''

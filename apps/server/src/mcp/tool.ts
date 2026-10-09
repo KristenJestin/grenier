@@ -15,7 +15,7 @@ export type Database = Layer.Success<typeof database>
  * What a tool that writes does to the store, for the hints a client reads. `destructive`: it may
  * overwrite or remove what is there, rather than only add. `idempotent`: the same call again is
  * accepted and leaves the store as the first did (a repeat that is refused, or that adds one more,
- * is not). `openWorld`: it reaches beyond Grenier, as `attach_media` does fetching a `url`.
+ * is not). `openWorld`: it reaches beyond Hippocampe, as `attach_media` does fetching a `url`.
  */
 export interface Hints {
   readonly destructive: boolean
@@ -48,7 +48,7 @@ const annotationsOf = (right: Right, hints: Hints | undefined): Annotations =>
       }
 
 /**
- * Declares one Grenier tool: its name and description for the agent, the schema its input is
+ * Declares one Hippocampe tool: its name and description for the agent, the schema its input is
  * decoded with (and declared through `toToolInputSchema`), the right it needs, and what it does.
  * A tool that needs the right `read` only reads; any other says what it does to the store with
  * `hints`. The answer is a JSON object; a refusal is the core's sentences.

@@ -9,8 +9,8 @@ import { McpSchema, McpServer, Toolkit } from 'effect/ai'
 import type { Tool } from 'effect/ai'
 import { RecentCalls } from './calls.ts'
 import { takenContent } from './tools/inbox-take.ts'
-import { grenierReportTool } from './tools/grenier-report.ts'
-import { grenierReportsTool } from './tools/grenier-reports.ts'
+import { reportTool } from './tools/report.ts'
+import { reportsTool } from './tools/reports.ts'
 import type { Database, defineTool } from './tool.ts'
 import { attachMediaTool } from './tools/attach-media.ts'
 import { briefingTool } from './tools/briefing.ts'
@@ -23,8 +23,8 @@ import { searchTool } from './tools/search.ts'
 import { typesTool } from './tools/types.ts'
 import { writeTool } from './tools/write.ts'
 
-/** Every tool Grenier serves over MCP, each in its own module under `tools/`. */
-export const GrenierTools = Toolkit.make(
+/** Every tool Hippocampe serves over MCP, each in its own module under `tools/`. */
+export const HippocampeTools = Toolkit.make(
   searchTool.tool,
   readTool.tool,
   briefingTool.tool,
@@ -39,7 +39,7 @@ export const GrenierTools = Toolkit.make(
 )
 
 /** The tools of diagnostics, served only when they are on. */
-export const DiagnosticsTools = Toolkit.make(grenierReportTool.tool, grenierReportsTool.tool)
+export const DiagnosticsTools = Toolkit.make(reportTool.tool, reportsTool.tool)
 
 /**
  * The dates entering their notice period for the current actor. One that cannot be told is
@@ -105,7 +105,7 @@ const handlerFor =
           ? Effect.void
           : Effect.fail(
               new Refused({
-                message: `This key may not ${right}: ask the owner of Grenier for a key with the right \`${right}\`.`,
+                message: `This key may not ${right}: ask the owner of Hippocampe for a key with the right \`${right}\`.`,
               }),
             )
       ).pipe(
@@ -123,7 +123,7 @@ const handlerFor =
     }).pipe(Effect.provide(services))
 
 /** The tools at work on the database, the actor and the rights of the layer that builds them. */
-export const GrenierHandlers = GrenierTools.toLayer(
+export const HippocampeHandlers = HippocampeTools.toLayer(
   Effect.gen(function* () {
     const handlerOf = handlerFor(yield* Effect.context<Database>(), yield* Rights)
 
@@ -148,8 +148,8 @@ const DiagnosticsHandlers = DiagnosticsTools.toLayer(
   Effect.gen(function* () {
     const handlerOf = handlerFor(yield* Effect.context<Database>(), yield* Rights)
     return {
-      grenier_report: handlerOf(grenierReportTool),
-      grenier_reports: handlerOf(grenierReportsTool),
+      report: handlerOf(reportTool),
+      reports: handlerOf(reportsTool),
     }
   }),
 )
@@ -220,12 +220,12 @@ const registerListed = (tools: ReadonlyArray<{ readonly tool: Tool.Any; readonly
   })
 
 /**
- * Every Grenier tool on an MCP server, only those the key may call, and in the order of `TOOLS`
+ * Every Hippocampe tool on an MCP server, only those the key may call, and in the order of `TOOLS`
  * (then the tools of diagnostics, when they are on; otherwise they do not exist). A tool the key
  * lacks the right for is not listed, and a call to it is refused as an unknown tool. The server
  * keeps the last call of each tool for itself alone.
  */
-export const GrenierServer = Layer.effectDiscard(
+export const HippocampeServer = Layer.effectDiscard(
   Effect.gen(function* () {
     const listed = listedTo(yield* Rights)
     const diagnostics = (yield* Instance).diagnostics
@@ -236,15 +236,15 @@ export const GrenierServer = Layer.effectDiscard(
     if (diagnostics) yield* registerListed(DIAGNOSTICS_TOOLS)
   }),
 ).pipe(
-  Layer.provide(Layer.merge(GrenierHandlers, DiagnosticsHandlers)),
+  Layer.provide(Layer.merge(HippocampeHandlers, DiagnosticsHandlers)),
   Layer.provide(Layer.succeed(RecentCalls, new Map())),
 )
 
-/** Every tool of Grenier, in the fixed order an agent lists them. */
+/** Every tool of Hippocampe, in the fixed order an agent lists them. */
 export const TOOLS = [...BEFORE_INBOX, inboxListTool, inboxTakeTool, ...AFTER_INBOX]
 
 /** The tools of diagnostics, listed after the others when they are on. */
-export const DIAGNOSTICS_TOOLS = [grenierReportTool, grenierReportsTool]
+export const DIAGNOSTICS_TOOLS = [reportTool, reportsTool]
 
 /** The names of every tool, as an agent lists them, diagnostics off. */
 export const TOOL_NAMES = TOOLS.map(({ name }) => name)

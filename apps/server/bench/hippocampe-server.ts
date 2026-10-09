@@ -20,7 +20,7 @@ const freePort = () =>
     })
   })
 
-/** A Grenier server of the bench: where it listens, and how to stop it. */
+/** A Hippocampe server of the bench: where it listens, and how to stop it. */
 export interface RunningServer {
   readonly mcpUrl: string
   readonly stop: () => Promise<void>
@@ -41,7 +41,7 @@ const waitUntilUp = async (base: string, child: ChildProcess, tries: number): Pr
 }
 
 /**
- * Starts the Grenier server (`src/serve.ts`) on a free port against one database, as a local
+ * Starts the Hippocampe server (`src/serve.ts`) on a free port against one database, as a local
  * instance with diagnostics off, and returns when it answers. It is the program an agent would
  * reach, not a copy of its parts.
  */
@@ -82,5 +82,5 @@ export const startServer = async (config: {
     }
   }
   child.kill('SIGKILL')
-  throw new Error(`The Grenier server did not start: ${output.trim()}`)
+  throw new Error(`The Hippocampe server did not start: ${output.trim()}`)
 }
