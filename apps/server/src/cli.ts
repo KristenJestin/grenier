@@ -2,14 +2,14 @@
 /**
  * The owner's command line, built with `effect/cli`: `grenier --help` lists every command, and
  * `grenier <command> --help` says what it takes. The owner account, the keys of the agents, the
- * review of entries, the inbox, the findings, the rules and the export. A key's secret is printed
+ * confirming of suppositions, the inbox, the findings, the rules and the export. A key's secret is printed
  * once, at its creation, and kept nowhere in clear.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import * as BunRuntime from '@effect/platform-bun/BunRuntime'
 import { Auth, Rights } from './core/auth/index.ts'
-import { setVerified, unverified } from './core/entries/index.ts'
+import { confirmValue, supposedValues } from './core/entries/index.ts'
 import { Actor } from './core/events/index.ts'
 import {
   FindingFilter,
@@ -18,7 +18,7 @@ import {
   mergedInto,
 } from './core/findings/index.ts'
 import { addFileOnce, addToInbox, fileInInbox, inboxRefusalOf } from './core/inbox/index.ts'
-import { misfiledPeriods } from './core/links/index.ts'
+import { confirmLink, misfiledPeriods } from './core/links/index.ts'
 import { exportMarkdown } from './export/markdown.ts'
 import { instanceRulesText, setInstanceRules } from './core/rules.ts'
 import { changeField, changeType, confirmProposal, listProposals } from './core/types/index.ts'
@@ -210,53 +210,83 @@ const keyRevoke = Command.make('key:revoke', { name: Flag.String('name') }, ({ n
   ),
 ).pipe(Command.withDescription('Revokes a key.'))
 
-const references = Argument.String('entry').pipe(
-  Argument.withDescription('The slug or id of an entry.'),
-  Argument.variadic({ min: 1 }),
-)
-
-const entryVerify = Command.make('entry:verify', { references }, ({ references: named }) =>
-  onDatabase(
-    Effect.map(
-      asOwner(setVerified(named, true)),
-      (written) => `Verified: ${written.map(({ slug }) => slug).join(', ')}.`,
+const supposedList = Command.make(
+  'supposed',
+  {
+    type: optionalText('type'),
+    under: optionalText('under'),
+    by: optionalText('by'),
+    unstated: Flag.Boolean('unstated').pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        'List what was written before writers said it, instead of the suppositions.',
+      ),
     ),
-  ),
-).pipe(Command.withDescription('Marks entries verified by the owner.'))
-
-const entryUnverify = Command.make('entry:unverify', { references }, ({ references: named }) =>
-  onDatabase(
-    Effect.map(
-      asOwner(setVerified(named, false)),
-      (written) => `No longer verified: ${written.map(({ slug }) => slug).join(', ')}.`,
-    ),
-  ),
-).pipe(Command.withDescription('Takes the verification of entries back.'))
-
-const entryUnverified = Command.make(
-  'entry:unverified',
-  { type: optionalText('type'), under: optionalText('under') },
-  ({ type, under }) =>
+  },
+  ({ type, under, by, unstated }) =>
     onDatabase(
       Effect.map(
         asOwner(
-          unverified(
-            Object.fromEntries(
-              Object.entries({ type: given(type), under: given(under) }).filter(
+          supposedValues({
+            ...Object.fromEntries(
+              Object.entries({ type: given(type), under: given(under), by: given(by) }).filter(
                 (pair): pair is [string, string] => pair[1] !== undefined,
               ),
             ),
-          ),
+            unstated,
+          }),
         ),
         (waiting) =>
           waiting.length === 0
-            ? 'Nothing waits for review.'
+            ? unstated
+              ? 'No value is unstated.'
+              : 'Nothing is supposed.'
             : waiting
-                .map(({ slug, type: name, title, by }) => `${slug}\t${name}\t${title}\t${by ?? ''}`)
+                .map(({ slug, what, by: writer, when, title }) =>
+                  [slug, what, writer ?? '', when ?? '', title].join('\t'),
+                )
                 .join('\n'),
       ),
     ),
-).pipe(Command.withDescription('Lists what waits for the owner to review.'))
+).pipe(
+  Command.withDescription(
+    'Lists the values and links that are supposed, not known, newest first: the entry, what, who wrote it and when.',
+  ),
+)
+
+const supposedConfirm = Command.make(
+  'supposed:confirm',
+  {
+    entry: Argument.String('entry').pipe(Argument.withDescription('The slug or id of an entry.')),
+    value: Argument.String('value').pipe(
+      Argument.withDescription(
+        'A field name, `body` or `summary`; with --link, the slug of the entry the link goes to.',
+      ),
+    ),
+    link: optionalText('link').pipe(
+      Flag.withDescription('Confirm a link instead: its relation, such as `works_at`.'),
+    ),
+    as: Flag.String('as').pipe(
+      Flag.withDescription('The slug or id of the entry of the person confirming: you.'),
+    ),
+  },
+  ({ entry, value, link, as }) =>
+    onDatabase(
+      Option.isSome(link)
+        ? Effect.as(
+            asOwner(confirmLink(entry, link.value, value, as)),
+            `Confirmed: the link ${link.value} from ${entry} to ${value} is known, said by ${as}.`,
+          )
+        : Effect.as(
+            asOwner(confirmValue(entry, value, as)),
+            `Confirmed: the ${value} of ${entry} is known, said by ${as}.`,
+          ),
+    ),
+).pipe(
+  Command.withDescription(
+    'Confirms a supposition: the value or link becomes known, with a source "said by" you, dated today.',
+  ),
+)
 
 const inboxAdd = Command.make(
   'inbox:add',
@@ -591,9 +621,8 @@ export const grenier = Command.make('grenier').pipe(
     keyCreate,
     keyList,
     keyRevoke,
-    entryVerify,
-    entryUnverify,
-    entryUnverified,
+    supposedList,
+    supposedConfirm,
     inboxAdd,
     typeSensitive,
     fieldSensitive,

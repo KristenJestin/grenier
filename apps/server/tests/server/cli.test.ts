@@ -1,10 +1,11 @@
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { link, linksOf } from '../../src/core/links/index.ts'
 import { reportFinding } from '../../src/core/findings/index.ts'
 import { listInbox } from '../../src/core/inbox/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
@@ -34,13 +35,52 @@ const cli = (...args: ReadonlyArray<string>) =>
     },
   })
 
+/** What a command of the command line says on standard error when it is refused. */
+const refused = (...args: ReadonlyArray<string>) => {
+  const run = spawnSync(process.execPath, ['src/cli.ts', ...args], {
+    cwd: APP,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env['PATH'] ?? '',
+      DATABASE_URL: url,
+      BETTER_AUTH_SECRET: 'a-secret-for-the-tests-only-0123456789abcdef',
+    },
+  })
+  return { status: run.status, message: run.stderr.trim() }
+}
+
 beforeAll(async () => {
   url = await database.runPromise(
     Effect.gen(function* () {
-      yield* defineType({ name: 'recipe', label: 'Recipe', description: 'A dish.', fields: [] })
-      yield* writeEntry({ type: 'recipe', title: 'Leek soup' })
-      yield* writeEntry({ type: 'recipe', title: 'Plum tart' })
-      yield* writeEntry({ type: 'recipe', title: 'Pancakes' })
+      yield* defineType({
+        name: 'recipe',
+        label: 'Recipe',
+        description: 'A dish.',
+        fields: [{ name: 'origin', kind: 'text' }],
+      })
+      yield* defineType({ name: 'person', label: 'Person', description: 'A person.', fields: [] })
+      yield* writeEntry({ type: 'person', title: 'Marie Lund' })
+      yield* writeEntry({
+        type: 'recipe',
+        title: 'Leek soup',
+        fields: { origin: 'Wales' },
+        provenance: { origin: 'inferred' },
+      })
+      yield* writeEntry({
+        type: 'recipe',
+        title: 'Plum tart',
+        summary: 'A tart.',
+        body: 'Probably from the orchard.',
+        provenance: { summary: 'inferred', body: 'inferred' },
+      })
+      yield* writeEntry({
+        type: 'recipe',
+        title: 'Pancakes',
+        summary: 'Thin and round.',
+        provenance: { summary: 'extracted' },
+        sources: [{ identifier: 'card_12', label: 'recipe card' }],
+      })
+      yield* link('plum-tart', 'leek-soup', 'inspired_by', '', '', { provenance: 'inferred' })
       return (yield* ScratchDatabase).url
     }),
   )
@@ -48,19 +88,108 @@ beforeAll(async () => {
 
 afterAll(() => database.dispose())
 
-describe('the owner reviews entries from the command line', () => {
-  test('entry:verify marks two entries; their history shows the owner', async () => {
-    expect(cli('entry:verify', 'leek-soup', 'plum-tart')).toBe('Verified: leek-soup, plum-tart.\n')
-    const [history] = await database.runPromise(Effect.all([entryHistory('plum-tart')]))
-    expect(history.at(-1)).toMatchObject({ actor: 'owner', changes: [{ field: 'verified' }] })
+describe('the owner sees what is supposed, and confirms it, from the command line', () => {
+  test('supposed lists the values and links, newest first, with the entry, the writer and when', () => {
+    const lines = cli('supposed').trimEnd().split('\n')
+    expect(lines.map((line) => line.split('\t').slice(0, 3))).toEqual([
+      ['plum-tart', 'link inspired_by leek-soup', 'agent-kitchen'],
+      ['plum-tart', 'body', 'agent-kitchen'],
+      ['plum-tart', 'summary', 'agent-kitchen'],
+      ['leek-soup', 'origin', 'agent-kitchen'],
+    ])
+    expect(lines[0]).toMatch(
+      /^plum-tart\tlink inspired_by leek-soup\tagent-kitchen\t\d{4}-\d\d-\d\dT/,
+    )
+    expect(cli('supposed', '--by', 'someone-else')).toBe('Nothing is supposed.\n')
+    expect(cli('supposed', '--under', 'leek-soup')).toBe('Nothing is supposed.\n')
+    expect(cli('supposed', '--type', 'person')).toBe('Nothing is supposed.\n')
+    expect(cli('supposed', '--unstated')).toBe('No value is unstated.\n')
   })
 
-  test('entry:unverified lists what waits, entry:unverify takes a verification back', () => {
-    expect(cli('entry:unverified', '--type', 'recipe')).toMatch(
-      /^pancakes\trecipe\tPancakes\tagent-kitchen\n$/,
+  test('supposed:confirm makes a field known, said by the person, in one event of the owner', async () => {
+    expect(cli('supposed:confirm', 'leek-soup', 'origin', '--as', 'marie-lund')).toBe(
+      'Confirmed: the origin of leek-soup is known, said by marie-lund.\n',
     )
-    expect(cli('entry:unverify', 'plum-tart')).toBe('No longer verified: plum-tart.\n')
-    expect(cli('entry:unverified')).toContain('plum-tart\trecipe\tPlum tart\towner')
+    const read = await database.runPromise(readEntry('leek-soup'))
+    expect(read.entry.provenance).toEqual({ origin: 'extracted' })
+    expect(read.entry.sources).toEqual([
+      expect.objectContaining({ slug: 'marie-lund', title: 'Marie Lund', on: expect.any(String) }),
+    ])
+    const history = await database.runPromise(entryHistory('leek-soup'))
+    expect(history.at(-1)).toMatchObject({
+      actor: 'owner',
+      action: 'update',
+      changes: [
+        { field: 'sources' },
+        { field: 'provenance.origin', before: 'inferred', after: 'extracted' },
+      ],
+    })
+    expect(cli('supposed')).not.toContain('leek-soup\torigin')
+  })
+
+  test('supposed:confirm makes a link known, with the same source, in one event', async () => {
+    expect(
+      cli(
+        'supposed:confirm',
+        'plum-tart',
+        'leek-soup',
+        '--link',
+        'inspired_by',
+        '--as',
+        'marie-lund',
+      ),
+    ).toBe(
+      'Confirmed: the link inspired_by from plum-tart to leek-soup is known, said by marie-lund.\n',
+    )
+    const links = await database.runPromise(linksOf('plum-tart'))
+    expect(links.find(({ relation }) => relation === 'inspired_by')?.provenance).toBe('extracted')
+    const history = await database.runPromise(entryHistory('plum-tart'))
+    expect(history.at(-1)).toMatchObject({
+      actor: 'owner',
+      action: 'link',
+      changes: [
+        {
+          field: 'links.inspired_by',
+          before: { provenance: 'inferred' },
+          after: { provenance: 'extracted' },
+        },
+        { field: 'sources' },
+      ],
+    })
+    expect(cli('supposed')).not.toContain('link inspired_by')
+  })
+
+  test('what is known already, a name that holds nothing and a person who is no entry are refused in a sentence', () => {
+    expect(refused('supposed:confirm', 'leek-soup', 'origin', '--as', 'marie-lund')).toEqual({
+      status: 1,
+      message: 'The `origin` of `leek-soup` is known already (`extracted`).',
+    })
+    expect(refused('supposed:confirm', 'pancakes', 'body', '--as', 'marie-lund')).toEqual({
+      status: 1,
+      message:
+        'The entry `pancakes` holds no `body` to confirm: name a field, `body` or `summary`.',
+    })
+    expect(refused('supposed:confirm', 'plum-tart', 'summary', '--as', 'nobody')).toEqual({
+      status: 1,
+      message:
+        'The person `nobody` is not an entry: name the entry that stands for you, by its slug or id.',
+    })
+    expect(
+      refused(
+        'supposed:confirm',
+        'plum-tart',
+        'leek-soup',
+        '--link',
+        'inspired_by',
+        '--as',
+        'marie-lund',
+      ).message,
+    ).toBe('The link `inspired_by` from `plum-tart` to `leek-soup` is known already (`extracted`).')
+  })
+
+  test('entry:verify, entry:unverify and entry:unverified are gone', () => {
+    for (const command of ['entry:verify', 'entry:unverify', 'entry:unverified'])
+      expect(refused(command).status).not.toBe(0)
   })
 })
 
