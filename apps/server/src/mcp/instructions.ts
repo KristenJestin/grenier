@@ -67,7 +67,7 @@ export const WRITING_STANDARD = [
 export const INBOX_STANDARD = [
   'How an inbox item becomes entries, on top of the writing standard, whatever it holds:',
   "- Split a long item into entries by part or by period, the main entry keeping the item's name.",
-  "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_read` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
+  "- An item may bring again what Grenier already holds: `earlier` names the items it came as before and the entries they gave. Read those entries and compare them with the whole item, fact by fact (`inbox_list` with the `id` and an `offset` for the rest of a long text). Add or correct what they lack or get wrong, including what the type descriptions and the instance's rules now ask for (fields to fill, entries to create and link), then close the item naming every entry it touched. Never assume the entries are complete because they exist.",
 ].join('\n')
 
 /** An entry the key may see, changed recently: what the working memory says of it. */
@@ -127,7 +127,7 @@ const FINDING = [
   'When several subjects fit, name them and ask, rather than guess.',
 ].join(' ')
 
-/** Rules longer than this are given by their opening, and read whole with `instance_rules`. */
+/** Rules longer than this are given by their opening, and read whole with `types`. */
 const RULES_LIMIT = 4000
 
 /** The opening of long rules: what comes before their first `##` section, cut to the limit. */
@@ -148,7 +148,7 @@ const openingOf = (rules: string) => {
 const rulesSaid = (rules: string) =>
   rules.trim().length <= RULES_LIMIT
     ? `The rules of this instance, set by its owner: follow them in every session.\n\n${rules.trim()}`
-    : `The rules of this instance, set by its owner, are long: their opening follows; read them whole with \`instance_rules\`, and follow them in every session.\n\n${openingOf(rules)}`
+    : `The rules of this instance, set by its owner, are long: their opening follows; read them whole by calling \`types\` with \`rules: true\`, and follow them in every session.\n\n${openingOf(rules)}`
 
 const HOW = `Grenier keeps entries of types that are defined as data, not in code: what a type is, and
 when to use it, is written in its description.
@@ -166,7 +166,7 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
   types.length === 0
     ? 'There is no type yet.'
     : types.length > LISTED
-      ? `The types (${types.length}; call \`list_types\` for their descriptions): ${types
+      ? `The types (${types.length}; call \`types\` for their descriptions): ${types
           .map(({ name }) => `\`${name}\``)
           .join(', ')}.`
       : `The types:\n${types

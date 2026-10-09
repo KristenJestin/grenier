@@ -12,6 +12,7 @@ let reader: Started | undefined
 let writer: Started | undefined
 let diagnosed: Started | undefined
 let owner: Started | undefined
+let diagnosedReader: Started | undefined
 
 const start = async (url: string, rights: string, extra: Readonly<Record<string, string>> = {}) => {
   const started = await startServer({
@@ -34,6 +35,7 @@ beforeAll(async () => {
   writer = await start(url, 'read,write')
   diagnosed = await start(url, 'read,write', { GRENIER_DIAGNOSTICS: 'on' })
   owner = await start(url, 'read,write,owner')
+  diagnosedReader = await start(url, 'read', { GRENIER_DIAGNOSTICS: 'on' })
 }, 60_000)
 
 afterAll(async () => {
@@ -63,51 +65,54 @@ const namesOf = async (server: Started | undefined) =>
   (await listOf(server)).map(({ name }) => name)
 
 /** The tools that read, as the rights say. */
-const READS = [
-  'get_type',
-  'list_types',
-  'pending_references',
-  'instance_rules',
-  'read',
+const READS = ['search', 'read', 'briefing', 'types', 'inbox_list']
+
+/** Every tool of Grenier, in the order an agent receives them. */
+const ALL = [
   'search',
-  'history',
-  'list_proposals',
-  'upcoming',
+  'read',
   'briefing',
-  'unverified',
+  'types',
+  'write',
+  'link',
+  'attach_media',
+  'define_type',
+  'change_type',
+  'inbox_add',
   'inbox_list',
-  'inbox_read',
-  'inbox_peek',
+  'inbox_take',
+  'inbox_finish',
 ]
 
 describe('a key lists the tools its rights allow, in a fixed order', () => {
   test('a key with read lists exactly the read tools', async () => {
-    expect((await namesOf(reader)).toSorted()).toEqual(READS.toSorted())
+    expect(await namesOf(reader)).toEqual(READS)
   })
 
-  test('a key with read and write lists all but the owner tool', async () => {
-    expect((await namesOf(writer)).toSorted()).toEqual(
-      TOOL_NAMES.filter((name) => name !== 'confirm_proposal').toSorted(),
-    )
+  test('a key with read and write lists every tool', async () => {
+    expect(await namesOf(writer)).toEqual(ALL)
+    expect(TOOL_NAMES).toEqual(ALL)
   })
 
-  test('no key with read or write lists confirm_proposal, an owner key does', async () => {
-    const lists = await Promise.all([reader, writer, diagnosed].map(namesOf))
+  test('the list has 13 tools with diagnostics off and 15 with them on', async () => {
+    expect(await namesOf(writer)).toHaveLength(13)
+    expect(await namesOf(diagnosed)).toHaveLength(15)
+  })
+
+  test('no key lists confirm_proposal, an owner key included: the owner confirms from the command line', async () => {
+    const lists = await Promise.all([reader, writer, diagnosed, owner].map(namesOf))
     for (const names of lists) expect(names).not.toContain('confirm_proposal')
-    expect(await namesOf(owner)).toContain('confirm_proposal')
   })
 
   test('the order is the same on every call and the same for every key', async () => {
     expect(await namesOf(writer)).toEqual(await namesOf(writer))
-    const all = await namesOf(owner)
-    expect(all.slice(0, TOOL_NAMES.length)).toEqual(TOOL_NAMES)
-    expect(await namesOf(writer)).toEqual(all.filter((name) => name !== 'confirm_proposal'))
-    expect(await namesOf(reader)).toEqual(all.filter((name) => READS.includes(name)))
+    expect(await namesOf(owner)).toEqual(ALL)
+    expect(await namesOf(reader)).toEqual(ALL.filter((name) => READS.includes(name)))
   })
 
   test('the tools of diagnostics follow the others, as their rights allow', async () => {
-    const names = await namesOf(diagnosed)
-    expect(names.slice(-2)).toEqual(['grenier_report', 'grenier_reports'])
+    expect((await namesOf(diagnosed)).slice(-2)).toEqual(['grenier_report', 'grenier_reports'])
+    expect((await namesOf(diagnosedReader)).slice(-1)).toEqual(['grenier_reports'])
   })
 
   test('a tool the key does not list is refused, and does nothing', async () => {
@@ -141,7 +146,7 @@ describe('every tool tells what it does to the store', () => {
   test('every tool is closed to the world but attach_media, the hand-registered ones included', async () => {
     const tools = await listOf(owner)
     expect(tools.map(({ name }) => name)).toEqual(
-      expect.arrayContaining(['inbox_take', 'inbox_peek']),
+      expect.arrayContaining(['inbox_take', 'inbox_list']),
     )
     for (const { name, annotations } of tools)
       expect([name, annotations.openWorldHint]).toEqual([name, name === 'attach_media'])
@@ -157,26 +162,15 @@ describe('every tool tells what it does to the store', () => {
     const additive = { destructive: false, idempotent: false }
     const overwrites = { destructive: true, idempotent: false }
     const settles = { destructive: true, idempotent: true }
-    const settlesAdding = { destructive: false, idempotent: true }
     expect(Object.fromEntries(hints)).toMatchObject({
       define_type: additive,
-      add_field: additive,
-      propose_type_change: additive,
       inbox_add: additive,
       inbox_take: additive,
-      inbox_release: additive,
-      inbox_done: additive,
-      inbox_dismiss: additive,
+      inbox_finish: additive,
       write: overwrites,
-      write_many: overwrites,
-      change_field: overwrites,
-      unlink: overwrites,
-      confirm_proposal: overwrites,
-      archive: settles,
-      link: settles,
-      change_type: settles,
-      describe_media: settles,
-      attach_media: settlesAdding,
+      link: overwrites,
+      change_type: overwrites,
+      attach_media: settles,
       // A read changes nothing, so a repeat changes nothing either.
       read: { destructive: false, idempotent: true },
       search: { destructive: false, idempotent: true },

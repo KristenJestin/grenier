@@ -3,7 +3,8 @@ import type { layer as database } from '../core/database/index.ts'
 import { Refused } from '../core/refused.ts'
 import { toToolInputSchema } from '@grenier/api/schema'
 import { Schema } from 'effect'
-import type { Effect, Layer } from 'effect'
+import { Effect } from 'effect'
+import type { Layer } from 'effect'
 import { Tool } from 'effect/ai'
 
 /** The database every tool reaches through the core. */
@@ -82,5 +83,17 @@ export function defineTool<const Name extends string, I, E>(
 /** An entry, named by its slug or its id. */
 export const Reference = Schema.String.annotate({ description: 'The slug or id of an entry.' })
 
-/** The input of a tool that takes none. */
-export const NoInput = Tool.EmptyParams
+/**
+ * Refuses, in one sentence, what a call gives that its `mode` does not take: a tool that does
+ * several things takes the keys of one at a time, and says which it did not understand.
+ */
+export const refuseExtra = <A>(mode: string, given: { readonly [key: string]: A | undefined }) => {
+  const extra = Object.keys(given).filter((key) => given[key] !== undefined)
+  return extra.length === 0
+    ? Effect.void
+    : Effect.fail(
+        new Refused({
+          message: `${mode} takes no ${extra.map((key) => `\`${key}\``).join(', ')}: leave ${extra.length === 1 ? 'it' : 'them'} out.`,
+        }),
+      )
+}

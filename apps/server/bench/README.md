@@ -76,11 +76,12 @@ One row per task, then totals for all tasks, for the tuning tasks and for the he
 Below the tables: the reason of every failed run, and every wrong tool.
 
 - **Wrong tool.** A task says which *roles* it needs (`write`, `link`, `agenda`…), never a tool.
-  `roles.ts` is the one table that maps a role to the tools that do it today. Looking before acting
-  (`search`, `read`, the types, the rules) is never wrong. Any other role the task does not list is,
-  and so is a tool the table does not know. When the tools are merged or renamed (#169, part 4),
-  change that table and the same tasks measure the new surface; a test fails while the table and the
-  server disagree.
+  `roles.ts` is the one table that maps a role to the tools that do it today; a tool may serve
+  several roles (`write` writes and archives), and is wrong only when none of its roles is needed.
+  Looking before acting (`search`, `read`, the types, the rules) is never wrong. Any other tool is,
+  and so is a tool the table does not know. When the tools are merged or renamed, change that table
+  and the same tasks measure the new surface; a test fails while the table and the server disagree.
+  Tables measured before and after a merge are not strictly comparable on this column.
 - **Costs vary** with the state of the prompt cache: the first session of a series pays to write
   it, the next ones read it. Compare runs made the same way, and use `--repeat` to see the spread.
   A model's answers vary too: one run of a task is an observation, not a result.

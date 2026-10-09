@@ -2,7 +2,7 @@ import { toToolInputSchema } from '@grenier/api/schema'
 import { Option, Schema } from 'effect'
 import { describe, expect, test } from 'vitest'
 import { DIAGNOSTICS_TOOLS, TOOLS } from '../../src/mcp/tools.ts'
-import { historyTool } from '../../src/mcp/tools/history.ts'
+import { readTool } from '../../src/mcp/tools/read.ts'
 
 /** A JSON Schema as a tree of plain objects and lists, to walk. */
 const JsonSchemaNode = Schema.Record(Schema.String, Schema.Json)
@@ -49,10 +49,10 @@ describe('input schemas tell the truth about unknown keys', () => {
     expect([...new Set(open)]).toEqual([])
   })
 
-  test('history.limit is an integer, not a number that admits Infinity', () => {
+  test('read.limit, the page of the history, is an integer, not a number that admits Infinity', () => {
     const { properties } = Schema.decodeUnknownSync(
       Schema.Struct({ properties: Schema.Record(Schema.String, Schema.Json) }),
-    )(jsonOf(historyTool))
+    )(jsonOf(readTool))
     expect(properties['limit']).toMatchObject({ type: 'integer' })
     expect(JSON.stringify(properties['limit'])).not.toContain('Infinity')
   })

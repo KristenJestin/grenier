@@ -200,6 +200,20 @@ export const addField = Effect.fn('addField')(function* (
   )
 })
 
+/** Adds optional fields to an existing type, one after the other: all of them or none. */
+export const addFields = Effect.fn('addFields')(function* (
+  typeName: string,
+  inputs: ReadonlyArray<typeof FieldDefinition.Encoded>,
+) {
+  const client = yield* SqlClient.SqlClient
+  return yield* client.withTransaction(
+    Effect.gen(function* () {
+      yield* Effect.forEach(inputs, (input) => addField(typeName, input))
+      return yield* getType(typeName)
+    }),
+  )
+})
+
 /**
  * What a change of a type as a whole says: its label, its description (what tells agents when to
  * use it), whether all its entries are sensitive, and whether its entries filed under one of the

@@ -25,7 +25,7 @@ beforeAll(() =>
   ),
 )
 
-describe('change_type { type, description } changes it, list_types and get_type show it, and the event holds before and after', () => {
+describe('change_type { type, description } changes it, types shows it, and the event holds before and after', () => {
   test('the description changes, nothing else of the type does, and the event says before and after', async () => {
     const changed = await run(
       changeType({ type: 'gadget', description: 'A small device that runs on a battery.' }),

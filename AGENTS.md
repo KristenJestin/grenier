@@ -114,7 +114,7 @@ claude mcp add --transport http grenier http://localhost:3000/mcp \
 ever given to an MCP client). In the container: `docker compose exec grenier bun src/cli.ts
 entry:verify <slug>`. `inbox:add <folder> [--origin <name>] [--dry-run] [--again]` drops a folder
 into the inbox, one item per file, sub-folders included (hidden files and links are skipped), for
-agents to process (`inbox_take`, then `inbox_done`); `--dry-run` says what it would add, and a file
+agents to process (`inbox_take`, then `inbox_finish`); `--dry-run` says what it would add, and a file
 already in the inbox (same path, origin and content) is added again only with `--again`.
 `type:sensitive <type> --off` and `field:sensitive <type> <field> --off` make a type or a field
 no longer sensitive, which only the owner may do.

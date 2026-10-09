@@ -29,7 +29,7 @@ bookmark, a folder-like area. All entries share the same base:
 
 An entry is never deleted by an agent; it is archived.
 
-Several entries can be written in one call (`write_many`, 100 at most), in one transaction, each
+Several entries can be written in one call (`write` with `entries`, 100 at most), in one transaction, each
 by the rules of a single write; their bodies may cite one another with `[[slug]]` as if all
 existed, and they may name one another as `parent`, as `superseded_by` or in a field of kind
 `entry`: each is written after the entries of the batch it names (a project before its notes), and
@@ -90,7 +90,7 @@ field may be `many: true` (the sellers of a part, the languages someone speaks):
 a list of values of its kind, each checked as one value, in the order given and without repeats
 (two names of one entry, its slug and its id, are one value), and `required` means at least one. A whole type may be `sensitive` too (a diary, health
 records), at its definition or later with `change_type`; a field becomes sensitive at its
-definition, with `add_field`, or later with `change_field`. Any writer may make a field or a type
+definition, with `define_type` (which adds fields to a type that exists), or later with `change_type` and its `field`. Any writer may make a field or a type
 sensitive; only the owner makes it no longer sensitive, from the command line (`field:sensitive`,
 `type:sensitive … --off`), since that shows its values at once. A value copied out before (a
 backup, an export) stays where it went. The history is the exception, on purpose: a value recorded
@@ -103,7 +103,7 @@ server holds the rule on every way out: the value of a sensitive field is replac
 field sensitive in any version of any type the entry has had stays hidden there, and so does a
 field that a rename or a merge made the same field as a sensitive one, so a rename, a merge or a
 change of type does not show its past values), a search does not match it, and the occurrences of
-a date field that is sensitive are left out of `upcoming`, `heads_up` and `briefing`, since their
+a date field that is sensitive are left out of the `briefing` (with its `from` and `to`) and of `heads_up`, since their
 date, their order or their count in a window would give the date back.
 An entry of a sensitive type does not exist for such a key: reading refuses it, search does not
 find it, its parent counts it among `hidden_children`, its links and its media are left out, and
@@ -111,7 +111,7 @@ its occurrences are left out. Its id is never given either: as the parent, the s
 value of a field of a visible entry (`null`, or `[hidden]` for a field), in the tree, nor in a
 history, where a change of a link to or from it is left out (and a write that did nothing else
 is not told at all); a reference to it waits like a reference to a slug no entry has, in
-`references`, in `pending_references` and in the answer of a write, so nothing tells the two
+`references`, in the pending references of the `briefing` and in the answer of a write, so nothing tells the two
 apart. What is stored does not depend on who writes: a reference to it is kept as a link even when
 such a key rewrites the body that holds it. Its rename rewrites no body of an entry of a type that
 is not sensitive, which such a key would see change: that reference to the old slug then waits,
@@ -141,7 +141,7 @@ unknown key is refused.
 An agent connected over MCP receives instructions when its session starts, what matters most
 first: the instance paragraph, generic instructions, in the code, on how to choose a type (from
 its description, searching before creating, asking when none fits), and the types of the instance
-with their descriptions (their names only beyond 50, with `list_types` for the rest); then its
+with their descriptions (their names only beyond 50, with `types` for the rest); then its
 working memory and how to find what the owner refers to without naming it (below), and, when they
 apply, the diagnostics paragraph, the rules of the instance, the writing standard and the inbox
 standard below. Claude Code cuts server instructions at 2,048 characters, so the part an agent
@@ -184,13 +184,14 @@ is given a list that is stale. "When" is the entry's `updated`. "By which key" i
 latest event that moved it (created, updated, archived, or a body rewritten by a rename) in the
 event log: a link or a medium added later by another key leaves `updated`, and so the author,
 where they were. The same definition serves `search` (its `by`, and the `by` filter) and
-`unverified`: one SQL expression, `LAST_WRITER` in `src/core/entries/last-writer.ts`.
+the owner's review list (`search` with `verified: false`, the briefing): one SQL expression, `LAST_WRITER` in `src/core/entries/last-writer.ts`.
 
 What holds across types (what to ask before writing, what never to write, the style) lives in the
 **rules of the instance**: Markdown kept in the database, set by the owner alone from the command
 line (`rules:set <file>`, `rules:show`), and readable by any key. The instructions give them
 verbatim after the types and the diagnostics paragraph; beyond 4000 characters, only their
-opening (what comes before their first `##` section), with `instance_rules` to read them whole.
+opening (what comes before their first `##` section), with `types` and `rules: true` to read them whole
+(a part of `types`, not an MCP resource: clients use resources poorly).
 The code knows that an instance has rules for its agents, nothing of what they say.
 
 Every write of an entry is validated against its type. A refused write returns one sentence per
@@ -209,11 +210,10 @@ Every change of a type is recorded in the event log like any other write.
 
 `change_type` replaces the label or the description of a type, alone or with `sensitive` and
 `read_in_parent`, and nothing else of it; an empty one is refused. The description is what tells
-agents when to use the type, so it is sharpened as its use becomes clearer: `list_types`,
-`get_type` and the instructions of the next session give the new one, and the event holds the
-values before and after.
+agents when to use the type, so it is sharpened as its use becomes clearer: `types` and the
+instructions of the next session give the new one, and the event holds the values before and after.
 
-How the server does it: `change_field` makes a field required (or optional), changes its kind (a
+How the server does it: `change_type` with a `field` makes a field required (or optional), changes its kind (a
 field that stops being a date loses its `due` and `recurs`, one that stops being an entry its
 `types`), renames it (its values and their provenance move with it) or changes its allowed values.
 It changes the `types` an entry field accepts (`null` accepts any): the stored values are kept as
@@ -227,10 +227,11 @@ entries that lack a field made required, a `mapping` turns old values into new o
 entry repaired gets an `update` event. `dry_run` answers what would happen and writes nothing. A
 value of a field that becomes a link to an entry, by a change or a merge, is stored as the id of
 the entry its slug or id names; one that names no entry is refused. Deleting or merging a type is a
-proposal; only a key with the right `owner` confirms it, and no agent key has that right. A merge
+proposal (`change_type` with `propose`); only the owner confirms it, from the command line
+(`proposal:list`, `proposal:confirm <id>`): no MCP tool does, and no agent key has the right. A merge
 moves the entries to the other type, their fields renamed by its mapping, and is refused if a value
 would be lost or an entry left invalid; a single field mapped onto a `many` one is refused too:
-make it `many` first with `change_field`, then merge. A deleted type is marked, not removed, so its history
+make it `many` first with `change_type` and its `field`, then merge. A deleted type is marked, not removed, so its history
 stays; its name cannot be used again. A change of a type locks the type, then its entries; a write of an
 entry locks its type, then the entry, in the same order. A write PostgreSQL still breaks off
 because of another one at the same moment is refused with one sentence: try the write again.
@@ -265,7 +266,7 @@ short text of 200 characters at most (the role the relation does not say: `accou
 `valid_until` (`2024-01-01`; the end is not before the start). `link` sets them; linking again the
 same source, target and relation (and, for `fulfills`, field and period) changes only them, in one
 event, a key left out staying as it is and `null` removing it, and nothing when they are unchanged.
-`read` gives them on links and backlinks, and the export writes them; `unlink` removes the link
+`read` gives them on links and backlinks, and the export writes them; `link` with `remove: true` removes the link
 with them. A field of kind `entry` says what an entry is (its employer, its sellers); a link says
 how two entries relate over time, with a role and dates: the same person may work at several
 organizations, one after the other. `[[slug]]` references in a body are parsed
@@ -275,13 +276,14 @@ at every write and kept as links:
 - a reference to a slug no entry has yet is accepted and kept as a **pending reference**, until an
   entry takes that slug (created, renamed to it, or given it as an alias): its pending references
   then become links, each recorded in the history of the entry that wrote it. The answer of a
-  write lists the pending references it left, so a typo shows at once; `pending_references` (MCP
-  and `GET /api/pending-references`) lists them all, with the entries that cite each. A reference
+  write lists the pending references it left, so a typo shows at once; the `briefing` (under `waiting`: the
+  count and the first few) and `GET /api/pending-references` (all of them)
+  list them, with the entries that cite each. A reference
   to an alias links to the entry that has it. To a key without the right `sensitive`, a reference
   to an entry it may not see waits like any other;
 - renaming a slug rewrites the references in every body that points to it.
 
-**Unlinked mentions.** The answer of `write`, and that of each entry of a `write_many`, also lists
+**Unlinked mentions.** The answer of `write`, and that of each entry of a `write` with `entries`, also lists
 as `unlinked: [{ slug, title, found }]` the existing entries whose title or alias appears whole in
 the title, summary or body just written, when the entry written neither cites nor links them.
 `found` is the words of the text that name the entry, as written. A name matches between word
@@ -315,7 +317,7 @@ size, hash, dimensions or duration, source URL, alternative text). Media never g
 
 How the server does it: a file comes as base64 (20 MB at most), as the file of an inbox item the
 caller has taken or just processed (`item`, so an agent never sends it again; or, when the
-item is done, `inbox_done` with `{ "entry": "<slug>", "attach": { "alt": "…" } }` among its
+item is done, `inbox_finish` with `outcome: "done"` and `{ "entry": "<slug>", "attach": { "alt": "…" } }` among its
 entries), or as an http(s) URL the server
 fetches (200 MB, 30 seconds, every redirect checked, never a private address unless
 `MEDIA_ALLOW_PRIVATE=true`; the connection goes to the very address that was checked, so a
@@ -357,18 +359,18 @@ entries, each of which cites the item in its `sources` (`{ "source": "inbox", "i
 Before taking, an agent may plan a batch: the list comes a page at a time (50 items unless told,
 `next_cursor` for the next), filtered by status and by origin (exact or by prefix), each item
 small (id, name, origin, size, status) and, on request, with the first lines of its text (five
-lines, 300 characters at most); `inbox_peek` reads an item without taking it, and `inbox_take`
+lines, 300 characters at most); `inbox_list` with an `id` reads an item without taking it, and `inbox_take`
 takes several items at once, all or none. A long text comes in parts: an answer gives the first
-16,000 characters and `next_offset`, and `inbox_read` the rest, from that offset. An agent that
-cannot finish an item gives it back with `inbox_release`: it waits again; otherwise an item taken
-stays taken until it is done or dismissed. Once processed, an item is read through the entries
-it gave: its text is served (`inbox_peek`, `inbox_read`, a preview) only to a key with the right
+16,000 characters and `next_offset`, and `inbox_list` with the `id` and an `offset` the rest. An agent that
+cannot finish an item gives it back with `inbox_finish` and `outcome: "released"`: it waits again;
+otherwise an item taken stays taken until it is done or dismissed. Once processed, an item is read through the entries
+it gave: its text is served (`inbox_list` with an `id`, a preview) only to a key with the right
 `sensitive`, as its file is served only through those entries, since what it held may now be an
 entry of a sensitive type, or a sensitive field. Answers that follow a write
-(`write`, `archive`, `inbox_done`) name the entries by their identity (id, slug, type, title,
+(`write`, its archiving, `inbox_finish`) name the entries by their identity (id, slug, type, title,
 summary, path), never with their body, which `read` gives.
 Bringing the same thing again later is a new item, processed the same way: there is no
-mechanical re-import. `inbox_take` and `inbox_peek` give with an item `earlier`: the items
+mechanical re-import. `inbox_take` and `inbox_list` with an `id` give with an item `earlier`: the items
 processed or dismissed before that came from the same origin under the same path (for an item
 without a path, with the same content), each with when it was received and closed, its status,
 and the entries it gave (those that cite it), by their identity (id, slug, type, title); an entry
@@ -386,7 +388,7 @@ container, copy it in first (`docker compose cp <folder> grenier:/tmp/<name>`), 
 ## Sources
 
 An entry made from an inbox item cites it as `{ "source": "inbox", "item": "<id>" }`:
-`inbox_done` adds that source to each entry it names, and a write may give it too, for an item
+`inbox_finish` (`done`) adds that source to each entry it names, and a write may give it too, for an item
 the inbox holds. No other item is cited this way: a source outside Grenier is a URL or an
 external identifier.
 
@@ -401,12 +403,13 @@ A `date` field may be declared as a **deadline** (`due`) or as **recurring** (`r
 `monthly`…), with a **notice** period (an ISO 8601 duration). The server computes the
 occurrences without knowing what they mean:
 
-- `upcoming(from, to)` returns the occurrences in a period, sorted, with the entry and its
-  context (days left, age for a yearly date);
+- the occurrences in a period come sorted, with the entry and its context (days left, age for a
+  yearly date), in the `briefing` given `from` and `to`;
 - the answers of the MCP tools carry a `heads_up` list when an occurrence enters its notice
   period, once a day per key;
-- `briefing(period)` gathers the occurrences, overdue deadlines, the items waiting to be
-  processed and the past ("a year ago"); an agent picks what matters and says it.
+- the `briefing` of a period (or of `from` and `to`) gathers the occurrences, the overdue deadlines,
+  the past ("a year ago") and what waits (the entries to review, the references without an entry);
+  an agent picks what matters and says it.
 
 An occurrence is closed when an entry linked to it by `fulfills`, for that date field and that
 period, exists (a payment for this year's tax, a service for this year's inspection). A closed
@@ -454,15 +457,21 @@ does not take or give any of this.
 
 ## MCP tools
 
-The tools are listed, with the right each needs, in `apps/server/src/mcp/README.md`: `define_type`,
-`write`, `read` (section by section for long entries), `search` (titles, tags and summaries
-first, then full text), `link`, `history`, `upcoming`, `briefing`, the inbox, and the rest. Each
+There are 13 tools (15 with diagnostics), listed with the right each needs in
+`apps/server/src/mcp/README.md`: `search` (titles, tags and summaries first, then full text, or the
+entries by last change), `read` (section by section for long entries, its history a part of it),
+`briefing` (the dates of a period, and what waits), `types`, `write` (one entry or several, or an
+archive), `link` (and its removal), `attach_media`, `define_type`, `change_type`, and the inbox
+(`inbox_add`, `inbox_list`, `inbox_take`, `inbox_finish`). They were merged from 34, each reading and
+each writing apart, so an agent has fewer to choose between; the bench (`apps/server/bench`) measures
+whether it does better. Each
 tool decodes its input with an Effect schema and declares it through `toToolInputSchema`: every
 parameter described, and `additionalProperties: false`, since a key the schema does not name is
 refused.
 
 A key lists only the tools its rights allow, in one fixed order; a tool not listed is refused as
-unknown. `confirm_proposal` needs the right `owner`, which no key given to an agent has. Each tool
+unknown. The owner confirms a proposal of a type change from the command line, so no tool needs the
+right `owner`. Each tool
 carries the MCP annotations: `readOnlyHint` for the tools that read, `destructiveHint` where a
 write may overwrite what is there, `idempotentHint` where the same call again leaves the same
 state, and `openWorldHint: false` for all but `attach_media`, which may fetch a `url`.
