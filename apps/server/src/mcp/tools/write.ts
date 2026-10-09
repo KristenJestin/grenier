@@ -26,6 +26,7 @@ export const writeTool = defineTool({
         'Archive the entry `entry` names, instead of writing it. Archived already, a new `reason` replaces the old one, its date kept.',
     }),
   }),
+  sharing: { property: 'entries', as: 'WriteEntry' },
   right: 'write',
   hints: { destructive: true, idempotent: false },
   // The entry's identity only: the agent just sent the rest, and the body may be long. The

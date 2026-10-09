@@ -1,4 +1,4 @@
-import { toToolInputSchema } from '@grenier/api/schema'
+import type { ToolInputSchema } from '@grenier/api/schema'
 import { Option, Schema } from 'effect'
 import { describe, expect, test } from 'vitest'
 import { DIAGNOSTICS_TOOLS, TOOLS } from '../../src/mcp/tools.ts'
@@ -31,8 +31,8 @@ const hasDescription = (property: Schema.Json): boolean =>
   )
 
 /** The input schema of a tool as plain JSON, the way a client receives it. */
-const jsonOf = (tool: { readonly input: Schema.Top }) =>
-  Schema.decodeUnknownSync(Schema.Json)(toToolInputSchema(tool.input))
+const jsonOf = (tool: { readonly inputSchema: ToolInputSchema }) =>
+  Schema.decodeUnknownSync(Schema.Json)(tool.inputSchema)
 
 const schemas = [...TOOLS, ...DIAGNOSTICS_TOOLS].map((tool) => ({
   name: tool.name,
@@ -58,19 +58,57 @@ describe('input schemas tell the truth about unknown keys', () => {
   })
 })
 
+/** What a `$ref` of the document points to, following the JSON pointer inside it. */
+const resolved = (document: Schema.Json, property: Schema.Json): Schema.Json => {
+  const { $ref } = Schema.decodeUnknownSync(
+    Schema.Struct({ $ref: Schema.optionalKey(Schema.String) }),
+  )(property)
+  if ($ref === undefined) return property
+  return $ref
+    .replace(/^#\//, '')
+    .split('/')
+    .reduce<Schema.Json>(
+      (node, key) =>
+        Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(node)[key] ?? null,
+      document,
+    )
+}
+
 describe('every parameter of every tool is described', () => {
-  test('a property without a description fails, at any depth', () => {
+  test('a property without a description fails, at any depth, once its reference is followed', () => {
     const bare = schemas.flatMap(({ name, schema }) =>
       nested(schema).flatMap((node) =>
         Option.match(Schema.decodeUnknownOption(Properties)(node), {
           onNone: () => [],
           onSome: ({ properties }) =>
             Object.entries(properties)
-              .filter(([, property]) => !hasDescription(property))
+              .filter(([, property]) => !hasDescription(resolved(schema, property)))
               .map(([property]) => `${name}.${property}`),
         }),
       ),
     )
     expect([...new Set(bare)].toSorted()).toEqual([])
+  })
+})
+
+describe('a shared schema is described once in the tool that takes it', () => {
+  test('write describes an entry once, under $defs: the flat keys and the items of entries refer to it', () => {
+    const write = schemas.find(({ name }) => name === 'write')
+    const text = JSON.stringify(write?.schema)
+    expect(text.match(/The slug or id of the entry to update/g)).toHaveLength(1)
+    expect(text).toContain('"items":{"$ref":"#/$defs/WriteEntry"}')
+    expect(text).toContain('"title":{"$ref":"#/$defs/WriteEntry/properties/title"}')
+  })
+
+  test('no tool carries the same schema of more than 300 characters twice', () => {
+    const twice = schemas.flatMap(({ name, schema }) => {
+      const seen = new Map<string, number>()
+      for (const node of nested(schema)) {
+        const text = JSON.stringify(node)
+        if (text.length > 300) seen.set(text, (seen.get(text) ?? 0) + 1)
+      }
+      return [...seen.values()].some((count) => count > 1) ? [name] : []
+    })
+    expect(twice).toEqual([])
   })
 })

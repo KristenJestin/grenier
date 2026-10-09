@@ -149,6 +149,26 @@ describe('JSON Schema for MCP tools', () => {
     }
   })
 
+  test('a tool that restates its list item describes it once, under $defs, and refers to it', () => {
+    const Entry = Schema.Struct({
+      title: Schema.String.annotate({ description: 'Title of the entry.' }),
+      body: Schema.optionalKey(Schema.String).annotate({ description: 'Body of the entry.' }),
+    })
+    const Write = Schema.Struct({
+      ...Entry.fields,
+      entries: Schema.optionalKey(Schema.Array(Entry)).annotate({ description: 'Several.' }),
+    })
+    const input = toToolInputSchema(Write, { property: 'entries', as: 'Entry' })
+    expect(JSON.stringify(input).match(/Title of the entry/g)).toHaveLength(1)
+    expect(input.$defs).toHaveProperty(['Entry', 'properties', 'title', 'description'])
+    expect(input.properties).toMatchObject({
+      title: { $ref: '#/$defs/Entry/properties/title' },
+      body: { $ref: '#/$defs/Entry/properties/body' },
+      entries: { type: 'array', description: 'Several.', items: { $ref: '#/$defs/Entry' } },
+    })
+    expect(input.additionalProperties).toBe(false)
+  })
+
   test('a schema that is not an object at the root is refused', () => {
     expect(() => toToolInputSchema(Schema.String)).toThrow(/object at the root/)
   })

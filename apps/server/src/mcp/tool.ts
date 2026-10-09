@@ -2,6 +2,7 @@ import type { Right } from '../core/auth/index.ts'
 import type { layer as database } from '../core/database/index.ts'
 import { Refused } from '../core/refused.ts'
 import { toToolInputSchema } from '@grenier/api/schema'
+import type { Sharing } from '@grenier/api/schema'
 import { Schema } from 'effect'
 import { Effect } from 'effect'
 import type { Layer } from 'effect'
@@ -57,6 +58,8 @@ export function defineTool<const Name extends string, I, E>(
     readonly name: Name
     readonly description: string
     readonly input: Schema.Codec<I, I>
+    /** The item a tool restates in its own keys, described once in its input schema. */
+    readonly sharing?: Sharing
     readonly run: (input: I) => Effect.Effect<Schema.JsonObject, E, Database>
   } & (
     | { readonly right: 'read'; readonly hints?: undefined }
@@ -64,12 +67,14 @@ export function defineTool<const Name extends string, I, E>(
   ),
 ) {
   const annotations = annotationsOf(definition.right, definition.hints)
+  const inputSchema = toToolInputSchema(definition.input, definition.sharing)
   return {
     ...definition,
+    inputSchema,
     annotations,
     tool: Tool.dynamic(definition.name, {
       description: definition.description,
-      parameters: toToolInputSchema(definition.input),
+      parameters: inputSchema,
       success: Schema.JsonObject,
       failure: Refused,
     })

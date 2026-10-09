@@ -7,7 +7,6 @@ import { headsUp } from '../core/time/index.ts'
 import { Context, Effect, Layer, Schema } from 'effect'
 import { McpSchema, McpServer, Toolkit } from 'effect/ai'
 import type { Tool } from 'effect/ai'
-import { toToolInputSchema } from '@grenier/api/schema'
 import { RecentCalls } from './calls.ts'
 import { takenContent } from './tools/inbox-take.ts'
 import { grenierReportTool } from './tools/grenier-report.ts'
@@ -170,12 +169,12 @@ const registerByHand = <I, E>(tool: ReturnType<typeof defineTool<string, I, E>>)
     const server = yield* McpServer.McpServer
     const services = yield* Effect.context<Database>()
     const handle = handlerFor(services, yield* Rights)(tool)
-    const { name, description, input, annotations } = tool
+    const { name, description, inputSchema, annotations } = tool
     return yield* server.addTool({
       tool: new McpSchema.Tool({
         name,
         description,
-        inputSchema: toToolInputSchema(input),
+        inputSchema,
         annotations,
       }),
       annotations: Context.empty(),
