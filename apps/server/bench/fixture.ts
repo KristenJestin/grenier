@@ -1,6 +1,6 @@
 import type { TypeDefinition, WriteEntryInput } from '@grenier/api/model'
 import { Auth, Rights } from '../src/core/auth/index.ts'
-import { setVerified, slugOf, writeEntries, writeEntry } from '../src/core/entries/index.ts'
+import { slugOf, writeEntries, writeEntry } from '../src/core/entries/index.ts'
 import { Actor } from '../src/core/events/index.ts'
 import { link } from '../src/core/links/index.ts'
 import { setInstanceRules } from '../src/core/rules.ts'
@@ -884,15 +884,41 @@ export const LINKS: ReadonlyArray<Seeded> = [
   { from: 'ingrid-solberg', to: 'garden-shed', relation: 'about', note: 'gave a quote' },
 ]
 
-/** Entries left for the owner's review: written by an import agent, not yet verified. */
-export const UNVERIFIED = ['router-settings', 'cable-management-ideas', 'lemon-curd', 'flatbreads']
+/**
+ * Entries whose values the import agent only supposed: they hold `inferred` values, and wait for
+ * the owner to confirm them. Every other entry is known, read in the notes the owner gave.
+ */
+export const SUPPOSED = ['router-settings', 'cable-management-ideas', 'lemon-curd', 'flatbreads']
+
+/** Where the import agent read what it wrote: a source for each entry it knows something of. */
+const NOTES = { identifier: 'owner-notes-2026', label: 'notes the owner handed over' } as const
+
+/**
+ * An entry as the import agent writes it: every value, its body and its summary say whether they
+ * are known (`extracted` from the owner's notes, which the entry then cites) or, for the entries
+ * of `SUPPOSED`, supposed (`inferred`).
+ */
+export const asImported = (spec: Spec): Spec => {
+  const slug = spec.slug ?? slugOf(spec.title)
+  const provenance = SUPPOSED.includes(slug) ? 'inferred' : 'extracted'
+  const said = [
+    ...Object.keys(spec.fields ?? {}),
+    ...(spec.body === undefined || spec.body === '' ? [] : ['body']),
+    ...(spec.summary === undefined || spec.summary === '' ? [] : ['summary']),
+  ]
+  return {
+    ...spec,
+    provenance: Object.fromEntries(said.map((name) => [name, provenance])),
+    sources: spec.sources ?? [NOTES],
+  }
+}
 
 const OWNER = ['read', 'write', 'sensitive', 'owner'] as const
 
 const asOwner = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provideService(Actor, 'owner'), Effect.provideService(Rights, OWNER))
 
-/** Runs as the import agent that wrote the instance's entries, who may not verify. */
+/** Runs as the import agent that wrote the instance's entries. */
 const asImporter = <A, E, R>(effect: Effect.Effect<A, E, R>, actor = 'import-agent') =>
   effect.pipe(
     Effect.provideService(Actor, actor),
@@ -902,8 +928,8 @@ const asImporter = <A, E, R>(effect: Effect.Effect<A, E, R>, actor = 'import-age
 /**
  * Writes the instance into an empty, migrated database through the core: the owner and the key
  * of the agent under measurement, the rules, the types, the entries, the links, a change of
- * location by another agent (for the history), and the owner's verification of all but a few
- * entries. Returns the secret of the key.
+ * location by another agent (for the history). Every value says whether it is known or supposed
+ * (see `asImported`). Returns the secret of the key.
  */
 export const seedInstance = (today: string) =>
   Effect.gen(function* () {
@@ -914,9 +940,10 @@ export const seedInstance = (today: string) =>
     yield* asImporter(
       Effect.gen(function* () {
         for (const type of TYPES) yield* defineType(type)
-        yield* writeEntries(entriesFor(today))
+        yield* writeEntries(entriesFor(today).map(asImported))
         for (const each of LINKS) {
           yield* link(each.from, each.to, each.relation, '', '', {
+            provenance: 'extracted',
             note: each.note,
             valid_from: each.valid_from,
             valid_until: each.valid_until,
@@ -925,15 +952,12 @@ export const seedInstance = (today: string) =>
       }),
     )
     yield* asImporter(
-      writeEntry({ entry: 'pantry-nas', fields: { location: 'hallway cupboard' } }),
+      writeEntry({
+        entry: 'pantry-nas',
+        fields: { location: 'hallway cupboard' },
+        provenance: { location: 'extracted' },
+      }),
       'agent-desk',
-    )
-    const slugs = entriesFor(today).map(({ title }) => slugOf(title))
-    yield* asOwner(
-      setVerified(
-        slugs.filter((slug) => !UNVERIFIED.includes(slug)),
-        true,
-      ),
     )
     return secret
   })

@@ -631,10 +631,10 @@ export const TASKS: ReadonlyArray<Task> = [
     },
   },
   {
-    id: 'review-queue',
+    id: 'supposed-queue',
     heldOut: false,
-    prompt: 'What is waiting for my review?',
-    expects: ['review'],
+    prompt: 'What in my notes is only a guess, not something I told you?',
+    expects: ['supposed'],
     check: async ({ answer }) => [
       ...mentions(answer, [
         'Router settings',
@@ -676,6 +676,7 @@ export const TASKS: ReadonlyArray<Task> = [
                 'Replacing the failing second disk of the [[pantry-nas]] with a new one, decided in a talk with the owner: which disk, the order of the work, the warranty claim.',
               fields: { status: 'active' },
               body: 'The second disk of the [[pantry-nas]] reports errors. Disk chosen and steps are in the parts of this project.',
+              provenance: { status: 'inferred', body: 'inferred', summary: 'inferred' },
             },
             {
               type: 'note',
@@ -683,6 +684,7 @@ export const TASKS: ReadonlyArray<Task> = [
               parent: 'pantry-nas-disk-replacement',
               summary: 'Why the Halden 8 TB was chosen over the Corvid 6 TB for the Pantry NAS.',
               body: 'The Halden 8 TB is quieter and has a five-year warranty; the Corvid 6 TB is cheaper but only has two years.',
+              provenance: { body: 'inferred', summary: 'inferred' },
             },
             {
               type: 'note',
@@ -690,6 +692,7 @@ export const TASKS: ReadonlyArray<Task> = [
               parent: 'pantry-nas-disk-replacement',
               summary: 'What to send to claim the warranty of the failing disk of the Pantry NAS.',
               body: 'Send the serial number and the error log to the maker, then ship the disk back within thirty days.',
+              provenance: { body: 'inferred', summary: 'inferred' },
             },
             {
               type: 'note',
@@ -697,6 +700,7 @@ export const TASKS: ReadonlyArray<Task> = [
               parent: 'pantry-nas-disk-replacement',
               summary: 'The order of the work to swap the failing disk of the Pantry NAS.',
               body: 'Snapshot first, replace the disk, let the pool resilver, then check the data.',
+              provenance: { body: 'inferred', summary: 'inferred' },
             },
           ]),
           Actor,
@@ -726,6 +730,7 @@ export const TASKS: ReadonlyArray<Task> = [
             body: 'Fix artist and album names, one folder at a time.',
             created: day(MUSIC[0].daysAgo),
             updated: day(MUSIC[0].daysAgo),
+            provenance: { status: 'inferred', body: 'inferred', summary: 'inferred' },
           },
           {
             type: 'note',
@@ -734,6 +739,7 @@ export const TASKS: ReadonlyArray<Task> = [
             body: 'Tuesday evening and Saturday morning.',
             created: day(MUSIC[1].daysAgo),
             updated: day(MUSIC[1].daysAgo),
+            provenance: { body: 'inferred', summary: 'inferred' },
           },
           {
             type: 'bookmark',
@@ -742,6 +748,7 @@ export const TASKS: ReadonlyArray<Task> = [
             fields: { url: 'https://example.org/festival/tickets' },
             created: day(MUSIC[2].daysAgo),
             updated: day(MUSIC[2].daysAgo),
+            provenance: { url: 'inferred', summary: 'inferred' },
           },
         ]),
       )
