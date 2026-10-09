@@ -66,12 +66,13 @@ describe('the instance gives its rules to every agent', () => {
     const server = await session({ GRENIER_DIAGNOSTICS: 'on' })
     const paragraphs = server.instructions?.split('\n\n') ?? []
     const at = paragraphs.findIndex((paragraph) => paragraph.includes('rules of this instance'))
-    // After the instance, how to choose a type, the types and diagnostics; before how an inbox
-    // item becomes entries.
+    // After the instance, how to choose a type, the types, how to recall and diagnostics; before
+    // how an inbox item becomes entries.
     expect(paragraphs[1]).toMatch(/^Grenier keeps entries/)
     expect(paragraphs[3]).toMatch(/^There is no type yet/)
-    expect(paragraphs[4]).toMatch(/^Diagnostics are on/)
-    expect(at).toBe(5)
+    expect(paragraphs[4]).toMatch(/^When the user mentions something/)
+    expect(paragraphs[5]).toMatch(/^Diagnostics are on/)
+    expect(at).toBe(6)
     expect(paragraphs[at + 3]).toMatch(/^How an inbox item becomes entries/)
     expect(server.instructions).toContain(RULES.trim())
     expect(await server.call('instance_rules', {})).toMatchObject({ result: { rules: RULES } })
