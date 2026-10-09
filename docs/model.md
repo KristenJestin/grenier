@@ -376,8 +376,8 @@ gains another date later. A link `fulfills` without a field to a target with sev
 is refused with the list of them, and so is a field that is not a deadline or a recurring date
 of the target. Overdue means a deadline whose last occurrence before today is not fulfilled.
 "Today" is the local date of the server (`TZ`). `briefing(weekend)` covers the coming Saturday
-and Sunday (on a Sunday, that Sunday). Every MCP answer carries `heads_up`; an empty list when
-nothing enters its notice period.
+and Sunday (on a Sunday, that Sunday). An MCP answer carries `heads_up` only when something
+enters its notice period: with nothing to tell, the key is absent.
 
 ## Search
 

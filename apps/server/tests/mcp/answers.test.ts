@@ -34,9 +34,14 @@ beforeAll(() =>
 )
 
 describe('an answer of a tool carries the heads-up', () => {
-  test('a heads-up that fails leaves the answer of a write that succeeded', async () => {
+  test('a heads-up that fails leaves the answer of a write that succeeded, without a heads_up', async () => {
     const answer = await run(on('not-a-date')(answered(Effect.succeed({ written: true }))))
-    expect(answer).toEqual({ written: true, heads_up: [] })
+    expect(answer).toEqual({ written: true })
+  })
+
+  test('with nothing to say, the answer has no heads_up', async () => {
+    const quiet = await run(on('2030-01-01')(answered(Effect.succeed({ written: true }))))
+    expect(quiet).not.toHaveProperty('heads_up')
   })
 
   test('a refusal carries the heads-up too', async () => {

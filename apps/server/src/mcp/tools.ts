@@ -102,12 +102,14 @@ const refusalWith = (refused: Refused, heads_up: Effect.Success<typeof toldNow>)
     : new Refused({ message: `${refused.message}\n\nheads_up: ${JSON.stringify(heads_up)}` })
 
 /**
- * What a tool answers: its answer with the heads-up, or its refusal with the heads-up too. Any
- * other failure is a defect, reported as an internal error.
+ * What a tool answers: its answer with the heads-up, or its refusal with the heads-up too; with
+ * nothing to tell, neither carries one. Any other failure is a defect, reported as an internal error.
  */
 export const answered = <A extends Schema.JsonObject, E, R>(answer: Effect.Effect<A, E, R>) =>
   answer.pipe(
-    Effect.flatMap((data) => Effect.map(toldNow, (heads_up) => ({ ...data, heads_up }))),
+    Effect.flatMap((data) =>
+      Effect.map(toldNow, (heads_up) => (heads_up.length === 0 ? data : { ...data, heads_up })),
+    ),
     Effect.catchIf(
       Schema.is(Refused),
       (refused) =>

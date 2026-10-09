@@ -240,7 +240,6 @@ describe('an agent works through MCP calls only', () => {
     await mcp().call('write', { type: 'note', title: 'Week', body })
     expect(await mcp().call('read', { entry: 'week', headings: true })).toEqual({
       result: {
-        heads_up: [],
         headings: [
           { level: 1, text: 'Journal' },
           { level: 2, text: 'Monday' },
@@ -249,7 +248,7 @@ describe('an agent works through MCP calls only', () => {
       },
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Monday' })).toEqual({
-      result: { heads_up: [], section: '## Monday\nRain all day.\n```\n# not a heading\n```' },
+      result: { section: '## Monday\nRain all day.\n```\n# not a heading\n```' },
     })
     expect(await mcp().call('read', { entry: 'week', section: 'Friday' })).toEqual({
       error: 'The entry `week` has no heading `Friday`: read its headings first.',
@@ -259,7 +258,7 @@ describe('an agent works through MCP calls only', () => {
   test('read gives only the parts asked for, the entry without its body unless asked', async () => {
     const { result } = await mcp().call('read', { entry: 'week', parts: ['links', 'media'] })
     expect(Object.keys(result ?? {}).toSorted()).toEqual(
-      ['backlinks', 'entry', 'heads_up', 'links', 'media'].toSorted(),
+      ['backlinks', 'entry', 'links', 'media'].toSorted(),
     )
     expect(JSON.stringify(result)).not.toContain('Rain all day.')
     expect(result).toMatchObject({ entry: { slug: 'week', title: 'Week' } })
@@ -306,7 +305,7 @@ describe('dates come to the agent', () => {
     expect(written).toMatchObject({
       result: { heads_up: [{ entry: { slug: 'kettle-warranty' }, date: ends }] },
     })
-    expect(await mcp().call('list_types', {})).toMatchObject({ result: { heads_up: [] } })
+    expect((await mcp().call('list_types', {})).result).not.toHaveProperty('heads_up')
     const coming = await mcp().call('upcoming', { to: ends })
     expect(coming).toMatchObject({
       result: { occurrences: [{ entry: { slug: 'kettle-warranty' }, deadline: true }] },

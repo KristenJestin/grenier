@@ -75,7 +75,6 @@ describe('answers carry the entry, not its content', () => {
       body: LONG,
     })
     expect(written).toEqual({
-      heads_up: [],
       pending_references: [],
       entry: {
         id: expect.any(String),
@@ -100,7 +99,6 @@ describe('answers carry the entry, not its content', () => {
     })
 
     expect(await answerOf('archive', { entry: 'long-journal' })).toEqual({
-      heads_up: [],
       entry: {
         id: expect.any(String),
         slug: 'long-journal',
@@ -224,7 +222,6 @@ describe('six agents work the inbox in parallel', () => {
     const id = await added('The greenhouse needs a new pane.')
     await answerOf('inbox_take', { id })
     expect(await answerOf('inbox_done', { id, entries: ['garden'] })).toEqual({
-      heads_up: [],
       item: {
         id,
         status: 'processed',
