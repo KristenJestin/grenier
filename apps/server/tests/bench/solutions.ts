@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { archiveEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { archiveEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
 import {
   addToInbox,
   dismissItem,
@@ -10,6 +10,7 @@ import {
 import { link } from '../../src/core/links/index.ts'
 import { addDays } from '../../src/core/time/index.ts'
 import { addField, changeField, defineType } from '../../src/core/types/index.ts'
+import { lastMarch } from '../../bench/tasks.ts'
 import type { World } from '../../bench/world.ts'
 
 /**
@@ -306,5 +307,42 @@ export const SOLUTIONS = {
       }),
     )
     return 'Added.'
+  },
+  'session-journal': async ({ today, arrange }) => {
+    await arrange(
+      writeEntry({
+        type: 'note',
+        title: `Atlas server upkeep, ${today}`,
+        parent: 'atlas-server',
+        valid_from: today,
+        summary: `The session of ${today} on the Atlas server: dust filters cleaned, firmware updated to 2.4.`,
+        body: 'Cleaned the dust filters, then updated the firmware to version 2.4. The fans are still noisy: check them next month.',
+        provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
+      }),
+    )
+    return 'The session is recorded as an entry of its own, under the Atlas server.'
+  },
+  'boiler-serviced': async ({ today, arrange }) => {
+    await arrange(
+      writeEntries([
+        {
+          type: 'note',
+          title: `Boiler service, ${today}`,
+          parent: 'gas-boiler',
+          valid_from: today,
+          summary: `The gas boiler was serviced on ${today}.`,
+          provenance: { parent: 'inferred', summary: 'inferred' },
+        },
+        {
+          type: 'note',
+          title: 'Boiler service, last March',
+          parent: 'gas-boiler',
+          valid_from: `${lastMarch(today)}-01`,
+          summary: 'The gas boiler was serviced in March; the day is not known.',
+          provenance: { parent: 'inferred', summary: 'inferred' },
+        },
+      ]),
+    )
+    return 'Both services are recorded under the gas boiler, each dated.'
   },
 } satisfies { readonly [task: string]: Solution }

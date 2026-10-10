@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Effect, Predicate } from 'effect'
 import { writeEntries } from '../src/core/entries/index.ts'
 import { Actor } from '../src/core/events/index.ts'
 import { addDays } from '../src/core/time/index.ts'
@@ -77,6 +77,47 @@ const MUSIC = [
   { title: 'Music lessons schedule', slug: 'music-lessons-schedule', daysAgo: 21 },
   { title: 'Music festival tickets', slug: 'music-festival-tickets', daysAgo: 150 },
 ] as const
+
+/** An entry as a check reads it, with its links and the places it is part of. */
+type Found = NonNullable<Awaited<ReturnType<World['entry']>>>
+
+/** The dates an entry holds as data: the day it starts to hold, and its fields that are dates. */
+const datesOf = ({ entry }: Found) =>
+  [entry.valid_from, ...Object.values(entry.fields)].filter(
+    (value): value is string => Predicate.isString(value) && /^\d{4}-\d{2}-\d{2}/.test(value),
+  )
+
+/** Whether an entry is part of, or linked to, the entry of that slug. */
+const about = (found: Found, slug: string) =>
+  found.part_of.some((place) => place.slug === slug) || linked(found).includes(slug)
+
+/**
+ * What a run did with things that happened at a time: the entries it created, and the entries that
+ * existed before whose body it changed (a body grown with each new thing is what is not wanted).
+ */
+const happenings = async (world: World, startedAt: string) => {
+  const everything = await world.everything()
+  const created = everything.filter(({ entry }) => entry.created >= startedAt)
+  const touched = everything.filter(
+    ({ entry }) => entry.created < startedAt && entry.updated >= startedAt,
+  )
+  const histories = await Promise.all(touched.map(({ entry }) => world.history(entry.slug)))
+  const grown = touched.filter((_, index) =>
+    (histories[index] ?? []).some(
+      ({ at, changes }) => at >= startedAt && changes.some(({ field }) => field === 'body'),
+    ),
+  )
+  return { created, grown: grown.map(({ entry }) => entry.slug) }
+}
+
+/** An answer that proposes a new type to the owner, rather than writing without one. */
+const PROPOSES_TYPE = /\b(new|create|define|add|propose)\b[^.?!]*\btype\b/i
+
+/** The March before the day of the run: its year and month, as a date begins with them. */
+export const lastMarch = (today: string) => {
+  const year = Number(today.slice(0, 4))
+  return `${Number(today.slice(5, 7)) > 3 ? year : year - 1}-03`
+}
 
 export const TASKS: ReadonlyArray<Task> = [
   {
@@ -785,6 +826,63 @@ export const TASKS: ReadonlyArray<Task> = [
           !['Network router', 'Samir Haddad'].includes(idea?.path.at(-1) ?? ''),
           'the note is filed under one of the two entries it is only about',
         ),
+      ]
+    },
+  },
+  {
+    id: 'session-journal',
+    heldOut: false,
+    prompt:
+      'Keep a journal of this session: I cleaned the dust filters of the Atlas server, then updated its firmware to version 2.4. The fans are still noisy, to be checked next month.',
+    expects: ['write', 'link', 'type_define'],
+    check: async ({ answer, world, startedAt }) => {
+      const { created, grown } = await happenings(world, startedAt)
+      if (created.length === 0 && grown.length === 0 && PROPOSES_TYPE.test(answer))
+        return ok(answer.includes('?'), 'the answer proposes a type without asking')
+      const session = created.filter(
+        (found) =>
+          about(found, 'atlas-server') &&
+          datesOf(found).some((date) => date.startsWith(world.today)) &&
+          /firmware/i.test(`${found.entry.title} ${found.entry.summary} ${found.entry.body}`),
+      )
+      return [
+        ...ok(grown.length === 0, `the body of ${grown.join(', ')} was grown`),
+        ...ok(
+          session.length > 0,
+          'no entry of its own, dated today and about the Atlas server, records the session',
+        ),
+      ]
+    },
+  },
+  {
+    id: 'boiler-serviced',
+    heldOut: false,
+    prompt: 'Record that the boiler was serviced today, and that it was serviced last March.',
+    expects: ['write', 'link', 'type_define'],
+    setup: async (world) => {
+      await world.arrange(
+        writeEntries([
+          {
+            type: 'note',
+            title: 'Gas boiler',
+            summary: 'The gas boiler of the house, in the cellar: a wall-hung condensing model.',
+            body: 'Installed by the previous owners. The manual is in the cellar drawer.',
+            provenance: { body: 'inferred', summary: 'inferred' },
+          },
+        ]),
+      )
+    },
+    check: async ({ answer, world, startedAt }) => {
+      const { created, grown } = await happenings(world, startedAt)
+      if (created.length === 0 && grown.length === 0 && PROPOSES_TYPE.test(answer))
+        return ok(answer.includes('?'), 'the answer proposes a type without asking')
+      const services = created.filter((found) => about(found, 'gas-boiler'))
+      const dated = (day: string) =>
+        services.some((found) => datesOf(found).some((date) => date.startsWith(day)))
+      return [
+        ...ok(grown.length === 0, `the body of ${grown.join(', ')} was grown`),
+        ...ok(dated(world.today), 'no entry about the boiler is dated today'),
+        ...ok(dated(lastMarch(world.today)), 'no entry about the boiler is dated last March'),
       ]
     },
   },

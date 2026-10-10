@@ -109,7 +109,7 @@ describe('every task has a check that asks for something and a reference solutio
 
   test('about thirty tasks, some of them held out', () => {
     expect(TASKS.length).toBeGreaterThanOrEqual(28)
-    expect(TASKS.length).toBeLessThanOrEqual(36)
+    expect(TASKS.length).toBeLessThanOrEqual(38)
     expect(TASKS.filter(({ heldOut }) => heldOut).length).toBeGreaterThanOrEqual(6)
     expect(TASKS.filter(({ heldOut }) => heldOut).length).toBeLessThanOrEqual(10)
   })
