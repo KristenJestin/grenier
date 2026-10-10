@@ -34,12 +34,20 @@ hippo service logs        # the last lines the server wrote
 hippo service stop
 hippo service start
 hippo backup [--to <file>]
+hippo restore <file>
 ```
 
 `backup` stops the service for the few seconds of the copy, writes the database's folder and the
-media into a `.tar.gz` (in `~/Hippocampe/backups/` by default, readable by you only), and starts it
-again. To restore: `hippo service stop`, put `postgres/` and `media/` back from the archive into
-`~/.local/share/hippocampe/`, `hippo service start`. The nightly Markdown export goes to `~/Hippocampe/export/`. Both live in `~/Hippocampe`,
+media into a `.tar.gz` (in `~/Hippocampe/backups/` by default, readable by you only), with a small
+manifest (the version of Hippocampe, the major version of PostgreSQL, the date), and starts it
+again. `restore` puts such a file back: it checks the archive first, and refuses, before touching
+anything, a file that is not a backup, a backup written by a newer Hippocampe (update first) or by
+another major version of PostgreSQL (a database folder does not move across them). It then stops
+the service, saves what is there as `~/Hippocampe/backups/hippocampe-before-restore-<date>.tar.gz`,
+unpacks the backup, and starts the service, which migrates the database as it starts; if anything
+fails on the way, what was there is put back. To undo a restore, restore the `before-restore` file.
+A backup made before backups had a manifest is restored after a warning. The nightly Markdown
+export goes to `~/Hippocampe/export/`. Both live in `~/Hippocampe`,
 in sight and apart from the installation: `service uninstall --purge` never deletes them, and says
 what it deletes and what it keeps before it does.
 

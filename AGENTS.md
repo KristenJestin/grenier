@@ -135,8 +135,9 @@ everything as Markdown into a git repository and commits what changed; the serve
 night when `EXPORT_DIR` is set (see `src/export/README.md`). The other
 entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/mcp/README.md`).
 The command line is built with `effect/cli` (`bun run hippo --help`); `hippo serve` runs the
-server, and `hippo service install|uninstall|start|stop|status|logs` and `hippo backup` run
-Hippocampe as a systemd user service with its own PostgreSQL (see `docs/install.md`, and
+server, and `hippo service install|uninstall|start|stop|status|logs`, `hippo backup` and
+`hippo restore <file>` run Hippocampe as a systemd user service with its own PostgreSQL (see
+`docs/install.md`, and
 `scripts/pack.ts` for the npm packages).
 
 Hippocampe with Docker, server and database in one command (the image is built from

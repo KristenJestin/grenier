@@ -11,6 +11,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -19,6 +20,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { Console, Context, Effect, Layer, Schedule, Schema } from 'effect'
 import { type Home, readEnvironment } from './home.ts'
@@ -444,23 +446,196 @@ export const logs = Effect.map(
   (output) => output.trimEnd(),
 )
 
+/** What a backup says of itself, first in its archive. */
+const MANIFEST = 'hippocampe-backup.json'
+const Manifest = Schema.fromJsonString(
+  Schema.Struct({ hippocampe: Schema.String, postgres: Schema.Int, made: Schema.String }),
+)
+
+/** The version of this Hippocampe, `unknown` in a clone. */
+const versionOfHippocampe = () => process.env['HIPPOCAMPE_VERSION'] ?? 'unknown'
+
+/** The major version of the PostgreSQL the installation runs, from its binaries. */
+const postgresMajor = (home: Home) =>
+  Effect.map(must(join(home.binaries, 'bin', 'postgres'), ['--version']), (output) =>
+    Number(/PostgreSQL\)? (\d+)/.exec(output)?.[1]),
+  )
+
+/** A moment as a file name takes it. */
+const stampOf = (date: Date) => date.toISOString().replaceAll(':', '-')
+
+/**
+ * Writes the database and the media into `file`, after the manifest, with the service stopped: the
+ * file is there, readable by this user only, before `tar` writes a byte into it, even when it
+ * names a file that was readable.
+ */
+const archive = Effect.fn('archive')(function* (home: Home, file: string) {
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, '', { mode: 0o600 })
+  chmodSync(file, 0o600)
+  const manifest = Schema.encodeSync(Manifest)({
+    hippocampe: versionOfHippocampe(),
+    postgres: yield* postgresMajor(home),
+    made: new Date().toISOString(),
+  })
+  const folder = mkdtempSync(join(tmpdir(), 'hippocampe-backup-'))
+  writeFileSync(join(folder, MANIFEST), manifest, { mode: 0o600 })
+  yield* must('tar', [
+    '-czf',
+    file,
+    '-C',
+    folder,
+    MANIFEST,
+    '-C',
+    home.data,
+    'postgres',
+    'media',
+  ]).pipe(Effect.ensuring(Effect.sync(() => rmSync(folder, { recursive: true, force: true }))))
+})
+
 /**
  * A copy of the database and the media, into the backups folder unless `to` names a file: the
  * service stops for the few seconds of the copy, so the copy is whole, then starts again. The
  * PostgreSQL the package carries has no `pg_dump`: the copy is of the database's own folder,
- * restored by putting it back in place with the service stopped.
+ * which `restore` puts back in place with the service stopped.
  */
 export const backup = Effect.fn('backup')(function* (home: Home, to: string | undefined) {
-  const file =
-    to ?? join(home.backups, `hippocampe-${new Date().toISOString().replaceAll(':', '-')}.tar.gz`)
-  mkdirSync(dirname(file), { recursive: true })
-  // It holds the database: the file is there, readable by this user only, before `tar` writes a
-  // byte into it, even when `to` names a file that was readable.
-  writeFileSync(file, '', { mode: 0o600 })
-  chmodSync(file, 0o600)
+  const file = to ?? join(home.backups, `hippocampe-${stampOf(new Date())}.tar.gz`)
   yield* systemctl('stop', SERVER_UNIT, DATABASE_UNIT)
-  yield* must('tar', ['-czf', file, '-C', home.data, 'postgres', 'media']).pipe(
-    Effect.ensuring(Effect.ignore(systemctl('start', SERVER_UNIT))),
-  )
+  yield* archive(home, file).pipe(Effect.ensuring(Effect.ignore(systemctl('start', SERVER_UNIT))))
   return `The database and the media are saved in ${file}.`
+})
+
+/** Whether version `a` is newer than `b`; never when either is unknown. */
+const newer = (a: string, b: string) => {
+  const parts = (version: string) => /^(\d+)\.(\d+)\.(\d+)(-.+)?$/.exec(version)
+  const [x, y] = [parts(a), parts(b)]
+  if (x === null || y === null) return false
+  for (const at of [1, 2, 3])
+    if (Number(x[at]) !== Number(y[at])) return Number(x[at]) > Number(y[at])
+  // A release is newer than its own pre-releases.
+  return x[4] === undefined && y[4] !== undefined
+}
+
+/**
+ * What a backup is, read from its archive before anything is touched: its manifest, if it has
+ * one, refused when it is not a backup this Hippocampe can put back.
+ */
+const checkedBackup = Effect.fn('checkedBackup')(function* (home: Home, file: string) {
+  const notBackup = (why: string) =>
+    new ServiceRefused({
+      message: `${file} is not a backup of Hippocampe: ${why}. Give a file written by hippo backup.`,
+    })
+  if (!existsSync(file)) return yield* notBackup('there is no such file')
+  const system = yield* System
+  // Read whole: an archive cut short fails here, not halfway through the restore.
+  const listed = yield* system.run('tar', ['-tzf', file])
+  if (listed.code !== 0) return yield* notBackup('it is not an archive that tar can read')
+  const names = listed.output.split('\n')
+  const holds = (folder: string) => names.some((name) => name.startsWith(`${folder}/`))
+  if (!holds('postgres') || !holds('media'))
+    return yield* notBackup('it holds no postgres/ and media/ folders')
+  const member = (name: string) =>
+    system
+      .run('tar', ['-xzOf', file, name])
+      .pipe(
+        Effect.flatMap((read) =>
+          read.code === 0
+            ? Effect.succeed(read.output)
+            : Effect.fail(notBackup(`its ${name} cannot be read`)),
+        ),
+      )
+  const manifest = names.includes(MANIFEST)
+    ? yield* Schema.decodeUnknownEffect(Manifest)(yield* member(MANIFEST)).pipe(
+        Effect.mapError(() => notBackup(`its ${MANIFEST} is not one hippo backup writes`)),
+      )
+    : undefined
+  const installed = versionOfHippocampe()
+  if (manifest !== undefined && newer(manifest.hippocampe, installed))
+    return yield* new ServiceRefused({
+      message: `${file} was written by Hippocampe ${manifest.hippocampe}, newer than this one (${installed}): update Hippocampe first, then restore it.`,
+    })
+  // The database folder says which PostgreSQL wrote it, with a manifest or without.
+  const theirs = Number((yield* member('postgres/PG_VERSION')).trim())
+  const ours = yield* postgresMajor(home)
+  if (theirs !== ours)
+    return yield* new ServiceRefused({
+      message: `${file} holds a database of PostgreSQL ${theirs}, and this Hippocampe carries PostgreSQL ${ours}: a database folder does not move across major versions. Restore it with a Hippocampe that carries PostgreSQL ${theirs}.`,
+    })
+  return manifest
+})
+
+/**
+ * Puts a backup back: checked before anything is touched, then, with the service stopped, what
+ * is there is saved as a backup of its own and moved aside, the backup unpacked, and the service
+ * started on it (which migrates the database). Nothing is deleted before the new data runs: a
+ * failure after the move puts back what was moved aside, and starts the service on it.
+ */
+export const restore = Effect.fn('restore')(function* (home: Home, file: string) {
+  if (!existsSync(home.environment) || !existsSync(join(home.units, SERVER_UNIT)))
+    return yield* new ServiceRefused({
+      message:
+        'Hippocampe is not installed for this user: run hippo service install first, then restore.',
+    })
+  const manifest = yield* checkedBackup(home, file)
+  if (manifest === undefined)
+    yield* Console.log(
+      `${file} has no manifest: it was made before Hippocampe recorded one, so the version it came from is unknown. Restoring it.`,
+    )
+  const system = yield* System
+  const stamp = stampOf(new Date())
+  const before = join(home.backups, `hippocampe-before-restore-${stamp}.tar.gz`)
+  yield* systemctl('stop', SERVER_UNIT, DATABASE_UNIT)
+  yield* archive(home, before).pipe(
+    Effect.onError(() =>
+      Effect.sync(() => rmSync(before, { force: true })).pipe(
+        Effect.andThen(Effect.ignore(systemctl('start', SERVER_UNIT))),
+      ),
+    ),
+    Effect.mapError(
+      (error) =>
+        new ServiceRefused({
+          message: `Nothing is restored: what is there could not be saved first in ${before}, and stays as it was. What failed: ${error.message}`,
+        }),
+    ),
+  )
+  const moved = [home.database, home.media].map((live) => ({
+    live,
+    aside: `${live}.before-restore-${stamp}`,
+  }))
+  const putBack = Effect.gen(function* () {
+    yield* system.run('systemctl', ['--user', 'stop', SERVER_UNIT, DATABASE_UNIT])
+    for (const { live, aside } of moved)
+      if (existsSync(aside)) {
+        rmSync(live, { recursive: true, force: true })
+        renameSync(aside, live)
+      }
+    yield* system.run('systemctl', ['--user', 'start', SERVER_UNIT])
+  })
+  const address = `http://127.0.0.1:${readEnvironment(home.environment)['PORT']}`
+  yield* Effect.gen(function* () {
+    for (const { live, aside } of moved) renameSync(live, aside)
+    yield* must('tar', ['-xzf', file, '-C', home.data, 'postgres', 'media'])
+    for (const { live } of moved) chmodSync(live, 0o700)
+    yield* systemctl('start', SERVER_UNIT)
+    yield* waitFor('The server of Hippocampe', system.answers(`${address}/health`))
+  }).pipe(
+    Effect.onError(() => putBack),
+    Effect.mapError(
+      (error) =>
+        new ServiceRefused({
+          message: `Restoring ${file} failed, and nothing is lost: the data that was there is put back and Hippocampe started on it (it is also saved in ${before}). What failed: ${error.message}`,
+        }),
+    ),
+  )
+  for (const { aside } of moved) rmSync(aside, { recursive: true, force: true })
+  const what =
+    manifest === undefined
+      ? 'a backup of an unknown version'
+      : `a backup of Hippocampe ${manifest.hippocampe} made on ${manifest.made}`
+  return [
+    `Restored ${file}, ${what}: its database and its media are in ${home.data}.`,
+    `What was there before is saved in ${before}: restore that file to go back.`,
+    `Hippocampe runs at ${address}.`,
+  ].join('\n')
 })
