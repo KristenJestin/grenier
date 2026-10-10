@@ -28,6 +28,21 @@ bookmark, a folder-like area. All entries share the same base:
 
 An entry is never deleted by an agent; it is archived.
 
+### Things that happened at a time
+
+Something that happened at a time (a session of work, a measurement, a meeting, a repair, a
+decision) is an entry of its own: dated (by a date field of its type, or `valid_from`), part of
+what it is about (`parent`), with its own sources and provenance. What stands today about a subject
+belongs to the entry of that subject, in its summary and its fields. A body says what an entry is,
+not the list of what happened to it: inside one body, the dates are only headings, so `briefing`
+cannot say "a year ago", nothing can ask what happened on a day across entries, links and
+provenance cannot be said of each event, and every update sends and keeps the whole text again.
+When the instance has no type for such entries, the agent proposes one to the owner, with a date
+field, rather than growing a body. The instructions of the MCP server and the description of
+`write` say so; the answer of `write` notices a body that accumulates (see "A body that
+accumulates"). No type, rule or code path names a kind of such entries: the agent and the owner
+name their types.
+
 ### Known or supposed
 
 Nothing is trusted or distrusted by default: the writer says, every time, whether what it writes is
@@ -110,11 +125,12 @@ kept as its id; `read` gives the titles of the entries the fields name, by id, i
 write names the
 entry it is part of (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
-the `body` given is added at the end of the current body: a body too long for one call (a
-journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
+the `body` given is added at the end of the current body: a body too long for one call (a manual
+of several hundred kilobytes, imported) is written in parts, each part one write, so a reader always
 sees a whole number of parts. With `prepend: true`, the `body` given goes at the top, one blank
-line before the current body, in one write: a journal kept newest first, or a "Resume here" that
-comes before the rest; `append` and `prepend` together, or either with `edits`, are refused, and
+line before the current body, in one write. Neither is the way to keep things that happened at
+different times (see "Things that happened at a time"); `append` and `prepend` together, or either
+with `edits`, are refused, and
 so is a part made only of whitespace. With `edits: [{ find, replace }]`, a few words of the body
 change in place: each `find` must match the body, as the edits before it left it, exactly once,
 or the write is refused naming each edit that matches twice or never; all apply in one write and
@@ -301,7 +317,7 @@ because of another one at the same moment is refused with one sentence: try the 
 ## The tree
 
 The tree is the links `part_of` that hold today. An entry is **part of** another: a component in a
-machine, a note in a project, a section of a journal. It may be part of several entries at once (a
+machine, a note in a project, a repair of the thing repaired. It may be part of several entries at once (a
 monitor shared by two computers), and it may have been part of others before. There is no folder
 object: any entry may have children, the entries that are part of it today. A project entry is both
 the project's record and the container of its notes and decisions. An area (an entry whose type
