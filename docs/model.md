@@ -404,6 +404,16 @@ database narrows the names to those contained in the text (`unaccent` and `lower
 sides) in one query for the whole write, the code confirms the word boundaries; the cost is one
 pass over the titles and aliases of the store per write, not one query per candidate.
 
+**A body that accumulates.** The answer of `write`, and that of each entry of a `write` with
+`entries`, carries a `notice` (never a refusal) when the body it leaves is longer than 20,000
+characters (a write that gives a `body`, a part or `edits`), or when it adds a part at the top or
+the end of a body that grew so on two other days before today (three days in all, read from the
+event log: a write whose body after begins or ends with the whole body before). The notice says
+why, and that things that happened at different times are found and read better as entries of
+their own, dated, part of what they are about. A long text written in parts on one day gets
+none. The threshold, the days and the wording are in `src/core/entries/growing.ts`; `notice` is
+absent otherwise.
+
 A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link
 points to the slug either way. The references of a body are kept as links of relation
 `mentions`, replaced at every write of the body, and carry no note and no dates; `mentions` is not

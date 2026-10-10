@@ -85,6 +85,8 @@ describe('answers carry the entry, not its content', () => {
         summary: 'A year in the garden.',
         path: ['Garden'],
       },
+      // Long enough to be told that it accumulates, which is not its content either.
+      notice: expect.stringContaining('This body is 90000 characters long.'),
     })
 
     const id = await added(LONG)

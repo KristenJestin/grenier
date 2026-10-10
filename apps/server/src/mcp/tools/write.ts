@@ -1,5 +1,11 @@
 import { WriteEntryInput } from '@hippocampe/api/model'
-import { archiveEntry, identityOf, writeEntries, writeEntry } from '../../core/entries/index.ts'
+import {
+  archiveEntry,
+  growingBodyNotice,
+  identityOf,
+  writeEntries,
+  writeEntry,
+} from '../../core/entries/index.ts'
 import { Refused } from '../../core/refused.ts'
 import { referencesOf, unlinkedMentions } from '../../core/links/index.ts'
 import { Effect, Schema, Struct } from 'effect'
@@ -39,10 +45,15 @@ export const writeTool = defineTool({
         yield* refuseExtra('Writing `entries`', { ...single, archive })
         const written = yield* writeEntries(entries)
         const mentions = yield* unlinkedMentions(written.map(({ id }) => id))
-        const answerOf = (entry: (typeof written)[number]) => {
+        const notices = yield* Effect.forEach(written, (entry, index) =>
+          growingBodyNotice(entry, entries[index] ?? {}),
+        )
+        const answerOf = (entry: (typeof written)[number], index: number) => {
           const answer = Struct.omit(entry, ['body'])
           const unlinked = mentions.get(entry.id) ?? []
-          return unlinked.length === 0 ? answer : { ...answer, unlinked }
+          const notice = notices[index]
+          const told = notice === undefined ? answer : { ...answer, notice }
+          return unlinked.length === 0 ? told : { ...told, unlinked }
         }
         return { entries: written.map(answerOf) }
       }
@@ -69,8 +80,11 @@ export const writeTool = defineTool({
           id === null ? [reference] : [],
         ),
       }
+      // A body that accumulates what happens to its entry, when it does: never a refusal.
+      const notice = yield* growingBodyNotice(written, single)
+      const told = notice === undefined ? answer : { ...answer, notice }
       // The entries it names without linking them, when there are some: the agent decides.
       const unlinked = (yield* unlinkedMentions([written.id])).get(written.id) ?? []
-      return unlinked.length === 0 ? answer : { ...answer, unlinked }
+      return unlinked.length === 0 ? told : { ...told, unlinked }
     }),
 })
