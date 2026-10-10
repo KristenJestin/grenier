@@ -308,19 +308,34 @@ export const SOLUTIONS = {
     )
     return 'Added.'
   },
+  // A type defined by the agent for the sessions, dated by a field of its own.
   'session-journal': async ({ today, arrange }) => {
     await arrange(
-      writeEntry({
-        type: 'note',
-        title: `Atlas server upkeep, ${today}`,
-        parent: 'atlas-server',
-        valid_from: today,
-        summary: `The session of ${today} on the Atlas server: dust filters cleaned, firmware updated to 2.4.`,
-        body: 'Cleaned the dust filters, then updated the firmware to version 2.4. The fans are still noisy: check them next month.',
-        provenance: { parent: 'inferred', body: 'inferred', summary: 'inferred' },
+      defineType({
+        name: 'work-session',
+        label: 'Work session',
+        description:
+          'A session of work on something of the household, on one day: what was done, and what is left.',
+        fields: [{ name: 'held_on', kind: 'date', required: true }],
       }),
     )
-    return 'The session is recorded as an entry of its own, under the Atlas server.'
+    await arrange(
+      writeEntry({
+        type: 'work-session',
+        title: `Atlas server upkeep, ${today}`,
+        parent: 'atlas-server',
+        fields: { held_on: today },
+        summary: `The session of ${today} on the Atlas server: dust filters cleaned, firmware updated to 2.4.`,
+        body: 'Cleaned the dust filters, then updated the firmware to version 2.4. The fans are still noisy: check them next month.',
+        provenance: {
+          held_on: 'inferred',
+          parent: 'inferred',
+          body: 'inferred',
+          summary: 'inferred',
+        },
+      }),
+    )
+    return 'The session is recorded as a work session of its own, under the Atlas server.'
   },
   'boiler-serviced': async ({ today, arrange }) => {
     await arrange(

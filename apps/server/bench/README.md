@@ -113,9 +113,10 @@ Two tasks measure how things that happened at a time are kept (#198), on an inst
 for them: `session-journal` ("Keep a journal of this session: …") and `boiler-serviced` (the boiler
 serviced today and last March). Each passes when every such thing is an entry of its own, dated (by
 `valid_from` or a date field; the service of last March, whose day the owner does not give, may
-instead name the month in its title or summary) and part of, or linked to, what it is about, or when the answer asks
-the owner for a type first and writes nothing; it fails when the body of an entry that existed
-before was grown.
+instead name the month in its title or summary) and part of, or linked to, what it is about,
+whether its type is one the agent defined with a date field or an existing one with `valid_from`. It
+fails when the agent asks the owner for a type and writes nothing, and when the body of an entry
+that existed before was grown.
 
 A check asks for the facts an answer must give, and for an order when one is asked. It forbids
 a name only where the answer is a plain list (the recipes with lemon, the entries that are only supposed): a

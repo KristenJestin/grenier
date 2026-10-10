@@ -110,9 +110,6 @@ const happenings = async (world: World, startedAt: string) => {
   return { created, grown: grown.map(({ entry }) => entry.slug) }
 }
 
-/** An answer that proposes a new type to the owner, rather than writing without one. */
-const PROPOSES_TYPE = /\b(new|create|define|add|propose)\b[^.?!]*\btype\b/i
-
 /** The March before the day of the run: its year and month, as a date begins with them. */
 export const lastMarch = (today: string) => {
   const year = Number(today.slice(0, 4))
@@ -835,10 +832,8 @@ export const TASKS: ReadonlyArray<Task> = [
     prompt:
       'Keep a journal of this session: I cleaned the dust filters of the Atlas server, then updated its firmware to version 2.4. The fans are still noisy, to be checked next month.',
     expects: ['write', 'link', 'type_define'],
-    check: async ({ answer, world, startedAt }) => {
+    check: async ({ world, startedAt }) => {
       const { created, grown } = await happenings(world, startedAt)
-      if (created.length === 0 && grown.length === 0 && PROPOSES_TYPE.test(answer))
-        return ok(answer.includes('?'), 'the answer proposes a type without asking')
       const session = created.filter(
         (found) =>
           about(found, 'atlas-server') &&
@@ -872,10 +867,8 @@ export const TASKS: ReadonlyArray<Task> = [
         ]),
       )
     },
-    check: async ({ answer, world, startedAt }) => {
+    check: async ({ world, startedAt }) => {
       const { created, grown } = await happenings(world, startedAt)
-      if (created.length === 0 && grown.length === 0 && PROPOSES_TYPE.test(answer))
-        return ok(answer.includes('?'), 'the answer proposes a type without asking')
       const services = created.filter((found) => about(found, 'gas-boiler'))
       const dated = (day: string) =>
         services.some((found) => datesOf(found).some((date) => date.startsWith(day)))
