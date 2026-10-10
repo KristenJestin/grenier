@@ -35,6 +35,7 @@ const fakeSystem = Layer.succeed(service.System, {
         archiveWhenTarRan = existsSync(archive) ? statSync(archive).mode & 0o777 : null
         writeFileSync(archive, 'an archive')
       }
+      if (args[0] === '--version') return { code: 0, output: 'postgres (PostgreSQL) 18.4\n' }
       if (command.endsWith('initdb')) mkdirSync(args[1] ?? '', { recursive: true })
       if (command.endsWith('initdb')) writeFileSync(join(args[1] ?? '', 'PG_VERSION'), '18\n')
       const created = args.includes('key:create')
@@ -151,7 +152,12 @@ describe('the service is driven by systemd', () => {
     const said = await run(service.backup(home, file))
     expect(ran).toEqual([
       'systemctl --user stop hippocampe.service hippocampe-postgres.service',
-      `tar -czf ${file} -C ${home.data} postgres media`,
+      `${join(home.binaries, 'bin', 'postgres')} --version`,
+      expect.stringMatching(
+        new RegExp(
+          `^tar -czf ${file} -C \\S+ hippocampe-backup\\.json -C ${home.data} postgres media$`,
+        ),
+      ),
       'systemctl --user start hippocampe.service',
     ])
     expect(said).toBe(`The database and the media are saved in ${file}.`)

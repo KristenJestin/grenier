@@ -630,6 +630,18 @@ const backupCommand = Command.make(
   ({ to }) => onSystem(service.backup(home(), given(to))),
 ).pipe(Command.withDescription('Copies the database and the media of the installed service.'))
 
+const restoreCommand = Command.make(
+  'restore',
+  {
+    file: Argument.String('file').pipe(Argument.withDescription('A file written by hippo backup.')),
+  },
+  ({ file }) => onSystem(service.restore(home(), resolve(file))),
+).pipe(
+  Command.withDescription(
+    'Puts a backup back in place of the database and the media; what was there is saved first.',
+  ),
+)
+
 /** Every command of Hippocampe. */
 export const hippo = Command.make('hippo').pipe(
   Command.withDescription('Hippocampe, a personal knowledge system kept by AI agents.'),
@@ -656,6 +668,7 @@ export const hippo = Command.make('hippo').pipe(
     serveCommand,
     serviceCommand,
     backupCommand,
+    restoreCommand,
   ]),
 )
 
