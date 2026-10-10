@@ -86,6 +86,17 @@ pub struct Child {
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
+#[doc = "`DatedPart`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct DatedPart {
+    pub date: ::std::string::String,
+    pub id: ::std::string::String,
+    pub slug: ::std::string::String,
+    pub summary: ::std::string::String,
+    pub title: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 #[doc = "`Entry`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Entry {
@@ -187,10 +198,12 @@ pub struct EntryRead {
     pub backlinks: ::std::vec::Vec<Link>,
     pub children: ::std::vec::Vec<Child>,
     pub cited_by: ::std::vec::Vec<EntryReadCitedByItem>,
+    pub dated: ::std::vec::Vec<DatedPart>,
     pub entry: Entry,
     pub hidden_children: i64,
     pub links: ::std::vec::Vec<Link>,
     pub media: ::std::vec::Vec<Medium>,
+    pub more_dated: i64,
     pub part_of: ::std::vec::Vec<Place>,
     pub path: ::std::vec::Vec<::std::string::String>,
     pub references: ::std::vec::Vec<EntryReadReferencesItem>,
@@ -824,6 +837,8 @@ impl ::std::convert::TryFrom<::std::string::String> for PlaceProvenance {
 #[doc = "`SearchResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct SearchResult {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub date: ::std::option::Option<::std::string::String>,
     pub excerpt: ::std::string::String,
     pub id: ::std::string::String,
     pub path: ::std::vec::Vec<::std::string::String>,

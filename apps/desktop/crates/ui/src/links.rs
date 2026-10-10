@@ -427,7 +427,8 @@ mod tests {
                 "superseded_by": null, "archived_at": null, "archived_reason": null
             },
             "path": [], "part_of": [], "references": [], "ancestors": [], "links": [], "media": [],
-            "backlinks": [], "titles": {}, "children": [], "hidden_children": 0, "cited_by": []
+            "backlinks": [], "titles": {}, "children": [], "hidden_children": 0, "dated": [],
+            "more_dated": 0, "cited_by": []
         }))
         .expect("a read");
         read.links = links;

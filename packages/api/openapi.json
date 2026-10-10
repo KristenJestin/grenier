@@ -677,6 +677,9 @@
               "ambiguous"
             ]
           },
+          "date": {
+            "type": "string"
+          },
           "path": {
             "type": "array",
             "items": {
@@ -884,6 +887,15 @@
           "hidden_children": {
             "type": "integer"
           },
+          "dated": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatedPart"
+            }
+          },
+          "more_dated": {
+            "type": "integer"
+          },
           "cited_by": {
             "type": "array",
             "items": {
@@ -920,7 +932,41 @@
           "titles",
           "children",
           "hidden_children",
+          "dated",
+          "more_dated",
           "cited_by"
+        ],
+        "additionalProperties": false
+      },
+      "DatedPart": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "type",
+          "title",
+          "date",
+          "summary"
         ],
         "additionalProperties": false
       },

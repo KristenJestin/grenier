@@ -27,7 +27,8 @@ fn entry(id: &str, title: &str, type_name: &str, extra: Value) -> Value {
 fn around(entry: Value, extra: Value) -> Value {
     let mut base = json!({
         "entry": entry, "path": [], "part_of": [], "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [],
-        "children": [], "hidden_children": 0, "cited_by": [], "titles": {}
+        "children": [], "hidden_children": 0, "dated": [], "more_dated": 0, "cited_by": [],
+        "titles": {}
     });
     if let (Value::Object(base), Value::Object(extra)) = (&mut base, extra) {
         base.extend(extra);

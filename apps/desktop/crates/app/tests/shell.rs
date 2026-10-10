@@ -30,7 +30,7 @@ fn entry(id: &str, title: &str, parent: Option<&str>, body: &str) -> Value {
             "valid_from": null, "valid_until": null
         })]).unwrap_or_default(),
         "ancestors": [], "references": [], "links": [], "media": [], "backlinks": [], "children": [],
-        "hidden_children": 0, "cited_by": [], "titles": {}
+        "hidden_children": 0, "dated": [], "more_dated": 0, "cited_by": [], "titles": {}
     })
 }
 

@@ -2,6 +2,7 @@ import { Context, Effect, Match, Predicate, Schema } from 'effect'
 import { SqlClient } from 'effect/sql'
 import { rowsOf } from '../database/rows.ts'
 import { Actor } from '../events/actor.ts'
+import { datedOn } from '../entries/dated.ts'
 import { DateText } from '../entries/values.ts'
 import { Refused } from '../refused.ts'
 import { sensitivity } from '../sensitive.ts'
@@ -58,6 +59,7 @@ const closures = rowsOf(
   Schema.Struct({ target: Schema.String, field: Schema.String, period: Schema.String }),
 )
 const created = rowsOf(EntrySummary)
+const happened = rowsOf(Schema.Struct({ ...EntrySummary.fields, date: Schema.String }))
 const shown = rowsOf(
   Schema.Struct({ entry_id: Schema.String, field: Schema.String, period: Schema.String }),
 )
@@ -248,9 +250,26 @@ const rangeOf = (period: BriefingPeriod, today: string): readonly [string, strin
 }
 
 /**
+ * The entries that happened between two dates, both included, by their dated field (`dated_by`),
+ * not archived, the oldest first: those the caller may not see, or whose date it may not see, are
+ * left out.
+ */
+const happenedBetween = Effect.fn('happenedBetween')(function* (from: string, to: string) {
+  const sql = yield* SqlClient.SqlClient
+  const { hiddenTypes } = yield* sensitivity
+  return yield* happened(sql`SELECT * FROM (
+      SELECT e.id::text AS id, e.slug, e.title, e.type, ${yield* datedOn} AS date FROM entries e
+      WHERE e.archived_at IS NULL AND NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type)
+    ) AS d
+    WHERE d.date BETWEEN ${from} AND ${to}
+    ORDER BY d.date, d.title`)
+})
+
+/**
  * What matters for a period, or for the days between two dates (`to` thirty days after `from` when
  * left out, `from` today): the occurrences in it, the deadlines past and unfulfilled, and a year
- * ago (the entries created, and the occurrences, on the same days one year earlier).
+ * ago (the entries created, the occurrences, and the entries that happened, on the same days one
+ * year earlier).
  */
 export const briefing = Effect.fn('briefing')(function* (
   covering:
@@ -292,6 +311,7 @@ export const briefing = Effect.fn('briefing')(function* (
         ORDER BY created`),
       ),
       occurrences: (yield* occurrencesBetween(yearFrom, yearTo)).all.toSorted(byDate),
+      dated: yield* happenedBetween(yearFrom, yearTo),
     },
   }
 })
