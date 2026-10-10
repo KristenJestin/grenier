@@ -1304,7 +1304,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
         // The place is known when it is read in a source, which the entry then has.
         if (placeProvenance === 'extracted' && sources.length === 0 && !sourcesRefused) {
           problems.push(
-            'The field `provenance.parent` is `extracted` but the entry has no source: give one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`), or write it `inferred`.',
+            'The field `provenance.parent` is `extracted` but the entry has no source: give one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`, what you did or saw yourself `{ "seen_by": "writer", "on": "2026-10-08" }`), or write it `inferred`.',
           )
         }
         for (const [name, value] of Object.entries(provenance)) {
@@ -1324,7 +1324,7 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
           for (const name of Object.keys(asked)) {
             if (state.provenance[name] === 'extracted') {
               problems.push(
-                `The field \`provenance.${name}\` is \`extracted\` but the entry has no source: give one in \`sources\` (what someone said is \`{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }\`), or write it \`inferred\`.`,
+                `The field \`provenance.${name}\` is \`extracted\` but the entry has no source: give one in \`sources\` (what someone said is \`{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }\`, what you did or saw yourself \`{ "seen_by": "writer", "on": "2026-10-08" }\`), or write it \`inferred\`.`,
               )
             }
           }
