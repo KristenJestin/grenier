@@ -336,10 +336,11 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
         provenance: { parent: 'inferred', day: 'inferred' },
       })
     }
+    const Slugs = Schema.Array(Schema.Struct({ slug: Schema.String }))
     const slugsOf = (read: Schema.Json, key: 'dated' | 'children') =>
-      Schema.decodeUnknownSync(
-        Schema.Struct({ [key]: Schema.Array(Schema.Struct({ slug: Schema.String })) }),
-      )(read)[key].map(({ slug }) => slug)
+      Schema.decodeUnknownSync(Schema.Struct({ dated: Slugs, children: Slugs }))(read)[key].map(
+        ({ slug }) => slug,
+      )
     const plainRead = await answerOf(keys.plain, 'read', { entry: 'garden' })
     const route = await (
       await fetch(`${base}/api/entries/garden`, { headers: bearer(keys.plain) })
