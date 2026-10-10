@@ -35,6 +35,10 @@ repository is cloned). Any command of the `hippo` command line runs in the conta
   `POSTGRES_PORT` (the published ports), `HIPPOCAMPE_BIND`, and `HIPPOCAMPE_VERSION` and
   `HIPPOCAMPE_COMMIT` (build arguments, `unknown` when not set). `/health` answers the instance,
   the version and the commit.
+- Compose reads those variables again at every `docker compose up`, and recreates the container when
+  one changed: a command run without `HIPPOCAMPE_INSTANCE=production` would start the real instance
+  as `local`. Put them in a `.env` file next to `docker-compose.yml` (compose reads it, git ignores
+  it) so that no command forgets them; the commands below then need no prefix.
 - `HIPPOCAMPE_BIND=0.0.0.0` publishes the server to the network. The server speaks plain HTTP: every
   key crosses the network in clear, in the `Authorization` header of each request. Reach it from
   other machines only through an encrypted path: a private network such as Tailscale, or a reverse
@@ -44,15 +48,18 @@ repository is cloned). Any command of the `hippo` command line runs in the conta
 
 The data is in two volumes: `postgres` (the database) and `media`. The `export` volume holds the
 nightly Markdown export, which is a copy in itself (and is pushed to `EXPORT_REMOTE` when set).
-`hippo backup` and `hippo restore` do not exist here: copy the data with Docker.
+`hippo backup` and `hippo restore` do not exist here: copy the data with Docker. The names of the
+volumes are those of the compose project, `hippocampe` as `docker-compose.yml` names it
+(`hippocampe_media` below); `docker volume ls` shows them, and `docker compose -p <name>` would
+change them.
 
 Save, to a folder outside the repository (`~/hippocampe-backups` here):
 
 ```
-mkdir -p ~/hippocampe-backups
+mkdir -p -m 700 ~/hippocampe-backups
 docker compose exec -T postgres pg_dump -U hippocampe -Fc hippocampe \
   > ~/hippocampe-backups/hippocampe-$(date +%F).dump
-docker run --rm -v hippocampe_media:/media:ro -v ~/hippocampe-backups:/backup \
+docker run --rm --user "$(id -u):$(id -g)" -v hippocampe_media:/media:ro -v ~/hippocampe-backups:/backup \
   --entrypoint tar postgres:18.0 -czf /backup/hippocampe-media-$(date +%F).tar.gz -C /media .
 ```
 
@@ -60,7 +67,9 @@ The dump is taken while the server runs, from a consistent snapshot of the datab
 media archive right after it: a file written in between is in the archive and not in the dump, which
 harms nothing.
 
-Restore, onto an installation of the same version or a newer one, with the server stopped:
+Restore, onto an installation of the same version or a newer one, with the server stopped and the
+database running (on a new machine, start the stack once, `docker compose up -d`, so that the
+volumes exist):
 
 ```
 docker compose stop hippocampe
