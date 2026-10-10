@@ -15,6 +15,12 @@ session on Linux, with a database of its own, on `127.0.0.1` only. Install, upda
 where the data is: [`docs/install.md`](docs/install.md). `hippo --help` lists every command.
 What a version promises: [`docs/versions.md`](docs/versions.md).
 
+## Hippocampe with Docker
+
+Server and database in one `docker compose up -d`, on a machine or on a server: start, configure,
+save, update, in [`docs/docker.md`](docs/docker.md). (`docs/install.md` is the npm package as a
+service; it is not the page of a Docker installation.)
+
 ## The desktop viewer
 
 Each release carries the viewer, built for Linux (`hippocampe-desktop-<version>-linux-x86_64.tar.gz`)

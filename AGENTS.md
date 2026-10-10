@@ -137,12 +137,11 @@ entry point of `apps/server`: `bun run mcp` (the MCP tools over stdio, see `src/
 The command line is built with `effect/cli` (`bun run hippo --help`); `hippo serve` runs the
 server, and `hippo service install|uninstall|start|stop|status|logs`, `hippo backup` and
 `hippo restore <file>` run Hippocampe as a systemd user service with its own PostgreSQL (see
-`docs/install.md`, and
-`scripts/pack.ts` for the npm packages).
+`docs/install.md`, and `scripts/pack.ts` for the npm packages).
 
-Hippocampe with Docker, server and database in one command (the image is built from
-`apps/server/Dockerfile` on the official Bun image, runs as the `bun` user, migrates the database
-before it listens, and keeps data in the `postgres` and `media` volumes):
+Hippocampe with Docker, server and database in one command (`docs/docker.md` has the rest: the
+variables, the ports and volumes, saving and restoring, updating, moving from the name Grenier;
+`docs/install.md` is the npm package as a systemd service, not Docker):
 
 ```
 cp .env.production.example .env.production        # then set BETTER_AUTH_SECRET in it
@@ -150,12 +149,7 @@ docker compose up -d                              # a local instance; HIPPOCAMPE
                                                   # docker compose up -d for the real one
 docker compose exec hippocampe bun src/cli.ts key:create --name local --rights read,write \
   --owner owner@example.org                       # prints the key, once
-claude mcp add --transport http hippocampe http://localhost:3000/mcp \
-  --header "Authorization: Bearer <the key printed above>"
 ```
-
-`HIPPOCAMPE_PORT` and `POSTGRES_PORT` change the published ports; `HIPPOCAMPE_BIND=0.0.0.0` publishes
-the server to the network.
 
 Each Hippocampe knows which instance it is, from three variables read at start-up by the server and
 by the stdio MCP server:
@@ -177,8 +171,8 @@ by the stdio MCP server:
 Hippocampe was named Grenier before 1.0. A `GRENIER_*` variable still set is refused by the server,
 the command line and the stdio MCP server, at start-up, in one sentence naming the `HIPPOCAMPE_*`
 variable to use; it is never read silently. `docs/install.md` says how to move an installation made
-under the old name (`hippo service install` does it for the service, and the page gives the steps for
-Docker); the old name is written nowhere else in the repository but in the code and the tests that
+under the old name (`hippo service install` does it for the service), and `docs/docker.md` gives the
+steps for Docker; the old name is written nowhere else in the repository but in the code and the tests that
 do that moving, in the migrations and in the history.
 
 The server speaks plain HTTP: published on a network, every key crosses it in clear, in the

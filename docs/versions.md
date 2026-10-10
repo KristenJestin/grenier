@@ -7,7 +7,8 @@ From 1.0, a breaking change makes a new major version (semantic-release counts i
 
 An installation of any version from 0.6.0 on updates to a newer version and keeps everything:
 entries, fields, links, history, media, keys and inbox. The migrations run by themselves as the
-server starts.
+server starts. Updating is described in [`docs/install.md`](install.md#update) for the npm package
+run as a service, and in [`docs/docker.md`](docker.md#update) for Docker.
 
 Breaking: an update that loses or alters what the owner has, or that needs a manual step to keep it.
 Not breaking: a migration that runs by itself and keeps the data.
