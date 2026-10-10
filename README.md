@@ -13,6 +13,7 @@ the SIL Open Font License 1.1, Open Sauce Sans and Peace Sans: see
 `npm i -g @netsirk/hippocampe`, then `hippo service install`: Hippocampe runs as a service of your
 session on Linux, with a database of its own, on `127.0.0.1` only. Install, update, uninstall and
 where the data is: [`docs/install.md`](docs/install.md). `hippo --help` lists every command.
+What a version promises: [`docs/versions.md`](docs/versions.md).
 
 ## The desktop viewer
 
