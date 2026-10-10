@@ -55,6 +55,8 @@ instance: it says so when the flags ask for others; change them in that file), t
 restarts the service, which migrates its database as it starts. (npm no longer runs the scripts of
 a global install by default, so the restart is not automatic after `npm i -g`.)
 
+What an update may and may not change is in [`docs/versions.md`](versions.md).
+
 ## Uninstall
 
 ```

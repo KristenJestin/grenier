@@ -331,6 +331,11 @@ nothing else: no GitHub account, no pull request, no CI. Then:
 BREAKING CHANGE: <description — only if a schema or a public API changes>
 ```
 
+- A change that breaks one of the promises of [`docs/versions.md`](docs/versions.md) (the data
+  from 0.6.0 on, the MCP tools, the `hippo` command line) carries a `BREAKING CHANGE:` footer
+  that names which promise. A change of the read API (`/api/*`, its OpenAPI document) never does:
+  it is experimental.
+
 - `scope`: `repo`, `tools`, `ci`, `docs`, or the name of a package or a domain (`core`, `mcp`,
   `server`, `import`, `types`, `entries`, `search`…).
 - `subject`: imperative, lowercase, no trailing period, ≤ 72 chars, in English.

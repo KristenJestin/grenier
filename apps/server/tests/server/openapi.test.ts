@@ -12,6 +12,13 @@ describe('the clients are generated from the OpenAPI document of the schemas', (
     expect(JSON.parse(openApiDocument())).toEqual(OpenApi.fromApi(HippocampeApi))
   })
 
+  test('the document says the read API is experimental, and links nothing', () => {
+    const { info } = JSON.parse(openApiDocument())
+    expect(info.description).toMatch(/experimental/i)
+    expect(info.description).toMatch(/never a breaking change/i)
+    expect(info.description).not.toMatch(/https?:\/\//)
+  })
+
   test('what the API returns has names, for the generated types', () => {
     const { components } = JSON.parse(openApiDocument())
     expect(Object.keys(components.schemas)).toEqual(
