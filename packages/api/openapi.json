@@ -2,7 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Hippocampe",
-    "version": "0.0.0"
+    "version": "0.0.0",
+    "description": "The read API of Hippocampe is experimental: only the desktop viewer uses it, it still moves, and changing it is never a breaking change."
   },
   "paths": {
     "/api/about": {

@@ -159,4 +159,11 @@ export class HippocampeApi extends HttpApi.make('hippocampe')
   .add(entries)
   .add(search)
   .middleware(Authorization)
-  .annotateMerge(OpenApi.annotations({ title: 'Hippocampe', version: '0.0.0' })) {}
+  .annotateMerge(
+    OpenApi.annotations({
+      title: 'Hippocampe',
+      version: '0.0.0',
+      description:
+        'The read API of Hippocampe is experimental: only the desktop viewer uses it, it still moves, and changing it is never a breaking change.',
+    }),
+  ) {}
