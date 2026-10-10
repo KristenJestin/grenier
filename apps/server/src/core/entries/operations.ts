@@ -31,7 +31,6 @@ import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
 import {
   Child,
-  DatedPart,
   Entry,
   HIDDEN,
   SourceGiven,
@@ -39,7 +38,7 @@ import {
   TreeEntry,
   WRITER,
 } from '@hippocampe/api/model'
-import type { Source, TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
+import type { DatedPart, Source, TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { refusingContention } from './contention.ts'
 import { holding, wantedOf } from './certainty.ts'

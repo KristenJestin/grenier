@@ -136,16 +136,15 @@ describe('reading a subject gives its recent dated entries', () => {
   })
 
   test('the read tool gives them beside the children, with or without `parts`', async () => {
-    for (const parts of [undefined, ['children' as const]]) {
-      const read = await run(
-        readTool.run({ entry: 'atlas', ...(parts === undefined ? {} : { parts }) }),
-      )
-      expect(read).toMatchObject({
-        children: [{ slug: 'design-note' }],
-        dated: expect.arrayContaining([expect.objectContaining({ slug: 'hotfix' })]),
-        more_dated: 5,
-      })
+    const withChildren = {
+      children: [{ slug: 'design-note' }],
+      dated: expect.arrayContaining([expect.objectContaining({ slug: 'hotfix' })]),
+      more_dated: 5,
     }
+    expect(await run(readTool.run({ entry: 'atlas' }))).toMatchObject(withChildren)
+    expect(await run(readTool.run({ entry: 'atlas', parts: ['children'] }))).toMatchObject(
+      withChildren,
+    )
     expect(await run(readTool.run({ entry: 'atlas', parts: ['links'] }))).not.toHaveProperty(
       'dated',
     )

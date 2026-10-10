@@ -189,8 +189,9 @@ const snapshot = Effect.gen(function* () {
         label: type.label,
         sensitive: type.sensitive === true,
         read_in_parent: type.read_in_parent === true,
-        // Said only of a dated type: the file of every other type stays as it was.
-        ...(type.dated_by === undefined ? {} : { dated_by: type.dated_by }),
+        // Left out of the file when the type has none (an undefined value is not written): the
+        // file of every other type stays as it was.
+        dated_by: type.dated_by,
         fields: type.fields.map((field) => ({ ...field })),
       },
       `${type.description}\n`,

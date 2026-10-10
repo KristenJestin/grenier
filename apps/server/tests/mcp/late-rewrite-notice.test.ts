@@ -14,7 +14,9 @@ const run = useScratchDatabase()
 const write = (input: Parameters<typeof writeTool.run>[0]) =>
   run(Effect.provideService(writeTool.run(input), Today, () => '2026-10-10'))
 
-const noticeOf = (answer: object) => Reflect.get(answer, 'notice')
+/** The notice of an answer of `write`, or `undefined`. */
+const noticeOf = (answer: Awaited<ReturnType<typeof write>> | { readonly link?: never }) =>
+  Reflect.get(answer, 'notice')
 
 beforeAll(() =>
   run(

@@ -312,9 +312,8 @@ export const changeField = Effect.fn('changeField')(
     )
     const next = yield* decodeType(
       {
-        ...type,
         // The field that dates the type follows its new name.
-        ...(type.dated_by === old.name ? { dated_by: name } : {}),
+        ...(type.dated_by === old.name ? { ...type, dated_by: name } : type),
         fields: type.fields.map((each) => (each.name === old.name ? field : each)),
       },
       { errors: 'all', onExcessProperty: 'error' },

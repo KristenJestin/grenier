@@ -323,19 +323,19 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
       dated_by: 'day',
     })
     await answerOf(keys.trusted, 'write', { type: 'folder', title: 'Garden' })
-    for (const [type, title, day] of [
-      ['visit', 'Pruning visit', '2026-03-02'],
-      ['private-visit', 'Private garden visit', '2026-03-03'],
-      ['checkup', 'Soil checkup', '2026-03-04'],
-    ] as const) {
-      await answerOf(keys.trusted, 'write', {
+    await answerOf(keys.trusted, 'write', {
+      entries: [
+        ['visit', 'Pruning visit', '2026-03-02'],
+        ['private-visit', 'Private garden visit', '2026-03-03'],
+        ['checkup', 'Soil checkup', '2026-03-04'],
+      ].map(([type = '', title = '', day = '']) => ({
         type,
         title,
         parent: 'garden',
         fields: { day },
         provenance: { parent: 'inferred', day: 'inferred' },
-      })
-    }
+      })),
+    })
     const Slugs = Schema.Array(Schema.Struct({ slug: Schema.String }))
     const slugsOf = (read: Schema.Json, key: 'dated' | 'children') =>
       Schema.decodeUnknownSync(Schema.Struct({ dated: Slugs, children: Slugs }))(read)[key].map(

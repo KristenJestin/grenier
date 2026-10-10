@@ -68,11 +68,10 @@ const typeOf = ({
   read_in_parent,
   dated_by,
   ...type
-}: typeof Row.Type): TypeDefinition => ({
-  ...type,
-  ...withFlags({ sensitive, read_in_parent }),
-  ...(dated_by === null ? {} : { dated_by }),
-})
+}: typeof Row.Type): TypeDefinition => {
+  const read = { ...type, ...withFlags({ sensitive, read_in_parent }) }
+  return dated_by === null ? read : { ...read, dated_by }
+}
 
 /** The flags of a type that hold, and only those. */
 const withFlags = (flags: { readonly sensitive: boolean; readonly read_in_parent: boolean }) =>
@@ -310,14 +309,16 @@ export const changeType = Effect.fn('changeType')(function* (
       }
       const { sensitive: _, read_in_parent: __, dated_by: ___, ...rest } = type
       const datedBy = input.dated_by === undefined ? type.dated_by : input.dated_by
-      // Decoded, so a field that cannot date the type is refused as a definition refuses it.
-      const changed = yield* decodeType({
+      const kept = {
         ...rest,
         label: input.label ?? type.label,
         description: input.description ?? type.description,
         ...withFlags({ sensitive, read_in_parent: inParent }),
-        ...(datedBy === undefined || datedBy === null ? {} : { dated_by: datedBy }),
-      })
+      }
+      // Decoded, so a field that cannot date the type is refused as a definition refuses it.
+      const changed = yield* decodeType(
+        datedBy === undefined || datedBy === null ? kept : { ...kept, dated_by: datedBy },
+      )
       const changes = changesBetween(snapshotOf(type), snapshotOf(changed))
       if (changes.length === 0) return changed
       yield* db
