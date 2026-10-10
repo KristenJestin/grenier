@@ -405,6 +405,22 @@ describe('the export never pushes a sensitive value, and holds everything', () =
     )
   })
 
+  test('a dated type keeps the field that dates it; a type without one says nothing of it', async () => {
+    await run(
+      defineType({
+        name: 'service',
+        label: 'Service',
+        description: 'A service done on a thing, on a day.',
+        fields: [{ name: 'done_on', kind: 'date', required: true }],
+        dated_by: 'done_on',
+      }),
+    )
+    const dated = join(scratch, 'dated')
+    expect(cli('export:markdown', dated).status).toBe(0)
+    expect(read(dated, '_types/service.md').front).toMatchObject({ dated_by: 'done_on' })
+    expect(read(dated, '_types/recipe.md').front).not.toHaveProperty('dated_by')
+  })
+
   test('the summary counts what changed since the last commit, not a file left half written', async () => {
     const counted = join(scratch, 'counted')
     expect(cli('export:markdown', counted).status).toBe(0)

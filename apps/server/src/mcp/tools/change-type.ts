@@ -13,7 +13,7 @@ import { defineTool, refuseExtra } from '../tool.ts'
 export const changeTypeTool = defineTool({
   name: 'change_type',
   description:
-    'Changes a type, one thing at a time; what is not given stays. Of the type as a whole: `label` and `description` (not empty) replace them: the description tells agents when to use the type, so sharpen it as its use becomes clearer; the next sessions read it in their instructions. `sensitive` makes a whole type sensitive (a diary, health records): its entries are then shown only to keys with the right `sensitive`; only the owner lifts it, from the command line. `read_in_parent`: its entries that are part of an entry of the same type are read as the parts of that entry, in its page. Of one field, named by `field`: make it `required`, change its `kind`, `rename` it, change its `values`, change the `types` an entry field accepts (`null` accepts any; stored values that no longer fit are kept and listed in `mismatched`), make it `many` (each stored value becomes a list of one) or single again (refused while an entry holds several values), make it `sensitive` (only the owner makes it no longer sensitive). Refused while entries would break, naming them; a `default` or a `mapping` repairs them. Try it with `dry_run` first. To delete a type no entry uses, or merge it into another, `propose` it: only the owner confirms, from the command line. Each change is recorded in the history of the type, before and after.',
+    'Changes a type, one thing at a time; what is not given stays. Of the type as a whole: `label` and `description` (not empty) replace them: the description tells agents when to use the type, so sharpen it as its use becomes clearer; the next sessions read it in their instructions. `sensitive` makes a whole type sensitive (a diary, health records): its entries are then shown only to keys with the right `sensitive`; only the owner lifts it, from the command line. `read_in_parent`: its entries that are part of an entry of the same type are read as the parts of that entry, in its page. `dated_by` names the required `date` field that says the day each entry happened, for things that happened at a time (`null` takes it away): they are then read under what they are part of, newest first. Of one field, named by `field`: make it `required`, change its `kind`, `rename` it, change its `values`, change the `types` an entry field accepts (`null` accepts any; stored values that no longer fit are kept and listed in `mismatched`), make it `many` (each stored value becomes a list of one) or single again (refused while an entry holds several values), make it `sensitive` (only the owner makes it no longer sensitive). Refused while entries would break, naming them; a `default` or a `mapping` repairs them. Try it with `dry_run` first. To delete a type no entry uses, or merge it into another, `propose` it: only the owner confirms, from the command line. Each change is recorded in the history of the type, before and after.',
   input: Schema.Struct({
     ...ChangeFieldInput.fields,
     ...ChangeTypeInput.fields,
@@ -60,7 +60,7 @@ export const changeTypeTool = defineTool({
       if (field !== undefined) {
         yield* refuseExtra(
           'Changing a field',
-          Struct.pick(input, ['label', 'description', 'read_in_parent']),
+          Struct.pick(input, ['label', 'description', 'read_in_parent', 'dated_by']),
         )
         return yield* changeField({ ...input, field })
       }

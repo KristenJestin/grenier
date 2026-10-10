@@ -311,7 +311,12 @@ export const changeField = Effect.fn('changeField')(
       }).filter(([, value]) => value !== undefined),
     )
     const next = yield* decodeType(
-      { ...type, fields: type.fields.map((each) => (each.name === old.name ? field : each)) },
+      {
+        ...type,
+        // The field that dates the type follows its new name.
+        ...(type.dated_by === old.name ? { dated_by: name } : {}),
+        fields: type.fields.map((each) => (each.name === old.name ? field : each)),
+      },
       { errors: 'all', onExcessProperty: 'error' },
     ).pipe(Effect.mapError(Refused.fromSchemaError))
     yield* checkAcceptedTypes(next)
@@ -380,8 +385,8 @@ export const changeField = Effect.fn('changeField')(
       })
     }
     if (invalid.length > 0) return yield* refusedFor(invalid)
-    yield* sql`UPDATE types SET fields = ${JSON.stringify(next.fields)}::jsonb, updated = now()
-      WHERE name = ${type.name}`
+    yield* sql`UPDATE types SET fields = ${JSON.stringify(next.fields)}::jsonb,
+      dated_by = ${next.dated_by ?? null}, updated = now() WHERE name = ${type.name}`
     // A link `fulfills` names the date field it closes: it follows the field's new name.
     if (name !== old.name) {
       yield* sql`UPDATE links l SET field = ${name} FROM entries e

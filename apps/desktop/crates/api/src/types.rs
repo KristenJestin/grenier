@@ -1083,6 +1083,9 @@ pub struct TreePlace {
 #[doc = "`TypeDefinition`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct TypeDefinition {
+    #[doc = "Its entries are things that happened at a time, and this field, a required `date`, is the day each happened: they are read under what they are part of, newest first."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub dated_by: ::std::option::Option<::std::string::String>,
     #[doc = "What the type is and when to use it, in the words a user would say: agents choose a type from it."]
     pub description: TypeDefinitionDescription,
     #[doc = "The fields of the type; none is a type with a title and a body only."]

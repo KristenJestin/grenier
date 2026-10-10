@@ -57,6 +57,8 @@ export const types = pgTable('types', {
   deleted_at: timestamp(at),
   sensitive: boolean().notNull().default(false),
   read_in_parent: boolean().notNull().default(false),
+  // The required date field that says when each entry of the type happened, when it is one.
+  dated_by: text(),
 })
 
 /**
