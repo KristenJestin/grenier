@@ -37,11 +37,12 @@ belongs to the entry of that subject, in its summary and its fields. A body says
 not the list of what happened to it: inside one body, the dates are only headings, so `briefing`
 cannot say "a year ago", nothing can ask what happened on a day across entries, links and
 provenance cannot be said of each event, and every update sends and keeps the whole text again.
-When the instance has no type for such entries, the agent proposes one to the owner, with a date
-field, rather than growing a body. The instructions of the MCP server and the description of
-`write` say so; the answer of `write` notices a body that accumulates (see "A body that
-accumulates"). No type, rule or code path names a kind of such entries: the agent and the owner
-name their types.
+When the instance has no type for such entries, the agent defines one itself (`define_type`), with
+a date field and a description that says when to use it, rather than growing a body, and later
+writers reuse it: the one exception to asking the owner when no type fits. The instructions of the
+MCP server and the description of `write` say so; the answer of `write` notices a body that
+accumulates (see "A body that accumulates"). No type, rule or code path names a kind of such
+entries: the agent names the types it defines.
 
 ### Known or supposed
 

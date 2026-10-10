@@ -423,9 +423,23 @@ describe('agents keep each thing that happened at a time as an entry of its own'
     )
   })
 
-  test('when no type fits such entries, the agent proposes one with a date field rather than growing a body', () => {
+  test('when no type fits such entries, the agent defines one with a date field itself, rather than growing a body or asking the owner', () => {
     expect(WRITING_STANDARD).toContain(
-      'When no type fits such entries, propose one with a date field to the owner rather than adding to a body.',
+      'When no type fits such entries, define one with a date field (`define_type`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
+    )
+    expect(GROWING_BODY).toContain(
+      'When no type fits them, define one with a date field (`define_type`), with a description that says when to use it; later writers reuse it.',
+    )
+    const line = WRITING_STANDARD.split('\n').find((each) =>
+      each.startsWith('- Something that happened'),
+    )
+    for (const text of [line ?? '', GROWING_BODY]) expect(text).not.toContain('owner')
+  })
+
+  test('the rule to ask the user when no type fits states things that happened at a time as its exception', () => {
+    // The paragraph is wrapped: compared on one line.
+    expect(instructionsFor(types, development).replace(/\s+/g, ' ')).toContain(
+      'When no type fits, ask the user rather than forcing one, except for things that happened at a time, for which you define a dated type yourself; a new type is defined with a description that says when to use it.',
     )
   })
 

@@ -48,7 +48,7 @@ export const WRITING_STANDARD = [
   'How to write an entry, whatever it comes from:',
   '- Search before creating, and update the existing entry when it is the same subject: never make a second entry for it.',
   '- Make one entry per subject that would be searched or followed on its own.',
-  '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (the day it happened, in a date field of its type or in `valid_from`, not only in its title), part of what it is about (`parent`), with its own sources and provenance. What stands today about a subject belongs to the entry of that subject (its summary, its fields), never at the top of a growing body: a body says what an entry is, not the list of what happened to it. When no type fits such entries, propose one with a date field to the owner rather than adding to a body.',
+  '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (the day it happened, in a date field of its type or in `valid_from`, not only in its title), part of what it is about (`parent`), with its own sources and provenance. What stands today about a subject belongs to the entry of that subject (its summary, its fields), never at the top of a growing body: a body says what an entry is, not the list of what happened to it. When no type fits such entries, define one with a date field (`define_type`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
   '- Link the entry to every existing entry it concerns: the things, people, places and subjects it is about. Cite them as `[[slug]]` in the body, never by their title in plain text (the link is kept and follows renames), or use `link`. The answer of a write lists, as `unlinked`, existing entries whose title or alias appears in what you wrote without being linked: Hippocampe finds them by their names only, so read them and link those that are really meant.',
   '- Give a `parent` only when the entry is part of it (a component of a machine, a section of a document), and leave the entry at the root otherwise: an entry at the root is fine when it is linked to what it concerns. A `parent` is a link `part_of`, said known or supposed in `provenance.parent`. An entry may be part of several places and was part of others before: add one with `link` and `part_of`, with the dates it held (`valid_from`, `valid_until`); changing the `parent` ends the former place today and starts the new one.',
   '- Write a summary that stands alone: what the entry is, about what or whom, and when, readable by an agent that knows nothing of the conversation or the item it comes from.',
@@ -159,8 +159,9 @@ when to use it, is written in its description.
 
 Before writing, look at the types. Choose the type whose description matches what the user says,
 even when they do not name it. Before creating an entry, search for an existing one, and update
-it when it is the same thing. When no type fits, ask the user rather than forcing one; a new type
-is defined with a description that says when to use it.`
+it when it is the same thing. When no type fits, ask the user rather than forcing one, except for
+things that happened at a time, for which you define a dated type yourself; a new type is defined
+with a description that says when to use it.`
 
 /** How an agent recalls: said to the keys that read, after the types. */
 const RECALL =

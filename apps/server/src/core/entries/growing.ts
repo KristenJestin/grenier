@@ -12,7 +12,7 @@ export const GROWN_ON_DAYS = 3
 
 /** What the notice advises, whatever made the body noticed. Never a refusal. */
 export const GROWING_BODY =
-  'If it keeps things that happened at different times (a session, a measurement, a meeting, a repair), write each as an entry of its own instead: dated (a date field of its type, or `valid_from`), part of what it is about (`parent`), with its own sources; keep what stands today in the summary and fields of the subject. Each is then found, dated, linked and read on its own. When no type fits them, propose one with a date field to the owner.'
+  'If it keeps things that happened at different times (a session, a measurement, a meeting, a repair), write each as an entry of its own instead: dated (a date field of its type, or `valid_from`), part of what it is about (`parent`), with its own sources; keep what stands today in the summary and fields of the subject. Each is then found, dated, linked and read on its own. When no type fits them, define one with a date field (`define_type`), with a description that says when to use it; later writers reuse it.'
 
 const days = rowsOf(Schema.Struct({ count: Schema.Number }))
 
