@@ -314,6 +314,8 @@ nothing else: no GitHub account, no pull request, no CI. Then:
 - **Pull requests into `dev` are merged by squash, and by squash only.** A release merges `dev`
   into `main` with a merge commit (never a squash), so both branches keep one history. The rules
   live in `.github/rulesets/` and are applied with `bun tools/apply-rulesets.ts`.
+- A release that changed the migrations first adds the fixture of the version it replaces, as
+  [`apps/server/tests/upgrade/README.md`](apps/server/tests/upgrade/README.md) says.
 - **About squash merges into `dev`:** The squash commit takes the pull
   request's title, so the title is a plain Angular subject: semantic-release reads those
   subjects to decide the version. The description ends with `Closes #<n>`.
