@@ -54,15 +54,24 @@ const Row = Schema.Struct({
   fields: Schema.Array(FieldDefinition),
   sensitive: Schema.Boolean,
   read_in_parent: Schema.Boolean,
+  dated_by: Schema.NullOr(Schema.String),
 })
 
 const rows = rowsOf(Row)
 
-/** A type as it is read: `sensitive` and `read_in_parent` are said only when they hold. */
-const typeOf = ({ sensitive, read_in_parent, ...type }: typeof Row.Type): TypeDefinition => ({
-  ...type,
-  ...withFlags({ sensitive, read_in_parent }),
-})
+/**
+ * A type as it is read: `sensitive` and `read_in_parent` are said only when they hold, `dated_by`
+ * only when the type has one.
+ */
+const typeOf = ({
+  sensitive,
+  read_in_parent,
+  dated_by,
+  ...type
+}: typeof Row.Type): TypeDefinition => {
+  const read = { ...type, ...withFlags({ sensitive, read_in_parent }) }
+  return dated_by === null ? read : { ...read, dated_by }
+}
 
 /** The flags of a type that hold, and only those. */
 const withFlags = (flags: { readonly sensitive: boolean; readonly read_in_parent: boolean }) =>
@@ -78,6 +87,7 @@ const COLUMNS = {
   fields: types.fields,
   sensitive: types.sensitive,
   read_in_parent: types.read_in_parent,
+  dated_by: types.dated_by,
 }
 
 /** What the event log keeps of a type: its label, its description and each field definition. */
@@ -86,6 +96,7 @@ export const snapshotOf = ({
   description,
   sensitive,
   read_in_parent,
+  dated_by,
   fields,
 }: TypeDefinition): Snapshot => ({
   label,
@@ -93,6 +104,7 @@ export const snapshotOf = ({
   // A flag that does not hold records nothing, as before the flag existed.
   sensitive: sensitive === true ? true : null,
   read_in_parent: read_in_parent === true ? true : null,
+  dated_by: dated_by ?? null,
   ...prefixed('fields', Object.fromEntries(fields.map((field) => [field.name, field]))),
 })
 
@@ -177,6 +189,7 @@ export const defineType = Effect.fn('defineType')(function* (input: typeof TypeD
         fields: type.fields,
         sensitive: type.sensitive === true,
         read_in_parent: type.read_in_parent === true,
+        dated_by: type.dated_by ?? null,
       })
       yield* recordEvent(
         actor,
@@ -246,8 +259,8 @@ export const addFields = Effect.fn('addFields')(function* (
 
 /**
  * What a change of a type as a whole says: its label, its description (what tells agents when to
- * use it), whether all its entries are sensitive, and whether its entries that are part of one of the
- * same type are read in that entry. What it does not give stays.
+ * use it), whether all its entries are sensitive, whether its entries that are part of one of the
+ * same type are read in that entry, and which field dates them. What it does not give stays.
  */
 export const ChangeTypeInput = Schema.Struct({
   type: Schema.String.annotate({ description: 'The name of the type to change.' }),
@@ -261,12 +274,17 @@ export const ChangeTypeInput = Schema.Struct({
     description:
       'Entries of the type that are part of an entry of the same type are read as the parts of that entry, in its page.',
   }),
+  dated_by: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description:
+      'The required `date` field that says the day each entry of the type happened, for things that happened at a time; `null` for a type whose entries are not dated so.',
+  }),
 })
 export type ChangeTypeInput = typeof ChangeTypeInput.Type
 
 /**
  * Changes the label or the description of a type; makes every entry of it sensitive, or no
- * longer; makes its entries read in their parent, or no longer. Lifting sensitivity shows what was
+ * longer; makes its entries read in their parent, or no longer; dates them by a field, or no
+ * longer. Lifting sensitivity shows what was
  * hidden at once, so only the owner may.
  */
 export const changeType = Effect.fn('changeType')(function* (
@@ -289,13 +307,18 @@ export const changeType = Effect.fn('changeType')(function* (
           message: `Only the owner of Hippocampe may make the type \`${type.name}\` no longer sensitive: they do it from the command line, with \`type:sensitive ${type.name} --off\`.`,
         })
       }
-      const { sensitive: _, read_in_parent: __, ...rest } = type
-      const changed: TypeDefinition = {
+      const { sensitive: _, read_in_parent: __, dated_by: ___, ...rest } = type
+      const datedBy = input.dated_by === undefined ? type.dated_by : input.dated_by
+      const kept = {
         ...rest,
         label: input.label ?? type.label,
         description: input.description ?? type.description,
         ...withFlags({ sensitive, read_in_parent: inParent }),
       }
+      // Decoded, so a field that cannot date the type is refused as a definition refuses it.
+      const changed = yield* decodeType(
+        datedBy === undefined || datedBy === null ? kept : { ...kept, dated_by: datedBy },
+      )
       const changes = changesBetween(snapshotOf(type), snapshotOf(changed))
       if (changes.length === 0) return changed
       yield* db
@@ -305,6 +328,7 @@ export const changeType = Effect.fn('changeType')(function* (
           description: changed.description,
           sensitive,
           read_in_parent: inParent,
+          dated_by: changed.dated_by ?? null,
           updated: sql`now()`,
         })
         .where(eq(types.name, type.name))

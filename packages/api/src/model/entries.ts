@@ -170,6 +170,20 @@ export const Child = Schema.Struct({
 }).annotate({ identifier: 'Child' })
 export type Child = typeof Child.Type
 
+/**
+ * An entry part of another that says what happened at a time: its type is dated (`dated_by`), and
+ * `date` is the day it happened.
+ */
+export const DatedPart = Schema.Struct({
+  id: Schema.String,
+  slug: Schema.String,
+  type: Schema.String,
+  title: Schema.String,
+  date: Schema.String,
+  summary: Schema.String,
+}).annotate({ identifier: 'DatedPart' })
+export type DatedPart = typeof DatedPart.Type
+
 /** A place an entry is part of today, as the tree lists it. */
 export const TreePlace = Schema.Struct({
   id: Schema.String,
@@ -359,7 +373,8 @@ export type Medium = typeof Medium.Type
 /**
  * An entry as `read` returns it: the titles of its ancestors from the root (`path`, through the
  * oldest place it is part of), every place it is or was part of with its dates (`part_of`, oldest
- * first), its links both ways, its media, and its children that are not archived.
+ * first), its links both ways, its media, its children that are not archived, and apart from them
+ * the most recent of its parts that happened at a time (`dated`), with how many more there are.
  */
 export const EntryRead = Schema.Struct({
   entry: Entry,
@@ -385,8 +400,13 @@ export const EntryRead = Schema.Struct({
   backlinks: Schema.Array(Link),
   /** The titles of the entries its fields of kind `entry` name, by id, as a reader shows them. */
   titles: Schema.Record(Schema.String, Schema.String),
+  /** Its parts that are not dated, or whose date the key may not see. */
   children: Schema.Array(Child),
   hidden_children: Schema.Int,
+  /** Its parts whose type is dated, not archived, the most recent first: the first few. */
+  dated: Schema.Array(DatedPart),
+  /** How many more of them there are, read with `search` and `sort: "dated"`. */
+  more_dated: Schema.Int,
   cited_by: Schema.Array(
     Schema.Struct({ id: Schema.String, slug: Schema.String, title: Schema.String }),
   ),

@@ -141,6 +141,10 @@ export const TypeDefinition = Schema.Struct({
     description:
       'Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree.',
   }),
+  dated_by: Schema.optionalKey(Schema.String).annotate({
+    description:
+      'Its entries are things that happened at a time, and this field, a required `date`, is the day each happened: they are read under what they are part of, newest first.',
+  }),
   fields: Schema.Array(FieldDefinition)
     .annotate({
       description: 'The fields of the type; none is a type with a title and a body only.',
@@ -159,5 +163,27 @@ export const TypeDefinition = Schema.Struct({
         ),
       ),
     ),
-}).annotate({ identifier: 'TypeDefinition' })
+})
+  .check(
+    Schema.makeFilter(({ dated_by, fields }) => {
+      if (dated_by === undefined) return []
+      const field = fields.find(({ name }) => name === dated_by)
+      if (field === undefined)
+        return [
+          {
+            path: ['dated_by'],
+            issue: `names \`${dated_by}\`, which is not a field of the type: name a required \`date\` field of it`,
+          },
+        ]
+      return field.kind === 'date' && field.required === true && field.many !== true
+        ? []
+        : [
+            {
+              path: ['dated_by'],
+              issue: `names \`${dated_by}\`, which must be a required \`date\` field holding one date: the day its entries happened`,
+            },
+          ]
+    }),
+  )
+  .annotate({ identifier: 'TypeDefinition' })
 export type TypeDefinition = typeof TypeDefinition.Type

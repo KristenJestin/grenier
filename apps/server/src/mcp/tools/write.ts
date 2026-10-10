@@ -3,18 +3,29 @@ import {
   archiveEntry,
   growingBodyNotice,
   identityOf,
+  lateRewriteNotice,
   writeEntries,
   writeEntry,
 } from '../../core/entries/index.ts'
 import { Refused } from '../../core/refused.ts'
 import { referencesOf, unlinkedMentions } from '../../core/links/index.ts'
-import { Effect, Schema, Struct } from 'effect'
+import { Effect, Predicate, Schema, Struct } from 'effect'
 import { defineTool, refuseExtra } from '../tool.ts'
+
+/** What the answer of a write notices of what it wrote, in one text, or nothing. */
+const noticeOf = Effect.fn('noticeOf')(function* (
+  written: Parameters<typeof growingBodyNotice>[0] & Parameters<typeof lateRewriteNotice>[0],
+  input: WriteEntryInput,
+) {
+  const said = [yield* growingBodyNotice(written, input), yield* lateRewriteNotice(written, input)]
+  const notices = said.filter(Predicate.isString)
+  return notices.length === 0 ? undefined : notices.join(' ')
+})
 
 export const writeTool = defineTool({
   name: 'write',
   description:
-    'Creates an entry, or updates the one `entry` names by its slug or id: to change an existing entry, always pass `entry`. Several entries, 100 at most, go in one call as `entries`, each as one is given here: one transaction, their bodies may cite one another with [[slug]], and they may name one another as `parent`, `superseded_by` or in a field naming an entry, in any order (a `parent` is the entry this one is part of, a link `part_of` said known or supposed in `provenance.parent`; changing it ends the former place today and starts the new one); one refused entry refuses them all, naming each with its problems. `archive` archives the entry `entry` names, with a `reason` in a few words (`No longer owned.`) read with `archived_at`, so that no one takes the archive for a mistake; nothing is ever deleted, and an archive goes alone. A body too long for one call is written in parts: the first, then each next one with `append: true`. To add a part at the top of a body, give it with `prepend: true`. Something that happened at a time is an entry of its own, never a part added to a body; the answer carries a `notice` when a body accumulates. To change a few words of a body, give `edits: [{ find, replace }]` (each `find` matching once), never the whole body again. A `[[slug]]` to an entry not written yet is kept, and links by itself once the entry exists. Say where it comes from in `sources` (an entry, what someone said, what you did or saw yourself, a URL, an external identifier), not in the body. A field that is `many` takes a list, kept in the order given, without repeated values (`["Welsh", "Basque"]`); an `entry` field takes the slug or id of an entry of the types it accepts, or a list of them when it is `many`.',
+    'Creates an entry, or updates the one `entry` names by its slug or id: to change an existing entry, always pass `entry`. Several entries, 100 at most, go in one call as `entries`, each as one is given here: one transaction, their bodies may cite one another with [[slug]], and they may name one another as `parent`, `superseded_by` or in a field naming an entry, in any order (a `parent` is the entry this one is part of, a link `part_of` said known or supposed in `provenance.parent`; changing it ends the former place today and starts the new one); one refused entry refuses them all, naming each with its problems. `archive` archives the entry `entry` names, with a `reason` in a few words (`No longer owned.`) read with `archived_at`, so that no one takes the archive for a mistake; nothing is ever deleted, and an archive goes alone. A body too long for one call is written in parts: the first, then each next one with `append: true`. To add a part at the top of a body, give it with `prepend: true`. Something that happened at a time is an entry of its own, never a part added to a body; the answer carries a `notice` when a body accumulates, and when what happened is rewritten long after its date. To change a few words of a body, give `edits: [{ find, replace }]` (each `find` matching once), never the whole body again. A `[[slug]]` to an entry not written yet is kept, and links by itself once the entry exists. Say where it comes from in `sources` (an entry, what someone said, what you did or saw yourself, a URL, an external identifier), not in the body. A field that is `many` takes a list, kept in the order given, without repeated values (`["Welsh", "Basque"]`); an `entry` field takes the slug or id of an entry of the types it accepts, or a list of them when it is `many`.',
   input: Schema.Struct({
     ...WriteEntryInput.fields,
     entries: Schema.optionalKey(Schema.Array(WriteEntryInput)).annotate({
@@ -46,7 +57,7 @@ export const writeTool = defineTool({
         const written = yield* writeEntries(entries)
         const mentions = yield* unlinkedMentions(written.map(({ id }) => id))
         const notices = yield* Effect.forEach(written, (entry, index) =>
-          growingBodyNotice(entry, entries[index] ?? {}),
+          noticeOf(entry, entries[index] ?? {}),
         )
         const answerOf = (entry: (typeof written)[number], index: number) => {
           const answer = Struct.omit(entry, ['body'])
@@ -80,8 +91,9 @@ export const writeTool = defineTool({
           id === null ? [reference] : [],
         ),
       }
-      // A body that accumulates what happens to its entry, when it does: never a refusal.
-      const notice = yield* growingBodyNotice(written, single)
+      // A body that accumulates what happens to its entry, or what happened rewritten long after:
+      // never a refusal.
+      const notice = yield* noticeOf(written, single)
       const told = notice === undefined ? answer : { ...answer, notice }
       // The entries it names without linking them, when there are some: the agent decides.
       const unlinked = (yield* unlinkedMentions([written.id])).get(written.id) ?? []

@@ -38,11 +38,12 @@ import {
   TreeEntry,
   WRITER,
 } from '@hippocampe/api/model'
-import type { Source, TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
+import type { DatedPart, Source, TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { refusingContention } from './contention.ts'
 import { holding, wantedOf } from './certainty.ts'
 import { DateText, fieldsOf, isDate, Provenance, Slug, Text } from './values.ts'
+import { DATED_READ, datedOn } from './dated.ts'
 
 const Row = Schema.Struct({
   ...Entry.fields,
@@ -57,6 +58,7 @@ const kids = rowsOf(
   Schema.Struct({
     ...Struct.omit(Child.fields, ['fields']),
     fields: Schema.Record(Schema.String, Schema.Json),
+    date: Schema.NullOr(Schema.String),
   }),
 )
 const listed = rowsOf(TreeEntry)
@@ -361,7 +363,8 @@ export const lineageOf = Effect.fn('lineageOf')(function* (id: string) {
 /**
  * An entry, the titles of its ancestors from the root (through the oldest place it is part of),
  * every place it is or was part of, and the entries that are part of it today and are not
- * archived, by title.
+ * archived: by title, apart from those that happened at a time, the most recent first (the first
+ * `DATED_READ`, and how many more).
  */
 export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   const db = yield* drizzle
@@ -372,7 +375,8 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
   const all = yield* kids(client`
     SELECT e.id::text AS id, e.slug, e.type, e.title, e.summary, e.fields,
       e.type = ${entry.type} AND EXISTS (SELECT 1 FROM types t
-        WHERE t.name = e.type AND t.read_in_parent) AS in_parent
+        WHERE t.name = e.type AND t.read_in_parent) AS in_parent,
+      ${yield* datedOn} AS date
     FROM entries e
     WHERE EXISTS (SELECT 1 FROM links l WHERE l.source_id = e.id
         AND l.target_id = ${entry.id}::uuid AND l.relation = ${PART_OF} AND ${heldToday})
@@ -401,8 +405,14 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
           .map(({ id, title }) => [id, title] as const),
   )
   const shown: Array<Child> = []
-  for (const { fields, ...child } of all) {
+  const dated: Array<DatedPart> = []
+  for (const { fields, date, ...child } of all) {
     if (hiddenTypes.includes(child.type)) continue
+    if (date !== null) {
+      const { id, slug, type, title, summary } = child
+      dated.push({ id, slug, type, title, date, summary })
+      continue
+    }
     if (!child.in_parent) {
       shown.push(child)
       continue
@@ -445,7 +455,12 @@ export const readEntry = Effect.fn('readEntry')(function* (reference: string) {
       ownIds.flatMap((id) => (titles[id] === undefined ? [] : [[id, titles[id]]])),
     ),
     children: shown,
-    hidden_children: all.length - shown.length,
+    hidden_children: all.length - shown.length - dated.length,
+    // The most recent first; of one day, by title.
+    dated: dated
+      .toSorted((left, right) => right.date.localeCompare(left.date))
+      .slice(0, DATED_READ),
+    more_dated: Math.max(dated.length - DATED_READ, 0),
     cited_by: citing
       .filter(({ type }) => !hiddenTypes.includes(type))
       .map(({ id, slug, title }) => ({ id, slug, title })),

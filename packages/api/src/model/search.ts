@@ -22,6 +22,8 @@ export const SearchResult = Schema.Struct({
   summary: Schema.String,
   /** Present, `inferred` or `ambiguous`, when the summary is not known. */
   summary_provenance: Schema.optionalKey(Schema.Literals(['inferred', 'ambiguous'])),
+  /** For an entry whose type is dated (`dated_by`): the day it happened. */
+  date: Schema.optionalKey(Schema.String),
   path: Schema.Array(Schema.String),
   excerpt: Schema.String,
   rank: Schema.Finite,

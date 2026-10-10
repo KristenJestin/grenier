@@ -48,7 +48,8 @@ export const WRITING_STANDARD = [
   'How to write an entry, whatever it comes from:',
   '- Search before creating, and update the existing entry when it is the same subject: never make a second entry for it.',
   '- Make one entry per subject that would be searched or followed on its own.',
-  '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (the day it happened, in a date field of its type or in `valid_from`, not only in its title), part of what it is about (`parent`), with its own sources and provenance. What stands today about a subject belongs to the entry of that subject (its summary, its fields), never at the top of a growing body: a body says what an entry is, not the list of what happened to it. When no type fits such entries, define one with a date field (`define_type`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
+  '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own, written once: of a dated type (its `dated_by` names the required date field that holds the day it happened, so the day is never only in its title), part of what it is about (`parent`), with its own sources and provenance. A day you do not know is never invented: give the first day of what you know (the month, the year), write it `inferred`, and say in the body what is known of the date. What stands today about a subject belongs to the entry of that subject (its summary, its fields), never at the top of a growing body: a body says what an entry is, not the list of what happened to it. When no dated type fits such entries, define one (`define_type` with a required date field, named by `dated_by`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
+  '- When a session of work ends or something happens, write it as such an entry under its subject: what was done, decided or refused, and what comes next. A lasting fact learned on the way also goes into the entry it is about: the dated entry keeps the story, the subject keeps the fact.',
   '- Link the entry to every existing entry it concerns: the things, people, places and subjects it is about. Cite them as `[[slug]]` in the body, never by their title in plain text (the link is kept and follows renames), or use `link`. The answer of a write lists, as `unlinked`, existing entries whose title or alias appears in what you wrote without being linked: Hippocampe finds them by their names only, so read them and link those that are really meant.',
   '- Give a `parent` only when the entry is part of it (a component of a machine, a section of a document), and leave the entry at the root otherwise: an entry at the root is fine when it is linked to what it concerns. A `parent` is a link `part_of`, said known or supposed in `provenance.parent`. An entry may be part of several places and was part of others before: add one with `link` and `part_of`, with the dates it held (`valid_from`, `valid_until`); changing the `parent` ends the former place today and starts the new one.',
   '- Write a summary that stands alone: what the entry is, about what or whom, and when, readable by an agent that knows nothing of the conversation or the item it comes from.',
@@ -164,10 +165,19 @@ things that happened at a time, for which you define a dated type yourself; a ne
 with a description that says when to use it.`
 
 /** How an agent recalls: said to the keys that read, after the types. */
-const RECALL =
-  'When the user mentions something Hippocampe may hold, search it before answering, without being asked. Before answering, read what the search found and follow its `neighbors` (and `read` with a `depth` of 2 or 3) as far as they help.'
+const RECALL = [
+  'When the user mentions something Hippocampe may hold, search it before answering, without being asked. Before answering, read what the search found and follow its `neighbors` (and `read` with a `depth` of 2 or 3) as far as they help.',
+  'When you start work on a subject, read what happened to it first: `read` gives its most recent dated entries (`dated`), and `search` with `under` and `sort: "dated"` goes further back.',
+].join(' ')
 
-const listed = (types: ReadonlyArray<{ readonly name: string; readonly description: string }>) =>
+/** A type as the instructions list it: its name, what dates it when it is dated, its description. */
+type Listed = {
+  readonly name: string
+  readonly description: string
+  readonly dated_by?: string | undefined
+}
+
+const listed = (types: ReadonlyArray<Listed>) =>
   types.length === 0
     ? 'There is no type yet.'
     : types.length > LISTED
@@ -175,7 +185,10 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
           .map(({ name }) => `\`${name}\``)
           .join(', ')}.`
       : `The types:\n${types
-          .map(({ name, description }) => `- \`${name}\`: ${description}`)
+          .map(
+            ({ name, description, dated_by }) =>
+              `- \`${name}\`${dated_by === undefined ? '' : ` (dated by \`${dated_by}\`)`}: ${description}`,
+          )
           .join('\n')}`
 
 /**
@@ -189,7 +202,7 @@ const listed = (types: ReadonlyArray<{ readonly name: string; readonly descripti
  * the later parts are the ones it can lose.
  */
 export const instructionsFor = (
-  types: ReadonlyArray<{ readonly name: string; readonly description: string }>,
+  types: ReadonlyArray<Listed>,
   instance: { readonly name: InstanceName; readonly diagnostics: boolean },
   rules: string | null = null,
   writes = false,

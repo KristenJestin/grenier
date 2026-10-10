@@ -4,6 +4,7 @@ import { rowsOf } from '../database/rows.ts'
 import { SEARCHABLE } from '../database/schema.ts'
 import { holding, wantedOf } from '../entries/certainty.ts'
 import { LAST_WRITER } from '../entries/last-writer.ts'
+import { datedOn } from '../entries/dated.ts'
 import { findEntry, pathOf, slugOf } from '../entries/operations.ts'
 import { supposedIn } from '../entries/supposed.ts'
 import { isDate, isDateTime } from '../entries/values.ts'
@@ -26,6 +27,7 @@ const found = rowsOf(
   Schema.Struct({
     ...Found.fields,
     path: Schema.Null,
+    date: Schema.NullOr(Schema.String),
     summary_provenance: Schema.NullOr(Schema.Literals(['inferred', 'ambiguous'])),
   }),
 )
@@ -35,9 +37,9 @@ const found = rowsOf(
  * The HTTP API does not take them.
  */
 export const Recency = Schema.Struct({
-  sort: Schema.optionalKey(Schema.Literals(['relevance', 'updated'])).annotate({
+  sort: Schema.optionalKey(Schema.Literals(['relevance', 'updated', 'dated'])).annotate({
     description:
-      'The order: `relevance` (the default with a `query`) or `updated`, the most recently changed first (the default without a `query`).',
+      'The order: `relevance` (the default with a `query`), `updated`, the most recently changed first (the default without a `query`), or `dated`: only the entries that happened at a time (their type is dated, `dated_by`), the most recent date first; with `under`, what happened to a subject, further back than `read` gives.',
   }),
   since: Schema.optionalKey(Schema.String).annotate({
     description:
@@ -101,8 +103,12 @@ export const search = Effect.fn('search')(function* (
   const ofTypesWithHiddenFields =
     withHiddenFields.length === 0 ? sql`false` : sql`e.type IN ${sql.in(withHiddenFields)}`
   const subtree = yield* subtreeOf(under)
+  // The day the entry happened, when its type is dated and the caller may see it.
+  const dated = yield* datedOn
+  const byDate = options.sort === 'dated'
   // What the filters keep, whether there is a query or not.
   const filters = sql`
+      AND (${!byDate} OR ${dated} IS NOT NULL)
       AND (${options.type ?? null}::text IS NULL OR e.type = ${options.type ?? null})
       AND e.tags @> ${JSON.stringify(options.tag ?? [])}::jsonb
       AND ${certain}
@@ -117,6 +123,7 @@ export const search = Effect.fn('search')(function* (
         OR ${sql.literal(LAST_WRITER)} = ${options.by ?? null})`
   // When the entry last changed, and who changed it.
   const lastChange = sql`to_char(e.updated AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated,
+      ${dated} AS date,
       ${sql.literal(LAST_WRITER)} AS by,
       CASE WHEN e.provenance ->> 'summary' IN ('inferred', 'ambiguous')
         THEN e.provenance ->> 'summary' END AS summary_provenance`
@@ -126,7 +133,7 @@ export const search = Effect.fn('search')(function* (
       e.summary AS excerpt, 0::float8 AS rank, ${lastChange}
     FROM entries e
     WHERE NOT (${JSON.stringify(hiddenTypes)}::jsonb ? e.type) ${filters}
-    ORDER BY e.updated DESC, e.title
+    ORDER BY ${byDate ? sql`${dated} DESC,` : sql``} e.updated DESC, e.title
     LIMIT ${options.limit ?? 20}`
   // With a query, the matches in order of relevance, or of last change when asked.
   const byChange = options.sort === 'updated'
@@ -169,7 +176,8 @@ export const search = Effect.fn('search')(function* (
         OR e.sources @> jsonb_build_array(jsonb_build_object('url', ${text}::text))
         OR e.sources @> jsonb_build_array(jsonb_build_object('identifier', ${text}::text)))
       ${filters}
-    ORDER BY ${byChange ? sql`e.updated DESC,` : sql``} fit DESC, rank DESC, e.title
+    ORDER BY ${byChange ? sql`e.updated DESC,` : byDate ? sql`${dated} DESC,` : sql``} fit DESC,
+      rank DESC, e.title
     LIMIT ${options.limit ?? 20}`
   const rows = yield* found(query === undefined ? listing : matching(query))
   // With a filter on what is supposed, what made each entry match.
@@ -180,10 +188,11 @@ export const search = Effect.fn('search')(function* (
           rows.map(({ id }) => id),
           wanted,
         )
-  return yield* Effect.forEach(rows, ({ summary_provenance, ...row }) =>
+  return yield* Effect.forEach(rows, ({ summary_provenance, date, ...row }) =>
     Effect.map(pathOf(row.id), (path) =>
       Object.assign(
         { ...row, path } satisfies Found,
+        date === null ? {} : { date },
         summary_provenance === null ? {} : { summary_provenance },
         supposed === undefined
           ? {}

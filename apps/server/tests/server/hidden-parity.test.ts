@@ -298,6 +298,67 @@ describe('to a key without the right sensitive, what happens to a hidden entry t
     )
   })
 
+  test('the dated parts of an entry show nothing hidden, over MCP and the read API; the owner sees them', async () => {
+    const DAY = { name: 'day', kind: 'date', required: true }
+    await answerOf(keys.trusted, 'define_type', {
+      name: 'visit',
+      label: 'Visit',
+      description: 'A visit, on a day.',
+      fields: [DAY],
+      dated_by: 'day',
+    })
+    await answerOf(keys.trusted, 'define_type', {
+      name: 'private-visit',
+      label: 'Private visit',
+      description: 'A private visit, on a day.',
+      fields: [DAY],
+      dated_by: 'day',
+      sensitive: true,
+    })
+    await answerOf(keys.trusted, 'define_type', {
+      name: 'checkup',
+      label: 'Checkup',
+      description: 'A checkup, on a day kept private.',
+      fields: [{ ...DAY, sensitive: true }],
+      dated_by: 'day',
+    })
+    await answerOf(keys.trusted, 'write', { type: 'folder', title: 'Garden' })
+    await answerOf(keys.trusted, 'write', {
+      entries: [
+        ['visit', 'Pruning visit', '2026-03-02'],
+        ['private-visit', 'Private garden visit', '2026-03-03'],
+        ['checkup', 'Soil checkup', '2026-03-04'],
+      ].map(([type = '', title = '', day = '']) => ({
+        type,
+        title,
+        parent: 'garden',
+        fields: { day },
+        provenance: { parent: 'inferred', day: 'inferred' },
+      })),
+    })
+    const Slugs = Schema.Array(Schema.Struct({ slug: Schema.String }))
+    const slugsOf = (read: Schema.Json, key: 'dated' | 'children') =>
+      Schema.decodeUnknownSync(Schema.Struct({ dated: Slugs, children: Slugs }))(read)[key].map(
+        ({ slug }) => slug,
+      )
+    const plainRead = await answerOf(keys.plain, 'read', { entry: 'garden' })
+    const route = await (
+      await fetch(`${base}/api/entries/garden`, { headers: bearer(keys.plain) })
+    ).json()
+    for (const read of [plainRead, route]) {
+      expect(slugsOf(read, 'dated')).toEqual(['pruning-visit'])
+      expect(slugsOf(read, 'children')).toEqual(['soil-checkup'])
+      expect(JSON.stringify(read)).not.toContain('2026-03-04')
+      expect(JSON.stringify(read)).not.toContain('private-garden-visit')
+      expect(read).toMatchObject({ hidden_children: 1, more_dated: 0 })
+    }
+    expect(slugsOf(await answerOf(keys.trusted, 'read', { entry: 'garden' }), 'dated')).toEqual([
+      'soil-checkup',
+      'private-garden-visit',
+      'pruning-visit',
+    ])
+  })
+
   test('what was read, written back as read, keeps the hidden parent, successor and list items', async () => {
     await answerOf(keys.trusted, 'write', {
       type: 'kit',

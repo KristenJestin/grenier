@@ -677,6 +677,9 @@
               "ambiguous"
             ]
           },
+          "date": {
+            "type": "string"
+          },
           "path": {
             "type": "array",
             "items": {
@@ -884,6 +887,15 @@
           "hidden_children": {
             "type": "integer"
           },
+          "dated": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatedPart"
+            }
+          },
+          "more_dated": {
+            "type": "integer"
+          },
           "cited_by": {
             "type": "array",
             "items": {
@@ -920,7 +932,41 @@
           "titles",
           "children",
           "hidden_children",
+          "dated",
+          "more_dated",
           "cited_by"
+        ],
+        "additionalProperties": false
+      },
+      "DatedPart": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "type",
+          "title",
+          "date",
+          "summary"
         ],
         "additionalProperties": false
       },
@@ -1735,6 +1781,10 @@
           "read_in_parent": {
             "type": "boolean",
             "description": "Entries of the type that are part of an entry of the same type are read in that entry, with their fields, as the parts of a whole (the disks of a computer), rather than as entries of their own in the tree."
+          },
+          "dated_by": {
+            "type": "string",
+            "description": "Its entries are things that happened at a time, and this field, a required `date`, is the day each happened: they are read under what they are part of, newest first."
           },
           "fields": {
             "type": "array",

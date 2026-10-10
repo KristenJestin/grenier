@@ -3,8 +3,9 @@ import { writeEntries } from '../src/core/entries/index.ts'
 import { Actor } from '../src/core/events/index.ts'
 import { addDays } from '../src/core/time/index.ts'
 import { addToInbox } from '../src/core/inbox/index.ts'
+import { defineType } from '../src/core/types/index.ts'
 import { dateWordings, mentions, mentionsInOrder, mentionsNone } from './answers.ts'
-import { AGENT_KEY, DAYS } from './fixture.ts'
+import { AGENT_KEY, DAYS, TYPES } from './fixture.ts'
 import type { Role } from './roles.ts'
 import type { World } from './world.ts'
 
@@ -33,6 +34,9 @@ export interface Task {
 }
 
 const ok = (condition: boolean, problem: string) => (condition ? [] : [problem])
+
+/** The types of the instance as it starts. */
+const TYPE_NAMES = new Set(TYPES.map(({ name }) => name))
 
 const read = (world: World, slug: string) => world.entry(slug)
 
@@ -86,6 +90,49 @@ const datesOf = ({ entry }: Found) =>
   [entry.valid_from, ...Object.values(entry.fields)].filter(
     (value): value is string => Predicate.isString(value) && /^\d{4}-\d{2}-\d{2}/.test(value),
   )
+
+/** Whether an entry is part of the entry of that slug today. */
+const under = (found: Found, slug: string) => found.part_of.some((place) => place.slug === slug)
+
+/**
+ * The day an entry happened, when its type is dated (`dated_by`, among `types`): the value of that
+ * field, or `undefined`.
+ */
+const happenedOn = (
+  { entry }: Found,
+  types: ReadonlyArray<{ readonly name: string; readonly dated_by?: string | undefined }>,
+) => {
+  const field = types.find(({ name }) => name === entry.type)?.dated_by
+  const value = field === undefined ? undefined : entry.fields[field]
+  return Predicate.isString(value) ? value : undefined
+}
+
+/** What an earlier session of the bench's key wrote: a dated type for sessions of work. */
+const WORK_SESSION = {
+  name: 'work-session',
+  label: 'Work session',
+  description:
+    'A session of work on a project or a thing, on one day: what was done, decided or refused, and what comes next.',
+  fields: [{ name: 'held_on', kind: 'date' as const, required: true }],
+  dated_by: 'held_on',
+}
+
+/** A session of work, written by the bench's key under a subject, some days before the run. */
+const workSession = (
+  today: string,
+  daysAgo: number,
+  parent: string,
+  title: string,
+  body: string,
+) => ({
+  type: WORK_SESSION.name,
+  title,
+  parent,
+  fields: { held_on: addDays(today, -daysAgo) },
+  summary: `${title}, on ${addDays(today, -daysAgo)}.`,
+  body,
+  provenance: { held_on: 'inferred', parent: 'inferred', body: 'inferred', summary: 'inferred' },
+})
 
 /** Whether an entry is part of, or linked to, the entry of that slug. */
 const about = (found: Found, slug: string) =>
@@ -834,17 +881,18 @@ export const TASKS: ReadonlyArray<Task> = [
     expects: ['write', 'link', 'type_define'],
     check: async ({ world, startedAt }) => {
       const { created, grown } = await happenings(world, startedAt)
+      const types = await world.types()
       const session = created.filter(
         (found) =>
-          about(found, 'atlas-server') &&
-          datesOf(found).some((date) => date.startsWith(world.today)) &&
+          under(found, 'atlas-server') &&
+          happenedOn(found, types) === world.today &&
           /firmware/i.test(`${found.entry.title} ${found.entry.summary} ${found.entry.body}`),
       )
       return [
         ...ok(grown.length === 0, `the body of ${grown.join(', ')} was grown`),
         ...ok(
           session.length > 0,
-          'no entry of its own, dated today and about the Atlas server, records the session',
+          'no entry of its own, of a dated type, dated today and part of the Atlas server, records the session',
         ),
       ]
     },
@@ -885,6 +933,100 @@ export const TASKS: ReadonlyArray<Task> = [
         ...ok(
           dated(lastMarch(world.today)) || march,
           'no entry about the boiler is dated last March',
+        ),
+      ]
+    },
+  },
+  {
+    id: 'pick-up-project',
+    heldOut: false,
+    prompt: 'Pick up the work on the kitchen renovation.',
+    expects: ['search', 'read'],
+    // Three sessions written by earlier sessions of the same key, under the project: what the last
+    // one found, and what comes next, is said nowhere else.
+    setup: async (world) => {
+      await world.arrange(
+        Effect.provideService(
+          Effect.gen(function* () {
+            yield* defineType(WORK_SESSION)
+            yield* writeEntries([
+              workSession(
+                world.today,
+                25,
+                'kitchen-renovation',
+                'Old tiles removed',
+                'Removed the old wall tiles behind the hob. Next: order the new worktop.',
+              ),
+              workSession(
+                world.today,
+                12,
+                'kitchen-renovation',
+                'Worktop ordered',
+                'Ordered the oak worktop; delivery in about ten days. Next: fit it when it comes.',
+              ),
+              workSession(
+                world.today,
+                3,
+                'kitchen-renovation',
+                'Worktop delivered, sink opening wrong',
+                'The worktop came, but its sink opening is two centimetres too narrow: the joiner takes it back to recut it. Next: call the joiner on Thursday to fix the recut date, and only then lay the tiles.',
+              ),
+            ])
+          }),
+          Actor,
+          AGENT_KEY,
+        ),
+      )
+    },
+    check: async ({ answer }) => [
+      ...mentions(answer, [['recut', 're-cut', 'too narrow', 'sink opening']]),
+    ],
+  },
+  {
+    id: 'second-session-reuses-type',
+    heldOut: false,
+    prompt:
+      'Keep a journal of this session: I replaced the two noisy fans of the Atlas server, it is quiet now.',
+    expects: ['write', 'link'],
+    // An earlier session defined a dated type for sessions of work and wrote one under the server.
+    setup: async (world) => {
+      await world.arrange(
+        Effect.provideService(
+          Effect.gen(function* () {
+            yield* defineType(WORK_SESSION)
+            yield* writeEntries([
+              workSession(
+                world.today,
+                30,
+                'atlas-server',
+                'Atlas server upkeep',
+                'Cleaned the dust filters, then updated the firmware to version 2.4. The fans are still noisy: check them next month.',
+              ),
+            ])
+          }),
+          Actor,
+          AGENT_KEY,
+        ),
+      )
+    },
+    check: async ({ world, startedAt }) => {
+      const { created } = await happenings(world, startedAt)
+      const types = await world.types()
+      const session = created.filter(
+        (found) =>
+          found.entry.type === WORK_SESSION.name &&
+          under(found, 'atlas-server') &&
+          happenedOn(found, types) === world.today,
+      )
+      const defined = types.filter(({ name }) => !TYPE_NAMES.has(name) && name !== 'work-session')
+      return [
+        ...ok(
+          session.length > 0,
+          'no work session dated today, part of the Atlas server, records the session',
+        ),
+        ...ok(
+          defined.length === 0,
+          `another type was defined: ${defined.map(({ name }) => name).join(', ')}`,
         ),
       ]
     },
