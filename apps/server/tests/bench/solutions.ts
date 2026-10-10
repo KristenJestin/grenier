@@ -317,6 +317,7 @@ export const SOLUTIONS = {
         description:
           'A session of work on something of the household, on one day: what was done, and what is left.',
         fields: [{ name: 'held_on', kind: 'date', required: true }],
+        dated_by: 'held_on',
       }),
     )
     await arrange(
@@ -359,5 +360,26 @@ export const SOLUTIONS = {
       ]),
     )
     return 'Both services are recorded under the gas boiler, each dated.'
+  },
+  'pick-up-project': async () =>
+    'The last session found the sink opening of the new worktop two centimetres too narrow; the joiner takes it back to recut it. Next: call the joiner on Thursday to fix the recut date, then lay the tiles.',
+  'second-session-reuses-type': async ({ today, arrange }) => {
+    await arrange(
+      writeEntry({
+        type: 'work-session',
+        title: `Atlas server fans replaced, ${today}`,
+        parent: 'atlas-server',
+        fields: { held_on: today },
+        summary: `The session of ${today} on the Atlas server: the two noisy fans replaced.`,
+        body: 'Replaced the two noisy fans. The server is quiet now.',
+        provenance: {
+          held_on: 'inferred',
+          parent: 'inferred',
+          body: 'inferred',
+          summary: 'inferred',
+        },
+      }),
+    )
+    return 'The session is recorded as a work session under the Atlas server.'
   },
 } satisfies { readonly [task: string]: Solution }

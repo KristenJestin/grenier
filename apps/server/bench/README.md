@@ -91,7 +91,7 @@ Below the tables: the reason of every failed run, and every wrong tool.
 
 ## The tasks
 
-`tasks.ts`, about thirty-five, from the examples of the issue: recall (the graphics card, its server,
+`tasks.ts`, about forty, from the examples of the issue: recall (the graphics card, its server,
 its shop and the projects the server serves), what is due this week, the overdue, filing three inbox
 items one of which updates an entry, linking a person to an organization with a role and dates,
 adding a field to a type, a type made from scratch, making a field required, archiving, replacing a
@@ -111,12 +111,21 @@ the run; the second session then starts with nothing but the instance.
 
 Two tasks measure how things that happened at a time are kept (#198), on an instance with no type
 for them: `session-journal` ("Keep a journal of this session: …") and `boiler-serviced` (the boiler
-serviced today and last March). Each passes when every such thing is an entry of its own, dated (by
-`valid_from` or a date field; the service of last March, whose day the owner does not give, may
-instead name the month in its title or summary) and part of, or linked to, what it is about,
-whether its type is one the agent defined with a date field or an existing one with `valid_from`. It
-fails when the agent asks the owner for a type and writes nothing, and when the body of an entry
+serviced today and last March). `boiler-serviced` passes when every such thing is an entry of its
+own, dated (by `valid_from` or a date field; the service of last March, whose day the owner does
+not give, may instead name the month in its title or summary) and part of, or linked to, what it is
+about. `session-journal` asks more since #199: the session is part of the Atlas server and of a
+dated type (one whose `dated_by` names its date field), dated today, so it is read under the server.
+Both fail when the agent asks the owner for a type and writes nothing, and when the body of an entry
 that existed before was grown.
+
+Two tasks measure the reading of what happened (#199). In both, the setup writes, as the bench's
+key, what earlier sessions would have: a dated type `work-session` and sessions under a subject.
+`pick-up-project` ("Pick up the work on the kitchen renovation.") has three sessions under the
+project, and passes when the answer says what the most recent one found (the sink opening of the
+worktop is too narrow, to be recut), which nothing else holds. `second-session-reuses-type` ("Keep a
+journal of this session: …") has one session under the Atlas server, and passes when the new session
+is a `work-session` dated today, part of the server, and no other type was defined.
 
 A check asks for the facts an answer must give, and for an order when one is asked. It forbids
 a name only where the answer is a plain list (the recipes with lemon, the entries that are only supposed): a
