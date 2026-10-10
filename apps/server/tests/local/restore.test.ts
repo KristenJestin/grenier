@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -16,9 +17,11 @@ import { dirname, join, relative } from 'node:path'
 import { ConfigProvider, Effect, Exit, Layer, Predicate } from 'effect'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { layer as database, migrate } from '../../src/core/database/index.ts'
-import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
-import { Actor } from '../../src/core/events/index.ts'
+import { Rights } from '../../src/core/auth/index.ts'
+import { listEntries, readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { attachMedia, readMedia } from '../../src/core/media/index.ts'
+import { createScratchDatabase, dropScratchDatabase, loadDump } from '../../src/core/testing.ts'
 import { defineType } from '../../src/core/types/index.ts'
 import { homeOf, readEnvironment } from '../../src/local/home.ts'
 import * as service from '../../src/local/service.ts'
@@ -435,5 +438,72 @@ describe('hippo restore refuses, before anything is touched', () => {
       message:
         'Hippocampe is not installed for this user: run hippo service install first, then restore.',
     })
+  })
+})
+
+describe('hippo restore of a backup of Hippocampe 0.6.0', () => {
+  test('a backup made from the 0.6.0 fixture restores into this version, and reads after its migrations', async () => {
+    const fixture = new URL('../upgrade/0.6.0/', import.meta.url).pathname
+    const { DATABASE_URL = '' } = readEnvironment(home.environment)
+    /** Runs on the database `name` of the installation's server. */
+    const on =
+      (name: string) =>
+      <A, E, R>(effect: Effect.Effect<A, E, R>) => {
+        const url = new URL(DATABASE_URL)
+        url.pathname = `/${name}`
+        return Effect.provide(
+          effect,
+          ConfigProvider.layer(ConfigProvider.fromUnknown({ DATABASE_URL: url.toString() })),
+        )
+      }
+    // The installation holds the fixture's database as 0.6.0 left it, not migrated, and its media.
+    // Its database is `postgres`: it is made again from another one, then that one is dropped.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* on('postgres')(createScratchDatabase('aside'))
+        yield* on('aside')(dropScratchDatabase('postgres'))
+        const url = yield* on('aside')(createScratchDatabase('postgres'))
+        yield* loadDump(url, readFileSync(join(fixture, 'database.sql'), 'utf8'))
+        yield* on('postgres')(dropScratchDatabase('aside'))
+      }),
+    )
+    for (const found of readdirSync(home.media))
+      rmSync(join(home.media, found), { recursive: true })
+    cpSync(join(fixture, 'media'), home.media, { recursive: true })
+    // Backed up as 0.6.0's hippo backup wrote it: the service stopped, no manifest.
+    await run(service.stop)
+    const backup = join(scratch, 'hippocampe-0.6.0.tar.gz')
+    execFileSync('tar', ['-czf', backup, '-C', home.data, 'postgres', 'media'])
+    await run(service.start)
+    // Changed after the backup, by this version: the restore undoes it.
+    await core(
+      writeEntry({
+        entry: 'workshop-computer',
+        fields: { price: '1.00 EUR' },
+        provenance: { price: 'inferred' },
+      }),
+    )
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const said = await run(service.restore(home, backup)).finally(() => log.mockRestore())
+    expect(said).toContain(`Restored ${backup}, a backup of an unknown version`)
+    const computer = await reading('workshop-computer')
+    expect(computer.entry.fields).toMatchObject({
+      brand: 'Corvid',
+      price: '849.00 EUR',
+      power_w: 350,
+      condition: 'worn',
+    })
+    expect(computer.children.map(({ slug }) => slug)).toEqual(['workshop-computer-disk'])
+    expect(await core(entryHistory('workshop-computer'))).toHaveLength(7)
+    // Every entry but the archived one, the sensitive journal included.
+    expect(
+      await core(Effect.provideService(listEntries(), Rights, ['read', 'sensitive'])),
+    ).toHaveLength(19)
+    const [medium] = computer.media
+    const served = await core(readMedia(medium?.sha256 ?? ''))
+    expect(Buffer.from(served.bytes)).toEqual(
+      readFileSync(join(fixture, 'media', medium?.sha256.slice(0, 2) ?? '', medium?.sha256 ?? '')),
+    )
+    expect(running).toBe(true)
   })
 })
