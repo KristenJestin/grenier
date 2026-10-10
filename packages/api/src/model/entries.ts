@@ -6,6 +6,9 @@ import { Schema } from 'effect'
  */
 export const HIDDEN = '[hidden]'
 
+/** What a write gives as `seen_by` for what its key did or saw itself: kept as the key's name. */
+export const WRITER = 'writer'
+
 /**
  * Whether a value is known or supposed, as a writer says it: `extracted` (known, read from a
  * source), `inferred` (supposed by the writer) or `ambiguous` (sources disagree).
@@ -50,24 +53,50 @@ const Elsewhere = [
   }),
 ] as const
 
+const FromEntry = Schema.Struct({
+  entry: Schema.String.annotate({ description: 'The slug or id of the entry it comes from.' }),
+  ...About,
+})
+
+const SaidBy = Schema.Struct({
+  said_by: Schema.String.annotate({
+    description:
+      'The slug or id of the entry of the person who said it, written or spoken, in a conversation.',
+  }),
+  on: Schema.String.annotate({
+    description: 'The day it was said, such as `2026-10-08`.',
+  }),
+  ...About,
+})
+
+/**
+ * What the writer did or saw itself, as it is kept and read: the name of the key that wrote it,
+ * and the day.
+ */
+const Seen = Schema.Struct({
+  seen_by: Schema.String.annotate({
+    description: 'The name of the key that wrote it: what that key did or saw itself.',
+  }),
+  on: Schema.String.annotate({ description: 'The day the writer did or saw it.' }),
+  ...About,
+}).annotate({ identifier: 'SourceSeen' })
+
 /**
  * Where an entry comes from, as a write gives it: another entry (by slug or id), what a person
- * said (`said_by`, the slug or id of the entry that stands for them, and the day), a URL, an
- * external identifier with an optional label, or an item of the inbox (`source` is `inbox`); each
- * may say a short note.
+ * said (`said_by`, the slug or id of the entry that stands for them, and the day), what the writer
+ * did or saw itself (`seen_by` is `writer`, and the day), a URL, an external identifier with an
+ * optional label, or an item of the inbox (`source` is `inbox`); each may say a short note.
  */
 export const SourceGiven = Schema.Union([
+  FromEntry,
+  SaidBy,
   Schema.Struct({
-    entry: Schema.String.annotate({ description: 'The slug or id of the entry it comes from.' }),
-    ...About,
-  }),
-  Schema.Struct({
-    said_by: Schema.String.annotate({
-      description:
-        'The slug or id of the entry of the person who said it, written or spoken, in a conversation.',
+    seen_by: Schema.String.annotate({
+      description: `\`${WRITER}\`: what the key writing it did, ran, read or measured itself, kept with the name of that key.`,
     }),
-    on: Schema.String.annotate({
-      description: 'The day it was said, such as `2026-10-08`.',
+    // Optional here so that a missing day is told plainly by the write, not as a mismatch.
+    on: Schema.optionalKey(Schema.String).annotate({
+      description: 'The day the writer did or saw it, such as `2026-10-08`.',
     }),
     ...About,
   }),
@@ -75,11 +104,14 @@ export const SourceGiven = Schema.Union([
 ])
 export type SourceGiven = typeof SourceGiven.Type
 
-/** A source as it is kept: an entry, or the person who said it, by id. */
-export const SourceKept = SourceGiven
+/** A source as it is kept: an entry, or the person who said it, by id; the key that saw it. */
+export const SourceKept = Schema.Union([FromEntry, SaidBy, Seen, ...Elsewhere])
 export type SourceKept = typeof SourceKept.Type
 
-/** A source as it is read: an entry, or the person who said it, with its slug and title. */
+/**
+ * A source as it is read: an entry, or the person who said it, with its slug and title; the key
+ * that saw it.
+ */
 export const Source = Schema.Union([
   Schema.Struct({
     entry: Schema.String,
@@ -94,6 +126,7 @@ export const Source = Schema.Union([
     on: Schema.String,
     ...About,
   }).annotate({ identifier: 'SourceSaid' }),
+  Seen,
   ...Elsewhere,
 ]).annotate({ identifier: 'Source' })
 export type Source = typeof Source.Type
@@ -209,7 +242,7 @@ export const WriteEntryInput = Schema.Struct({
   }),
   sources: Schema.optionalKey(Schema.Array(SourceGiven)).annotate({
     description:
-      'Where the entry comes from: another entry, what a person said (`{ said_by, on, note }`, the person by slug or id), a URL, an external identifier or an inbox item. The list replaces the one stored. A value that is `extracted` needs at least one.',
+      'Where the entry comes from: another entry, what a person said (`{ said_by, on, note }`, the person by slug or id), what you did or saw yourself (`{ seen_by: "writer", on, note }`), a URL, an external identifier or an inbox item. The list replaces the one stored. A value that is `extracted` needs at least one.',
   }),
   body: Schema.optionalKey(Schema.String).annotate({
     description:

@@ -17,7 +17,8 @@ const ENTRY: &str = r#"{
       { "url": "https://example.org/tarts/plum", "note": "the original" },
       { "said_by": "01a1-marie", "slug": "marie", "title": "Marie", "on": "2026-10-08", "note": "at lunch" },
       { "identifier": "doc_7741", "label": "scanned page" },
-      { "source": "inbox", "item": "01a1-item" }
+      { "source": "inbox", "item": "01a1-item" },
+      { "seen_by": "agent-desk", "on": "2026-10-09", "note": "tasted" }
     ],
     "body": "Bake [[pastry]] first.", "summary": "A plum tart.",
     "created": "2026-10-06T09:00:00.000Z", "updated": "2026-10-06T09:30:00.000Z",
@@ -69,6 +70,9 @@ fn an_entry_reads_with_its_sources_media_and_links() {
     );
     assert!(matches!(&read.entry.sources[3], Source::Identifier(_)));
     assert!(matches!(&read.entry.sources[4], Source::Item(item) if item.source == "inbox"));
+    assert!(
+        matches!(&read.entry.sources[5], Source::Seen(seen) if seen.seen_by == "agent-desk" && seen.on == "2026-10-09")
+    );
 }
 
 #[test]

@@ -1246,6 +1246,15 @@ fn sources(
                     window,
                     cx,
                 ),
+                Source::Seen(seen) => quiet_source(
+                    Card {
+                        icon: Icon::new(IconName::Eye),
+                        title: seen.seen_by.clone().into(),
+                        detail: Some(words::said_on(&seen.on, seen.note.as_deref()).into()),
+                        relation: Some(words::SEEN_BY.into()),
+                    },
+                    cx,
+                ),
                 Source::Url(url) => card(
                     id,
                     Card {

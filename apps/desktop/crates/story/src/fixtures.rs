@@ -79,7 +79,8 @@ pub fn contract() -> EntryData {
                         { "entry": "classeur-papiers", "slug": "classeur-papiers", "title": "Classeur des papiers", "note": "la copie signée" },
                         { "url": "https://example.org/offres/fibre" },
                         { "identifier": "doc_4412", "label": "contrat scanné" },
-                        { "source": "inbox", "item": "01a1-0000-item" }
+                        { "source": "inbox", "item": "01a1-0000-item" },
+                        { "seen_by": "agent-bureau", "on": "2026-09-30", "note": "la box redémarrée" }
                     ],
                     "body": BODY
                 }),

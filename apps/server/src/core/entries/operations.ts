@@ -29,7 +29,15 @@ import { formatSchemaError } from '@hippocampe/api/schema'
 import { mediaOf } from '../media/store.ts'
 import { searchConfiguration } from '../search/language.ts'
 import { findType } from '../types/operations.ts'
-import { Child, Entry, HIDDEN, SourceGiven, SourceKept, TreeEntry } from '@hippocampe/api/model'
+import {
+  Child,
+  Entry,
+  HIDDEN,
+  SourceGiven,
+  SourceKept,
+  TreeEntry,
+  WRITER,
+} from '@hippocampe/api/model'
 import type { Source, TypeDefinition, WriteEntryInput } from '@hippocampe/api/model'
 import { INBOX, inboxHolds } from '../inbox/store.ts'
 import { refusingContention } from './contention.ts'
@@ -1221,6 +1229,27 @@ export const writeEntry = Effect.fn('writeEntry')(function* (
                   `The source ${at} needs \`on\`, the day it was said, such as \`2026-10-08\`: \`${source.on}\` is not a date.`,
                 )
             } else if ('entry' in source) sources.push({ ...source, entry: id })
+          } else if ('seen_by' in source) {
+            // The writer's own account, kept with the name of its key; written back as read, it
+            // keeps the key that wrote it.
+            const held = existing?.sources.some(
+              (each) =>
+                'seen_by' in each && each.seen_by === source.seen_by && each.on === source.on,
+            )
+            if (source.seen_by !== WRITER && held !== true)
+              problems.push(
+                `The source ${at} is seen by \`${source.seen_by}\`: write \`"seen_by": "${WRITER}"\` for what this key did or saw itself, kept with its name; what a person said is \`said_by\`.`,
+              )
+            else if (source.on === undefined || !isDate(source.on))
+              problems.push(
+                `The source ${at} needs \`on\`, the day the writer did or saw it, such as \`2026-10-08\`${source.on === undefined ? '' : `: \`${source.on}\` is not a date`}.`,
+              )
+            else
+              sources.push({
+                ...source,
+                seen_by: source.seen_by === WRITER ? actor : source.seen_by,
+                on: source.on,
+              })
           } else if (
             'url' in source &&
             !(/^https?:\/\//.test(source.url) && URL.canParse(source.url))

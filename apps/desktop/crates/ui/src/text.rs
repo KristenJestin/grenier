@@ -80,6 +80,7 @@ pub const MEDIA: &str = "Media";
 pub const ENTRY: &str = "Entry";
 pub const WEB_ADDRESS: &str = "Web address";
 pub const SAID_BY: &str = "Said by";
+pub const SEEN_BY: &str = "Seen by";
 pub const IDENTIFIER: &str = "Identifier";
 pub const INBOX_ITEM: &str = "Item";
 pub const IMAGE: &str = "Image";

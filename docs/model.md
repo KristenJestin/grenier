@@ -19,7 +19,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `part_of` | the entries it is part of, or was: links `part_of` with the dates they held (see "The tree"); not a column of the entry |
 | `fields` | the values of the type's fields, validated against the type |
 | `provenance` | whether each value is known or supposed, by field name, and `body` and `summary` for those two texts: `extracted` (known, read from a source), `inferred` (supposed by the writer), `ambiguous` (sources disagree), or `unstated` (written before writers were asked; never written by a new write). See "Known or supposed" |
-| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), what a person said (`{ "said_by": "<slug or id>", "on": "2026-10-08" }`, kept as the id of the entry that stands for them and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
+| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), what a person said (`{ "said_by": "<slug or id>", "on": "2026-10-08" }`, kept as the id of the entry that stands for them and read with its slug and title), what the writer did or saw itself (`{ "seen_by": "writer", "on": "2026-10-10" }`, kept and read with the name of the key that wrote it), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `created`, `updated` | when the entry came to be (the time of the write that created it, or the date a migrated note gives) and when Hippocampe last changed it (the time of the last write) |
@@ -52,7 +52,11 @@ disagree.
   the value is written `inferred`. What a person said, the owner or anyone else, in a conversation
   written or spoken, is a source of its own: `{ "said_by": "<slug or id of a person>", "on":
   "2026-10-08", "note": "…" }`. The person is an entry the writer may see; the source is read with
-  its slug and title, and the person's `cited_by` lists what they said.
+  its slug and title, and the person's `cited_by` lists what they said. What the writer did, ran,
+  read or measured itself is one too: `{ "seen_by": "writer", "on": "2026-10-10", "note": "…" }`,
+  kept and read with the name of the key that writes it (written back as read, by any key, it
+  keeps that name), and refused without a day. A value or a body it backs may be `extracted`; what
+  the writer concludes or guesses from it stays `inferred`, and what it was told is `said_by`.
 - **Links carry theirs.** `link` gives `provenance` (`extracted` or `inferred`), kept on the link
   and read on links and backlinks; an `extracted` link needs a source on its entry. The `parent` of
   a write is a link `part_of`, and says its own in `provenance.parent`, `extracted` or `inferred`
