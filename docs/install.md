@@ -1,5 +1,10 @@
 # Hippocampe on one machine
 
+This page is for the npm package, installed with `hippo service install` as a systemd user service
+on one Linux machine, for one user. It is not the page of Hippocampe run with Docker, nor of a
+server behind a reverse proxy: those are in [`docs/docker.md`](docker.md), and none of the commands
+below (`hippo service`, `hippo backup`, `hippo restore`) applies to them.
+
 Hippocampe installs for one user of a Linux machine, without Docker or a server to run, from npm:
 
 ```
@@ -109,117 +114,7 @@ service starts. The keys given before keep working, with the same rights.
 
 ### Docker
 
-The volumes hold the database, the media and the export repository. The image, the compose service
-and the volumes are renamed: compose now names its project `hippocampe` itself, so the volumes are
-`hippocampe_postgres`, `hippocampe_media` and `hippocampe_export` wherever the repository is cloned,
-and the database and the role are `hippocampe` (they were `grenier`).
-
-**The volumes are copied, not kept under their old names.** Declaring the new volumes `external`
-with the old names would work and cost no disk, but it would rename the database and the role in
-place, on the only copy of the data, with nothing to go back to if a step goes wrong; and the old
-name would stay written in the compose file for good. A copy leaves the old volumes untouched until
-you remove them yourself, so the way back is always there: stop the new stack, start the old one.
-It costs the disk space of the data for the time you keep both.
-
-The steps, in this order. `grenier` stands for the name of the project of the old stack, the
-name of the folder it was started from; check it with `docker volume ls`, where the volumes are
-`<project>_postgres`, `<project>_media` and `<project>_export`. `.env.production` holds the
-password of the database in its `DATABASE_URL`: keep it at hand. Nothing below deletes a volume.
-
-1. **Stop the old stack, with the old code still checked out.** From the folder of the old stack,
-   keep a dump outside the repository, then stop everything (the volumes stay):
-
-   ```
-   docker compose exec -T postgres pg_dump -U grenier -Fc grenier > ~/grenier-before-rename.dump
-   docker compose down
-   ```
-
-   `down` without `-v`: never give `-v`, it deletes the volumes.
-
-2. **Get the new code**, in the same folder: `git pull` (the remote is now
-   `https://github.com/KristenJestin/hippocampe.git`; GitHub redirects the old address, and
-   `git remote set-url origin` writes the new one). The folder may be renamed `hippocampe`: the
-   project name no longer follows it.
-
-3. **Copy the volumes.** The image of PostgreSQL is already on the machine; `cp -a` keeps owners
-   and modes. The stack is stopped, so the copy is whole:
-
-   ```
-   for volume in postgres media export; do
-     docker volume create hippocampe_$volume
-     docker run --rm --entrypoint sh -v grenier_$volume:/from:ro -v hippocampe_$volume:/to \
-       postgres:18.0 -c 'cp -a /from/. /to/'
-   done
-   ```
-
-4. **Start the database alone**, on its copy. It still has the old names inside; `POSTGRES_USER`
-   and `POSTGRES_DB` of the compose file only apply to an empty volume. Wait until it is healthy:
-
-   ```
-   docker compose up -d postgres
-   docker compose ps
-   ```
-
-5. **Rename the database, then the role, then set the password.** The role `grenier` is the only
-   superuser and a session cannot rename its own role, so a second superuser is made for the
-   occasion and dropped at once. Renaming a database needs no session connected to it: none is,
-   since the server is not started.
-
-   ```
-   docker compose exec -T postgres psql -U grenier -d postgres -v ON_ERROR_STOP=1 -c 'ALTER DATABASE grenier RENAME TO hippocampe'
-   docker compose exec -T postgres psql -U grenier -d postgres -v ON_ERROR_STOP=1 -c 'CREATE ROLE hippocampe_mover SUPERUSER LOGIN'
-   docker compose exec -T postgres psql -U hippocampe_mover -d postgres -v ON_ERROR_STOP=1 -c 'ALTER ROLE grenier RENAME TO hippocampe'
-   docker compose exec -T postgres psql -U hippocampe -d postgres -v ON_ERROR_STOP=1 -c 'DROP ROLE hippocampe_mover'
-   ```
-
-   Renaming a role clears its password when it is stored as MD5, because MD5 uses the name of the
-   role as its salt. PostgreSQL 14 and later store passwords as SCRAM, which does not, and the
-   image does: the password is kept. Set it again all the same, it is harmless and makes sure the
-   verifier is SCRAM. Use the password of `DATABASE_URL` (it must hold no `'`); `printf` is a
-   builtin, so the password is on no command line:
-
-   ```
-   read -r -s -p 'Password of the database: ' PASSWORD; echo
-   printf "ALTER ROLE hippocampe PASSWORD '%s'\n" "$PASSWORD" |
-     docker compose exec -T postgres psql -U hippocampe -d postgres -v ON_ERROR_STOP=1
-   unset PASSWORD
-   docker compose exec -T postgres psql -U hippocampe -d hippocampe -c 'SELECT count(*) FROM entries'
-   ```
-
-6. **Update the environment.** In `.env.production`: `DATABASE_URL` becomes
-   `postgres://hippocampe:<the same password>@postgres:5432/hippocampe`, and every `GRENIER_*`
-   line becomes `HIPPOCAMPE_*` (`GRENIER_INSTANCE_LABEL` is `HIPPOCAMPE_INSTANCE_LABEL`): the
-   server refuses to start, in a sentence, while a `GRENIER_*` variable is set. The variables
-   compose itself reads from your shell are renamed too: `HIPPOCAMPE_INSTANCE`, `HIPPOCAMPE_PORT`,
-   `HIPPOCAMPE_BIND`, `HIPPOCAMPE_VERSION` and `HIPPOCAMPE_COMMIT`. Compose does not refuse an old
-   one, it ignores it: a forgotten `GRENIER_INSTANCE=production` would start the instance as `local`.
-   The next step says how to see it.
-
-7. **Start.** The image is built under its new name, and the server migrates the database as it
-   starts: it renames what it stored under its first name (the rights of the keys, the text search
-   configuration). The keys given before keep working with the same rights:
-
-   ```
-   HIPPOCAMPE_INSTANCE=production docker compose up -d --build
-   docker compose ps
-   curl -s http://127.0.0.1:3000/health
-   ```
-
-   `/health` must answer `"instance":"production"`; `local` means the instance variable did not
-   reach compose.
-
-8. **Clean up**, once you have seen it work (at the least after the first nightly export, which
-   renames the mark of the export repository and commits as `Hippocampe`; its history and its
-   remote are those of the old volume):
-
-   ```
-   docker volume rm grenier_postgres grenier_media grenier_export
-   docker image ls            # then: docker image rm <the image of the old stack>
-   rm ~/grenier-before-rename.dump
-   ```
-
-   To go back before this step: `docker compose down` in the new folder, then start the old stack
-   from a checkout of the old code, which still has its volumes.
+An installation run with Docker moves by the steps of [`docs/docker.md`](docker.md#moving-an-installation-made-under-the-name-grenier).
 
 ### The clients
 
