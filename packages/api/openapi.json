@@ -1353,6 +1353,9 @@
             "$ref": "#/components/schemas/SourceSaid"
           },
           {
+            "$ref": "#/components/schemas/SourceSeen"
+          },
+          {
             "$ref": "#/components/schemas/SourceUrl"
           },
           {
@@ -1420,6 +1423,28 @@
         },
         "required": [
           "url"
+        ],
+        "additionalProperties": false
+      },
+      "SourceSeen": {
+        "type": "object",
+        "properties": {
+          "seen_by": {
+            "type": "string",
+            "description": "The name of the key that wrote it: what that key did or saw itself."
+          },
+          "on": {
+            "type": "string",
+            "description": "The day the writer did or saw it."
+          },
+          "note": {
+            "type": "string",
+            "description": "A few words on what this source gave."
+          }
+        },
+        "required": [
+          "seen_by",
+          "on"
         ],
         "additionalProperties": false
       },

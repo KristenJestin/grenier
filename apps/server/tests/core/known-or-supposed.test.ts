@@ -186,7 +186,7 @@ describe('a known value has a source', () => {
         ),
       ),
     ).toBe(
-      'The field `provenance.place` is `extracted` but the entry has no source: give one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`), or write it `inferred`.',
+      'The field `provenance.place` is `extracted` but the entry has no source: give one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`, what you did or saw yourself `{ "seen_by": "writer", "on": "2026-10-08" }`), or write it `inferred`.',
     )
   })
 
@@ -368,7 +368,7 @@ describe('links carry their certainty', () => {
         ),
       ),
     ).toBe(
-      'The link `invited_to` is `extracted` but `owner-person` has no source: give the entry one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`), or link it `inferred`.',
+      'The link `invited_to` is `extracted` but `owner-person` has no source: give the entry one in `sources` (what someone said is `{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }`, what you did or saw yourself `{ "seen_by": "writer", "on": "2026-10-08" }`), or link it `inferred`.',
     )
   })
 

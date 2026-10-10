@@ -17,6 +17,7 @@ export {
   TreeEntry,
   TreePlace,
   WriteEntryInput,
+  WRITER,
 } from './entries.ts'
 export {
   HistoryEvent,

@@ -7,8 +7,9 @@ import {
   WRITING_STANDARD,
 } from '../../src/mcp/instructions.ts'
 import type { WorkingMemory } from '../../src/mcp/instructions.ts'
+import { GROWING_BODY } from '../../src/core/entries/index.ts'
 import { inboxTakeTool } from '../../src/mcp/tools/inbox.ts'
-import { TOOLS } from '../../src/mcp/tools.ts'
+import { DIAGNOSTICS_TOOLS, TOOLS } from '../../src/mcp/tools.ts'
 
 const development = { name: 'development', diagnostics: false } as const
 const production = { name: 'production', diagnostics: false } as const
@@ -393,5 +394,78 @@ describe('agents recall without being asked', () => {
 
   test('the types still come within the first 2,048 characters', () => {
     expect(recalling(true).indexOf('- `alpha`')).toBeLessThan(2048)
+  })
+})
+
+describe('agents keep each thing that happened at a time as an entry of its own', () => {
+  const types = [{ name: 'alpha', description: 'Use it when the user records an alpha.' }]
+  /** Every text an agent reads: the instructions in each of their forms, the tools and the notice. */
+  const everything = [
+    instructionsFor(types, development, null, true, true, memoryOf(3)),
+    instructionsFor(types, { name: 'production', diagnostics: true }, 'Be brief.', true),
+    instructionsFor([], { name: 'local', diagnostics: false }, null, false),
+    JSON.stringify([...TOOLS, ...DIAGNOSTICS_TOOLS]),
+    GROWING_BODY,
+  ]
+
+  test('the instructions state, in general terms, that something that happened at a time is an entry of its own, dated, part of what it is about, with its own sources', () => {
+    expect(WRITING_STANDARD).toContain(
+      '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (the day it happened, in a date field of its type or in `valid_from`, not only in its title), part of what it is about (`parent`), with its own sources and provenance.',
+    )
+    expect(instructionsFor(types, development, null, true)).toContain(
+      'Something that happened at a time',
+    )
+  })
+
+  test('what stands today belongs to the entry of the subject, and a body is not the list of what happened to it', () => {
+    expect(WRITING_STANDARD).toContain(
+      'What stands today about a subject belongs to the entry of that subject (its summary, its fields), never at the top of a growing body: a body says what an entry is, not the list of what happened to it.',
+    )
+  })
+
+  test('when no type fits such entries, the agent defines one with a date field itself, rather than growing a body or asking the owner', () => {
+    expect(WRITING_STANDARD).toContain(
+      'When no type fits such entries, define one with a date field (`define_type`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
+    )
+    expect(GROWING_BODY).toContain(
+      'When no type fits them, define one with a date field (`define_type`), with a description that says when to use it; later writers reuse it.',
+    )
+    const line = WRITING_STANDARD.split('\n').find((each) =>
+      each.startsWith('- Something that happened'),
+    )
+    for (const text of [line ?? '', GROWING_BODY]) expect(text).not.toContain('owner')
+  })
+
+  test('the rule to ask the user when no type fits states things that happened at a time as its exception', () => {
+    // The paragraph is wrapped: compared on one line.
+    expect(instructionsFor(types, development).replace(/\s+/g, ' ')).toContain(
+      'When no type fits, ask the user rather than forcing one, except for things that happened at a time, for which you define a dated type yourself; a new type is defined with a description that says when to use it.',
+    )
+  })
+
+  test("the instructions say when the writer's own account is a source, and when it is not", () => {
+    expect(WRITING_STANDARD).toContain('{ "seen_by": "writer", "on": "<day>" }')
+    expect(WRITING_STANDARD).toContain(
+      'What you did or saw yourself (what you ran, read, measured or changed) is a source too',
+    )
+    expect(WRITING_STANDARD).toContain('What you conclude or guess from it is `inferred`.')
+    expect(WRITING_STANDARD).toContain(
+      'What you were told is never `seen_by`: it is `said_by`, with the entry of the one who said it, or `inferred` when they have none.',
+    )
+  })
+
+  test('no text agents read contains the word journal, nor keeps a body newest first', () => {
+    for (const text of everything) {
+      expect(text.toLowerCase()).not.toContain('journal')
+      expect(text).not.toContain('kept newest first')
+    }
+  })
+
+  test('the description of write says what prepend is not for, and that its answer notices a body that accumulates', () => {
+    const write = TOOLS.find(({ name }) => name === 'write')?.description ?? ''
+    expect(write).toContain(
+      'Something that happened at a time is an entry of its own, never a part added to a body',
+    )
+    expect(write).toContain('`notice`')
   })
 })

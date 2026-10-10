@@ -202,7 +202,7 @@ export const link = Effect.fn('link')(function* (
       // A known link is read in a source, which its entry then has.
       if (about.provenance === 'extracted' && source.sources.length === 0) {
         return yield* new Refused({
-          message: `The link \`${relation}\` is \`extracted\` but \`${source.slug}\` has no source: give the entry one in \`sources\` (what someone said is \`{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }\`), or link it \`inferred\`.`,
+          message: `The link \`${relation}\` is \`extracted\` but \`${source.slug}\` has no source: give the entry one in \`sources\` (what someone said is \`{ "said_by": "<slug or id of a person>", "on": "2026-10-08" }\`, what you did or saw yourself \`{ "seen_by": "writer", "on": "2026-10-08" }\`), or link it \`inferred\`.`,
         })
       }
       const closed = yield* fieldClosed(relation, target, field)

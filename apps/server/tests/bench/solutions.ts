@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { archiveEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { archiveEntry, writeEntries, writeEntry } from '../../src/core/entries/index.ts'
 import {
   addToInbox,
   dismissItem,
@@ -10,6 +10,7 @@ import {
 import { link } from '../../src/core/links/index.ts'
 import { addDays } from '../../src/core/time/index.ts'
 import { addField, changeField, defineType } from '../../src/core/types/index.ts'
+import { lastMarch } from '../../bench/tasks.ts'
 import type { World } from '../../bench/world.ts'
 
 /**
@@ -306,5 +307,57 @@ export const SOLUTIONS = {
       }),
     )
     return 'Added.'
+  },
+  // A type defined by the agent for the sessions, dated by a field of its own.
+  'session-journal': async ({ today, arrange }) => {
+    await arrange(
+      defineType({
+        name: 'work-session',
+        label: 'Work session',
+        description:
+          'A session of work on something of the household, on one day: what was done, and what is left.',
+        fields: [{ name: 'held_on', kind: 'date', required: true }],
+      }),
+    )
+    await arrange(
+      writeEntry({
+        type: 'work-session',
+        title: `Atlas server upkeep, ${today}`,
+        parent: 'atlas-server',
+        fields: { held_on: today },
+        summary: `The session of ${today} on the Atlas server: dust filters cleaned, firmware updated to 2.4.`,
+        body: 'Cleaned the dust filters, then updated the firmware to version 2.4. The fans are still noisy: check them next month.',
+        provenance: {
+          held_on: 'inferred',
+          parent: 'inferred',
+          body: 'inferred',
+          summary: 'inferred',
+        },
+      }),
+    )
+    return 'The session is recorded as a work session of its own, under the Atlas server.'
+  },
+  'boiler-serviced': async ({ today, arrange }) => {
+    await arrange(
+      writeEntries([
+        {
+          type: 'note',
+          title: `Boiler service, ${today}`,
+          parent: 'gas-boiler',
+          valid_from: today,
+          summary: `The gas boiler was serviced on ${today}.`,
+          provenance: { parent: 'inferred', summary: 'inferred' },
+        },
+        {
+          type: 'note',
+          title: 'Boiler service, last March',
+          parent: 'gas-boiler',
+          valid_from: `${lastMarch(today)}-01`,
+          summary: 'The gas boiler was serviced in March; the day is not known.',
+          provenance: { parent: 'inferred', summary: 'inferred' },
+        },
+      ]),
+    )
+    return 'Both services are recorded under the gas boiler, each dated.'
   },
 } satisfies { readonly [task: string]: Solution }

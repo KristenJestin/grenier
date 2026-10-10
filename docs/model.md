@@ -19,7 +19,7 @@ bookmark, a folder-like area. All entries share the same base:
 | `part_of` | the entries it is part of, or was: links `part_of` with the dates they held (see "The tree"); not a column of the entry |
 | `fields` | the values of the type's fields, validated against the type |
 | `provenance` | whether each value is known or supposed, by field name, and `body` and `summary` for those two texts: `extracted` (known, read from a source), `inferred` (supposed by the writer), `ambiguous` (sources disagree), or `unstated` (written before writers were asked; never written by a new write). See "Known or supposed" |
-| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), what a person said (`{ "said_by": "<slug or id>", "on": "2026-10-08" }`, kept as the id of the entry that stands for them and read with its slug and title), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
+| `sources` | where the entry comes from, a list: another entry (`{ "entry": "<slug or id>" }`, kept as its id and read with its slug and title), what a person said (`{ "said_by": "<slug or id>", "on": "2026-10-08" }`, kept as the id of the entry that stands for them and read with its slug and title), what the writer did or saw itself (`{ "seen_by": "writer", "on": "2026-10-10" }`, kept and read with the name of the key that wrote it), a URL (`{ "url": "https://…" }`, http or https), an external identifier (`{ "identifier": "doc_…", "label": "…" }`), or an item of the inbox (`{ "source": "inbox", "item": "<id>" }`); each may carry a short `note`. An entry used as a source lists the entries that cite it (`cited_by`); search finds an entry by its URLs and identifiers |
 | `body` | free Markdown text, possibly empty |
 | `summary` | a short text written by the agent, searched first |
 | `created`, `updated` | when the entry came to be (the time of the write that created it, or the date a migrated note gives) and when Hippocampe last changed it (the time of the last write) |
@@ -27,6 +27,22 @@ bookmark, a folder-like area. All entries share the same base:
 | `archived_at` | set when the entry is archived: it stays in place and leaves the default views |
 
 An entry is never deleted by an agent; it is archived.
+
+### Things that happened at a time
+
+Something that happened at a time (a session of work, a measurement, a meeting, a repair, a
+decision) is an entry of its own: dated (by a date field of its type, or `valid_from`), part of
+what it is about (`parent`), with its own sources and provenance. What stands today about a subject
+belongs to the entry of that subject, in its summary and its fields. A body says what an entry is,
+not the list of what happened to it: inside one body, the dates are only headings, so `briefing`
+cannot say "a year ago", nothing can ask what happened on a day across entries, links and
+provenance cannot be said of each event, and every update sends and keeps the whole text again.
+When the instance has no type for such entries, the agent defines one itself (`define_type`), with
+a date field and a description that says when to use it, rather than growing a body, and later
+writers reuse it: the one exception to asking the owner when no type fits. The instructions of the
+MCP server and the description of `write` say so; the answer of `write` notices a body that
+accumulates (see "A body that accumulates"). No type, rule or code path names a kind of such
+entries: the agent names the types it defines.
 
 ### Known or supposed
 
@@ -52,7 +68,11 @@ disagree.
   the value is written `inferred`. What a person said, the owner or anyone else, in a conversation
   written or spoken, is a source of its own: `{ "said_by": "<slug or id of a person>", "on":
   "2026-10-08", "note": "…" }`. The person is an entry the writer may see; the source is read with
-  its slug and title, and the person's `cited_by` lists what they said.
+  its slug and title, and the person's `cited_by` lists what they said. What the writer did, ran,
+  read or measured itself is one too: `{ "seen_by": "writer", "on": "2026-10-10", "note": "…" }`,
+  kept and read with the name of the key that writes it (written back as read, by any key, it
+  keeps that name), and refused without a day. A value or a body it backs may be `extracted`; what
+  the writer concludes or guesses from it stays `inferred`, and what it was told is `said_by`.
 - **Links carry theirs.** `link` gives `provenance` (`extracted` or `inferred`), kept on the link
   and read on links and backlinks; an `extracted` link needs a source on its entry. The `parent` of
   a write is a link `part_of`, and says its own in `provenance.parent`, `extracted` or `inferred`
@@ -106,11 +126,12 @@ kept as its id; `read` gives the titles of the entries the fields name, by id, i
 write names the
 entry it is part of (`parent`) and `superseded_by` by id or slug. An update changes only the keys it gives;
 `fields` and `provenance` are merged key by key, and `null` removes a key. With `append: true`,
-the `body` given is added at the end of the current body: a body too long for one call (a
-journal of several hundred kilobytes) is written in parts, each part one write, so a reader always
+the `body` given is added at the end of the current body: a body too long for one call (a manual
+of several hundred kilobytes, imported) is written in parts, each part one write, so a reader always
 sees a whole number of parts. With `prepend: true`, the `body` given goes at the top, one blank
-line before the current body, in one write: a journal kept newest first, or a "Resume here" that
-comes before the rest; `append` and `prepend` together, or either with `edits`, are refused, and
+line before the current body, in one write. Neither is the way to keep things that happened at
+different times (see "Things that happened at a time"); `append` and `prepend` together, or either
+with `edits`, are refused, and
 so is a part made only of whitespace. With `edits: [{ find, replace }]`, a few words of the body
 change in place: each `find` must match the body, as the edits before it left it, exactly once,
 or the write is refused naming each edit that matches twice or never; all apply in one write and
@@ -297,7 +318,7 @@ because of another one at the same moment is refused with one sentence: try the 
 ## The tree
 
 The tree is the links `part_of` that hold today. An entry is **part of** another: a component in a
-machine, a note in a project, a section of a journal. It may be part of several entries at once (a
+machine, a note in a project, a repair of the thing repaired. It may be part of several entries at once (a
 monitor shared by two computers), and it may have been part of others before. There is no folder
 object: any entry may have children, the entries that are part of it today. A project entry is both
 the project's record and the container of its notes and decisions. An area (an entry whose type
@@ -399,6 +420,16 @@ without AI: the agent decides whether an entry is really meant, and links it (or
 database narrows the names to those contained in the text (`unaccent` and `lower` on both
 sides) in one query for the whole write, the code confirms the word boundaries; the cost is one
 pass over the titles and aliases of the store per write, not one query per candidate.
+
+**A body that accumulates.** The answer of `write`, and that of each entry of a `write` with
+`entries`, carries a `notice` (never a refusal) when the body it leaves is longer than 20,000
+characters (a write that gives a `body`, a part or `edits`), or when it adds a part at the top or
+the end of a body that grew so on two other days before today (three days in all, read from the
+event log: a write whose body after begins or ends with the whole body before). The notice says
+why, and that things that happened at different times are found and read better as entries of
+their own, dated, part of what they are about. A long text written in parts on one day gets
+none. The threshold, the days and the wording are in `src/core/entries/growing.ts`; `notice` is
+absent otherwise.
 
 A reference may carry a text or a heading (`[[slug|text]]`, `[[slug#heading]]`); the link
 points to the slug either way. The references of a body are kept as links of relation

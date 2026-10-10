@@ -900,6 +900,7 @@ pub struct SearchResults {
 pub enum Source {
     Entry(SourceEntry),
     Said(SourceSaid),
+    Seen(SourceSeen),
     Url(SourceUrl),
     Identifier(SourceIdentifier),
     Item(SourceItem),
@@ -912,6 +913,11 @@ impl ::std::convert::From<SourceEntry> for Source {
 impl ::std::convert::From<SourceSaid> for Source {
     fn from(value: SourceSaid) -> Self {
         Self::Said(value)
+    }
+}
+impl ::std::convert::From<SourceSeen> for Source {
+    fn from(value: SourceSeen) -> Self {
+        Self::Seen(value)
     }
 }
 impl ::std::convert::From<SourceUrl> for Source {
@@ -972,6 +978,17 @@ pub struct SourceSaid {
     pub said_by: ::std::string::String,
     pub slug: ::std::string::String,
     pub title: ::std::string::String,
+}
+#[doc = "`SourceSeen`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct SourceSeen {
+    #[doc = "A few words on what this source gave."]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub note: ::std::option::Option<::std::string::String>,
+    #[doc = "The day the writer did or saw it."]
+    pub on: ::std::string::String,
+    #[doc = "The name of the key that wrote it: what that key did or saw itself."]
+    pub seen_by: ::std::string::String,
 }
 #[doc = "`SourceUrl`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

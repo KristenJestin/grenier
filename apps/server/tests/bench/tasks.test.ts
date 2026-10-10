@@ -109,7 +109,7 @@ describe('every task has a check that asks for something and a reference solutio
 
   test('about thirty tasks, some of them held out', () => {
     expect(TASKS.length).toBeGreaterThanOrEqual(28)
-    expect(TASKS.length).toBeLessThanOrEqual(36)
+    expect(TASKS.length).toBeLessThanOrEqual(38)
     expect(TASKS.filter(({ heldOut }) => heldOut).length).toBeGreaterThanOrEqual(6)
     expect(TASKS.filter(({ heldOut }) => heldOut).length).toBeLessThanOrEqual(10)
   })
@@ -138,6 +138,13 @@ describe('every task has a check that asks for something and a reference solutio
       test('its check fails while nothing is done', async () => {
         expect(await task.check({ answer: '', world, startedAt })).not.toEqual([])
       })
+
+      // Things that happened at a time: the agent defines the type it lacks, it does not ask.
+      if (task.id === 'session-journal' || task.id === 'boiler-serviced')
+        test('its check fails when the answer asks the owner for a type and nothing is written', async () => {
+          const answer = 'No type fits these: shall I create a new type, with a date field?'
+          expect(await task.check({ answer, world, startedAt })).not.toEqual([])
+        })
 
       test('its check passes once the work is done and the answer given', async () => {
         const answer = await solutions.get(task.id)?.(world)
