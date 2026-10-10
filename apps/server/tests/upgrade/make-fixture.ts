@@ -2,9 +2,12 @@
 /**
  * Makes the fixture of a release for the upgrade test, with that release's own code: its command
  * line and its MCP server over stdio write invented, neutral data into a scratch database, which
- * is then dumped as plain SQL, beside the media it wrote. See `README.md` beside this file.
+ * is then dumped as plain SQL, beside the media it wrote. 0.5.0 writes first, as on an
+ * installation made before 0.6.0: what it wrote says no provenance, and the release, opening the
+ * database, migrates it. See `README.md` beside this file.
  *
- *   bun apps/server/tests/upgrade/make-fixture.ts <checkout of the release> <version>
+ *   bun apps/server/tests/upgrade/make-fixture.ts <checkout of the release> <version> \
+ *     <checkout of v0.5.0>
  *
  * `DATABASE_URL` names the server the scratch database is created on (the local PostgreSQL of
  * `docker-compose.yml`); the database is dropped at the end. `PG_DUMP` is the command that dumps
@@ -18,40 +21,73 @@ import { createInterface } from 'node:readline'
 import { Effect, Schema } from 'effect'
 import { createScratchDatabase, dropScratchDatabase } from '../../src/core/testing.ts'
 
-const [checkout = '', version = ''] = process.argv.slice(2)
-if (checkout === '' || version === '') {
-  console.error('Usage: bun make-fixture.ts <checkout of the release> <version>')
+const [checkout = '', version = '', older = ''] = process.argv.slice(2)
+if (checkout === '' || version === '' || older === '') {
+  console.error(
+    'Usage: bun make-fixture.ts <checkout of the release> <version> <checkout of v0.5.0>',
+  )
   process.exit(1)
 }
-const release = join(resolve(checkout), 'apps/server/src')
 const fixture = new URL(`${version}/`, import.meta.url).pathname
 const scratch = mkdtempSync(join(tmpdir(), 'hippocampe-fixture-'))
 const media = join(scratch, 'media')
 const database = `hippocampe_fixture_${version.replaceAll('.', '_')}`
 
-/** What every process of the release is started with: this database, these media, no AI. */
-const environment = (url: string) => ({
-  PATH: process.env['PATH'] ?? '',
-  DATABASE_URL: url,
-  MEDIA_DIR: media,
-  SEARCH_LANGUAGE: 'simple',
-  HIPPOCAMPE_INSTANCE: 'local',
-  HIPPOCAMPE_DIAGNOSTICS: 'on',
-  HIPPOCAMPE_VERSION: version,
-  HIPPOCAMPE_COMMIT: 'fixture',
-  // Invented for the fixture, and kept nowhere: the keys of the fixture verify with it.
-  BETTER_AUTH_SECRET: 'fixture-secret-of-an-invented-database-0001',
-})
+/** Invented for the fixture, and kept nowhere: the keys of the fixture verify with it. */
+const AUTH_SECRET = 'fixture-secret-of-an-invented-database-0001'
 
-/** Runs a command of the release's command line; its output, or the script stops. */
-const hippo = (url: string, ...args: ReadonlyArray<string>) => {
-  const ran = spawnSync(process.execPath, [join(release, 'cli.ts'), ...args], {
-    env: environment(url),
+/** The code of a release: its sources, and what its processes are started with. */
+interface Code {
+  readonly sources: string
+  readonly environment: (url: string) => Readonly<Record<string, string>>
+  /** What its MCP server is told of the agent that writes. */
+  readonly writer: (actor: string, rights: string) => Readonly<Record<string, string>>
+}
+
+/** The release the fixture is of. */
+const release: Code = {
+  sources: join(resolve(checkout), 'apps/server/src'),
+  environment: (url) => ({
+    PATH: process.env['PATH'] ?? '',
+    DATABASE_URL: url,
+    MEDIA_DIR: media,
+    SEARCH_LANGUAGE: 'simple',
+    HIPPOCAMPE_INSTANCE: 'local',
+    HIPPOCAMPE_DIAGNOSTICS: 'on',
+    HIPPOCAMPE_VERSION: version,
+    HIPPOCAMPE_COMMIT: 'fixture',
+    BETTER_AUTH_SECRET: AUTH_SECRET,
+  }),
+  writer: (actor, rights) => ({ HIPPOCAMPE_ACTOR: actor, HIPPOCAMPE_RIGHTS: rights }),
+}
+
+/** 0.5.0, still named Grenier, which wrote no provenance unless told. */
+const before: Code = {
+  sources: join(resolve(older), 'apps/server/src'),
+  environment: (url) => ({
+    PATH: process.env['PATH'] ?? '',
+    DATABASE_URL: url,
+    MEDIA_DIR: media,
+    SEARCH_LANGUAGE: 'simple',
+    GRENIER_INSTANCE: 'local',
+    BETTER_AUTH_SECRET: AUTH_SECRET,
+  }),
+  writer: (actor, rights) => ({ GRENIER_ACTOR: actor, GRENIER_RIGHTS: rights }),
+}
+
+/** Runs a command of the command line of `code`; its output, or the script stops. */
+const hippo = (code: Code, url: string, ...args: ReadonlyArray<string>) => {
+  const ran = spawnSync(process.execPath, [join(code.sources, 'cli.ts'), ...args], {
+    env: code.environment(url),
     encoding: 'utf8',
   })
   if (ran.status !== 0) throw new Error(`hippo ${args.join(' ')}: ${ran.stderr}${ran.stdout}`)
   return ran.stdout
 }
+
+/** The secret a `key:create` printed, kept in the scratch folder under the key's name. */
+const keep = (name: string, printed: string) =>
+  writeFileSync(join(scratch, `${name}.key`), `${printed.trim().split('\n').at(-1)}\n`)
 
 const Response = Schema.Struct({
   id: Schema.optionalKey(Schema.Number),
@@ -71,12 +107,12 @@ const ToolResult = Schema.Struct({
 const Answer = Schema.fromJsonString(Schema.Json)
 
 /**
- * The release's MCP server on stdio, as an agent starts it, writing as `actor` with `rights`:
+ * The MCP server of `code` on stdio, as an agent starts it, writing as `actor` with `rights`:
  * `call` calls a tool and gives its answer, or stops the script on a refusal.
  */
-async function agent(url: string, actor: string, rights: string) {
-  const server = spawn(process.execPath, [join(release, 'mcp/main.ts')], {
-    env: { ...environment(url), HIPPOCAMPE_ACTOR: actor, HIPPOCAMPE_RIGHTS: rights },
+async function agent(code: Code, url: string, actor: string, rights: string) {
+  const server = spawn(process.execPath, [join(code.sources, 'mcp/main.ts')], {
+    env: { ...code.environment(url), ...code.writer(actor, rights) },
     stdio: ['pipe', 'pipe', 'inherit'],
   })
   const waiting = new Map<number, (response: Response) => void>()
@@ -130,10 +166,79 @@ const SKETCH = Buffer.from(
   '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#7a5"/></svg>',
 ).toString('base64')
 
-/** Everything the fixture holds, written by the release as an owner and two agents would. */
+/**
+ * What 0.5.0 writes first: the owner, a key, and a few entries with fields, bodies, a summary, a
+ * parent and a link, which say no provenance (but one value). Opening the database, the release
+ * migrates it: the values, the bodies and the links become `unstated`, the parent a link
+ * `part_of`, `unstated` too.
+ */
+async function writeBefore(url: string) {
+  keep(
+    'agent-desk',
+    hippo(
+      before,
+      url,
+      'key:create',
+      '--name',
+      'agent-desk',
+      '--rights',
+      'read,write',
+      '--owner',
+      'owner@example.org',
+    ),
+  )
+  const desk = await agent(before, url, 'agent-desk', 'read,write')
+  await desk.call('define_type', {
+    name: 'room',
+    label: 'Room',
+    description: 'A room of the house.',
+    fields: [],
+  })
+  await desk.call('define_type', {
+    name: 'book',
+    label: 'Book',
+    description: 'A book on the shelves.',
+    fields: [
+      { name: 'publisher', kind: 'text' },
+      { name: 'pages', kind: 'integer' },
+      { name: 'shelf', kind: 'text' },
+    ],
+  })
+  await desk.call('write', {
+    type: 'room',
+    title: 'Living room',
+    body: 'Two bookcases by the window.',
+    summary: 'The room with the books.',
+  })
+  await desk.call('write', {
+    type: 'book',
+    title: 'Field guide to moths',
+    fields: { publisher: 'Lantern Press', pages: 96 },
+    // The one provenance 0.5.0 is told: it stays as it is.
+    provenance: { pages: 'inferred' },
+  })
+  await desk.call('write', {
+    type: 'book',
+    title: 'Atlas of rivers',
+    parent: 'living-room',
+    fields: { publisher: 'Riverbend Press', pages: 212, shelf: 'top' },
+    body: 'Bought second-hand; read with the [[field-guide-to-moths]].',
+  })
+  await desk.call('link', {
+    source: 'atlas-of-rivers',
+    target: 'field-guide-to-moths',
+    relation: 'see_also',
+    note: 'same shelf',
+    valid_from: '2021-05-01',
+  })
+  desk.close()
+}
+
+/** Everything else the fixture holds, written by the release as an owner and two agents would. */
 async function write(url: string) {
   // The owner and the keys: one of each kind, one revoked.
   const created = hippo(
+    release,
     url,
     'key:create',
     '--name',
@@ -144,16 +249,26 @@ async function write(url: string) {
     'owner@example.org',
   )
   // The secret of an invented key of this database alone: the test checks the key still opens.
-  writeFileSync(join(scratch, 'agent-kitchen.key'), `${created.trim().split('\n').at(-1)}\n`)
-  hippo(url, 'key:create', '--name', 'agent-garden', '--rights', 'read,write')
-  hippo(url, 'key:create', '--name', 'reader', '--rights', 'read', '--expires-in-days', '3650')
-  hippo(url, 'key:create', '--name', 'old-laptop', '--rights', 'read,write')
-  hippo(url, 'key:revoke', '--name', 'old-laptop')
+  keep('agent-kitchen', created)
+  hippo(release, url, 'key:create', '--name', 'agent-garden', '--rights', 'read,write')
+  hippo(
+    release,
+    url,
+    'key:create',
+    '--name',
+    'reader',
+    '--rights',
+    'read',
+    '--expires-in-days',
+    '3650',
+  )
+  hippo(release, url, 'key:create', '--name', 'old-laptop', '--rights', 'read,write')
+  hippo(release, url, 'key:revoke', '--name', 'old-laptop')
   const rules = join(scratch, 'rules.md')
   writeFileSync(rules, '# Rules\n\n- Write titles in sentence case.\n- Prices in euros.\n')
-  hippo(url, 'rules:set', rules)
+  hippo(release, url, 'rules:set', rules)
 
-  const kitchen = await agent(url, 'agent-kitchen', 'read,write,sensitive')
+  const kitchen = await agent(release, url, 'agent-kitchen', 'read,write,sensitive')
 
   // Types, with every kind of field, `entry` fields, `many`, sensitive fields and a sensitive type.
   await kitchen.call('define_type', {
@@ -581,9 +696,9 @@ async function write(url: string) {
     fields: { account_number: 'ACC-5521' },
     provenance: { account_number: 'extracted' },
   })
-  hippo(url, 'field:sensitive', 'contract', 'account_number', '--off')
+  hippo(release, url, 'field:sensitive', 'contract', 'account_number', '--off')
   await kitchen.call('change_type', { type: 'note', sensitive: true })
-  hippo(url, 'type:sensitive', 'note', '--off')
+  hippo(release, url, 'type:sensitive', 'note', '--off')
 
   // Proposals: a merge the owner confirms, a deletion left waiting.
   const merge = await kitchen.call('change_type', {
@@ -591,11 +706,12 @@ async function write(url: string) {
     propose: { action: 'merge', into: 'item', mapping: { brand: 'brand' } },
   })
   await kitchen.call('change_type', { type: 'draft', propose: { action: 'delete' } })
-  hippo(url, 'proposal:confirm', idOf('proposal', merge))
+  hippo(release, url, 'proposal:confirm', idOf('proposal', merge))
 
   // Suppositions made known by the owner, a value and a link.
-  hippo(url, 'supposed:confirm', 'bruno-tessaly', 'employer', '--as', 'morgan-vale')
+  hippo(release, url, 'supposed:confirm', 'bruno-tessaly', 'employer', '--as', 'morgan-vale')
   hippo(
+    release,
     url,
     'supposed:confirm',
     'bruno-tessaly',
@@ -611,8 +727,8 @@ async function write(url: string) {
   mkdirSync(drop)
   writeFileSync(join(drop, 'receipt.png'), Buffer.from(OTHER_PIXEL, 'base64'))
   writeFileSync(join(drop, 'to-do.txt'), 'Oil the hinges of the shed door.\n')
-  hippo(url, 'inbox:add', drop, '--origin', 'scanner')
-  const garden = await agent(url, 'agent-garden', 'read,write')
+  hippo(release, url, 'inbox:add', drop, '--origin', 'scanner')
+  const garden = await agent(release, url, 'agent-garden', 'read,write')
   const seeds = await garden.call('inbox_add', {
     kind: 'text',
     text: 'Buy seeds for the herb spiral.',
@@ -684,7 +800,13 @@ async function write(url: string) {
     expected: 'The former place named.',
     new: true,
   })
-  hippo(url, 'findings:merge', String(number), String(read(Reported, other).finding.number))
+  hippo(
+    release,
+    url,
+    'findings:merge',
+    String(number),
+    String(read(Reported, other).finding.number),
+  )
 
   // A heads-up of a coming deadline, told once a day.
   await kitchen.call('briefing', { from: '2027-01-20', to: '2027-02-20' })
@@ -697,6 +819,7 @@ await Effect.runPromise(
   Effect.gen(function* () {
     yield* dropScratchDatabase(database)
     const url = yield* createScratchDatabase(database)
+    yield* Effect.promise(() => writeBefore(url))
     yield* Effect.promise(() => write(url))
     const dumpCommand = (
       process.env['PG_DUMP'] ?? 'docker run --rm --network host postgres:18.0 pg_dump'
@@ -720,7 +843,9 @@ await Effect.runPromise(
         .join('\n'),
     )
     cpSync(media, join(fixture, 'media'), { recursive: true })
-    cpSync(join(scratch, 'agent-kitchen.key'), join(fixture, 'agent-kitchen.key'))
+    for (const key of ['agent-desk.key', 'agent-kitchen.key']) {
+      cpSync(join(scratch, key), join(fixture, key))
+    }
     yield* dropScratchDatabase(database)
   }).pipe(Effect.ensuring(Effect.sync(() => rmSync(scratch, { recursive: true, force: true })))),
 )

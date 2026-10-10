@@ -495,10 +495,10 @@ describe('hippo restore of a backup of Hippocampe 0.6.0', () => {
     })
     expect(computer.children.map(({ slug }) => slug)).toEqual(['workshop-computer-disk'])
     expect(await core(entryHistory('workshop-computer'))).toHaveLength(7)
-    // Every entry but the archived one, the sensitive journal included.
+    // Every entry but the archived one, the sensitive journal and those 0.5.0 wrote included.
     expect(
       await core(Effect.provideService(listEntries(), Rights, ['read', 'sensitive'])),
-    ).toHaveLength(19)
+    ).toHaveLength(22)
     const [medium] = computer.media
     const served = await core(readMedia(medium?.sha256 ?? ''))
     expect(Buffer.from(served.bytes)).toEqual(

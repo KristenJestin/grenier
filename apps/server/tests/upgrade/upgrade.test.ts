@@ -6,7 +6,7 @@ import { ConfigProvider, Effect, Exit, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { Auth, Rights } from '../../src/core/auth/index.ts'
 import type { Right } from '../../src/core/auth/index.ts'
-import { readEntry, writeEntry } from '../../src/core/entries/index.ts'
+import { readEntry, supposedValues, writeEntry } from '../../src/core/entries/index.ts'
 import { Actor, entryHistory } from '../../src/core/events/index.ts'
 import { findingsWithOccurrences } from '../../src/core/findings/index.ts'
 import { listInbox } from '../../src/core/inbox/index.ts'
@@ -18,9 +18,10 @@ import { rowCounts, scratchDatabaseFrom } from '../../src/core/testing.ts'
 import { listProposals, listTypes } from '../../src/core/types/index.ts'
 
 /**
- * The releases whose fixture `make-fixture.ts` made, each with that release's own code: the data
- * of each must read the same after the migrations of this version. The fixtures hold the same
- * invented data, so the expectations below are those of every one of them.
+ * The releases whose fixture `make-fixture.ts` made, each with that release's own code (0.5.0
+ * writing first, as on an installation made before 0.6.0): the data of each must read the same
+ * after the migrations of this version. The fixtures hold the same invented data, so the
+ * expectations below are those of every one of them.
  */
 const FIXTURES = ['0.6.0']
 
@@ -30,10 +31,12 @@ const AUTH_SECRET = 'fixture-secret-of-an-invented-database-0001'
 /** The slugs of every entry the fixture holds, the archived one included. */
 const SLUGS = [
   'alma-quillon',
+  'atlas-of-rivers',
   'bike-pump',
   'bluebell-energy',
   'bruno-tessaly',
   'electricity-renewal-2025',
+  'field-guide-to-moths',
   'garage',
   'garden-plan',
   'garden-plan-2025',
@@ -42,6 +45,7 @@ const SLUGS = [
   'journal-2026-09-30',
   'lakeside-library',
   'lawn-mower',
+  'living-room',
   'morgan-vale',
   'northwind-hardware',
   'old-radio',
@@ -94,20 +98,20 @@ describe.each(FIXTURES)(
     test('every table keeps its rows', async () => {
       expect(await run(rowCounts)).toMatchObject({
         'drizzle.__drizzle_migrations': expect.any(Number),
-        'public.auth_apikey': 4,
+        'public.auth_apikey': 5,
         'public.auth_user': 1,
-        'public.entries': 20,
-        'public.events': 66,
+        'public.entries': 23,
+        'public.events': 72,
         'public.finding_occurrences': 3,
         'public.findings': 2,
         'public.heads_up': 2,
         'public.inbox': 4,
         'public.instance_rules': 1,
-        'public.links': 15,
+        'public.links': 18,
         'public.media': 3,
         'public.pending_references': 1,
         'public.type_proposals': 2,
-        'public.types': 8,
+        'public.types': 10,
       })
     })
 
@@ -327,6 +331,34 @@ describe.each(FIXTURES)(
           provenance: { body: 'extracted' },
           sources: [{ source: 'inbox', item: expect.any(String) }],
         },
+        // Written by 0.5.0, before writers were asked.
+        'living-room': {
+          type: 'room',
+          title: 'Living room',
+          fields: {},
+          body: 'Two bookcases by the window.',
+          summary: 'The room with the books.',
+          provenance: { body: 'unstated', summary: 'unstated' },
+        },
+        'atlas-of-rivers': {
+          type: 'book',
+          title: 'Atlas of rivers',
+          fields: { publisher: 'Riverbend Press', pages: 212, shelf: 'top' },
+          body: 'Bought second-hand; read with the [[field-guide-to-moths]].',
+          provenance: {
+            publisher: 'unstated',
+            pages: 'unstated',
+            shelf: 'unstated',
+            body: 'unstated',
+          },
+        },
+        // The one value 0.5.0 was told the provenance of keeps it.
+        'field-guide-to-moths': {
+          type: 'book',
+          title: 'Field guide to moths',
+          fields: { publisher: 'Lantern Press', pages: 96 },
+          provenance: { publisher: 'unstated', pages: 'inferred' },
+        },
       }
       expect(Object.keys(expected).toSorted()).toEqual(SLUGS)
       const entries = await Promise.all(SLUGS.map(read))
@@ -512,6 +544,10 @@ describe.each(FIXTURES)(
         ['agent-kitchen', 'link', ['links.part_of']],
         ['agent-kitchen', 'link', ['links.part_of.2023-01-01']],
       ])
+      expect(await story('atlas-of-rivers')).toEqual([
+        ['agent-desk', 'create', expect.arrayContaining(['parent_id', 'fields.pages'])],
+        ['agent-desk', 'link', ['links.see_also']],
+      ])
       expect(await story('pocket-torch')).toEqual([
         ['agent-kitchen', 'create', expect.any(Array)],
         ['owner', 'update', ['type']],
@@ -552,6 +588,7 @@ describe.each(FIXTURES)(
     test('search finds what it found: words of titles, bodies, aliases, fields and media descriptions', async () => {
       const found = async (query: string) => (await run(search(query, {}))).map(({ slug }) => slug)
       expect(await found('quillon')).toEqual(['alma-quillon'])
+      expect(await found('riverbend')).toEqual(['atlas-of-rivers'])
       expect(await found('herb')).toEqual(['garden-plan'])
       expect(await found('vegetable plan')).toEqual(['garden-plan'])
       expect(await found('hinges')).toEqual(['shed-door'])
@@ -595,6 +632,7 @@ describe.each(FIXTURES)(
           fieldsOf(fields),
         ]),
       ).toEqual([
+        ['book', false, false, ['publisher', 'pages', 'shelf']],
         [
           'contract',
           false,
@@ -623,6 +661,7 @@ describe.each(FIXTURES)(
         ['note', false, false, []],
         ['organization', false, false, ['website', 'city']],
         ['person', false, false, ['email', 'birthday', 'employer', 'languages', 'nickname']],
+        ['room', false, false, []],
       ])
       const field = (type: string, name: string) =>
         types.find((found) => found.name === type)?.fields.find((found) => found.name === name)
@@ -654,6 +693,7 @@ describe.each(FIXTURES)(
         }),
       )
       expect(await run(auth.listKeys)).toEqual([
+        { name: 'agent-desk', rights: ['read', 'write'], expires_at: null, revoked: false },
         { name: 'agent-garden', rights: ['read', 'write'], expires_at: null, revoked: false },
         {
           name: 'agent-kitchen',
@@ -664,10 +704,15 @@ describe.each(FIXTURES)(
         { name: 'old-laptop', rights: ['read', 'write'], expires_at: null, revoked: true },
         { name: 'reader', rights: ['read'], expires_at: expect.any(String), revoked: false },
       ])
-      const secret = readFileSync(join(folder, 'agent-kitchen.key'), 'utf8').trim()
-      expect(await run(auth.verifyKey(secret))).toEqual({
+      const secret = (name: string) => readFileSync(join(folder, `${name}.key`), 'utf8').trim()
+      expect(await run(auth.verifyKey(secret('agent-kitchen')))).toEqual({
         name: 'agent-kitchen',
         rights: ['read', 'write', 'sensitive'],
+      })
+      // Made by 0.5.0, under the old name: its secret still opens.
+      expect(await run(auth.verifyKey(secret('agent-desk')))).toEqual({
+        name: 'agent-desk',
+        rights: ['read', 'write'],
       })
 
       const inbox = async (status: 'pending' | 'taken' | 'processed' | 'dismissed') =>
@@ -709,6 +754,75 @@ describe.each(FIXTURES)(
       expect(await run(instanceRulesText)).toBe(
         '# Rules\n\n- Write titles in sentence case.\n- Prices in euros.\n',
       )
+    })
+
+    test('what was written before writers were asked stays unstated: values, a body, a summary, a link, a place', async () => {
+      const atlas = await read('atlas-of-rivers')
+      expect(atlas.links).toEqual([
+        expect.objectContaining({
+          slug: 'field-guide-to-moths',
+          relation: 'mentions',
+          provenance: 'unstated',
+        }),
+        expect.objectContaining({
+          slug: 'field-guide-to-moths',
+          relation: 'see_also',
+          provenance: 'unstated',
+          note: 'same shelf',
+          valid_from: '2021-05-01',
+          valid_until: null,
+        }),
+      ])
+      // The parent 0.5.0 gave became a place without dates.
+      expect(atlas.path).toEqual(['Living room'])
+      expect(atlas.part_of).toEqual([
+        expect.objectContaining({
+          slug: 'living-room',
+          period: null,
+          provenance: 'unstated',
+          valid_from: null,
+          valid_until: null,
+        }),
+      ])
+      expect((await read('living-room')).children.map(({ slug }) => slug)).toEqual([
+        'atlas-of-rivers',
+      ])
+      const unstated = async () =>
+        (await run(supposedValues({ unstated: true }))).map(({ slug, what, provenance }) => [
+          slug,
+          what,
+          provenance,
+        ])
+      expect(await unstated()).toEqual([
+        ['atlas-of-rivers', 'body', 'unstated'],
+        ['atlas-of-rivers', 'link part_of living-room', 'unstated'],
+        ['atlas-of-rivers', 'link see_also field-guide-to-moths', 'unstated'],
+        ['atlas-of-rivers', 'pages', 'unstated'],
+        ['atlas-of-rivers', 'publisher', 'unstated'],
+        ['atlas-of-rivers', 'shelf', 'unstated'],
+        ['field-guide-to-moths', 'publisher', 'unstated'],
+        ['living-room', 'body', 'unstated'],
+        ['living-room', 'summary', 'unstated'],
+      ])
+      // A write over an unstated value says its provenance; the others stay unstated.
+      await run(
+        writeEntry({
+          entry: 'atlas-of-rivers',
+          fields: { pages: 214 },
+          provenance: { pages: 'inferred' },
+        }),
+      )
+      expect((await read('atlas-of-rivers')).entry).toMatchObject({
+        fields: { publisher: 'Riverbend Press', pages: 214, shelf: 'top' },
+        provenance: {
+          publisher: 'unstated',
+          pages: 'inferred',
+          shelf: 'unstated',
+          body: 'unstated',
+        },
+      })
+      expect(await unstated()).not.toContainEqual(['atlas-of-rivers', 'pages', 'unstated'])
+      expect(await unstated()).toHaveLength(8)
     })
 
     test('a write still works: a value changed, an entry a body awaited, a medium attached', async () => {
