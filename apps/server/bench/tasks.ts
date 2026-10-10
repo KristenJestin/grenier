@@ -879,10 +879,20 @@ export const TASKS: ReadonlyArray<Task> = [
       const services = created.filter((found) => about(found, 'gas-boiler'))
       const dated = (day: string) =>
         services.some((found) => datesOf(found).some((date) => date.startsWith(day)))
+      // The owner gives no day in March: an entry of its own that names the month, without
+      // inventing a day, is dated as well as it can be.
+      const march = services.some(
+        (found) =>
+          datesOf(found).length === 0 &&
+          /\bmarch\b/i.test(`${found.entry.title} ${found.entry.summary}`),
+      )
       return [
         ...ok(grown.length === 0, `the body of ${grown.join(', ')} was grown`),
         ...ok(dated(world.today), 'no entry about the boiler is dated today'),
-        ...ok(dated(lastMarch(world.today)), 'no entry about the boiler is dated last March'),
+        ...ok(
+          dated(lastMarch(world.today)) || march,
+          'no entry about the boiler is dated last March',
+        ),
       ]
     },
   },
