@@ -31,18 +31,52 @@ An entry is never deleted by an agent; it is archived.
 ### Things that happened at a time
 
 Something that happened at a time (a session of work, a measurement, a meeting, a repair, a
-decision) is an entry of its own: dated (by a date field of its type, or `valid_from`), part of
-what it is about (`parent`), with its own sources and provenance. What stands today about a subject
+decision) is an entry of its own, written once: of a dated type, part of what it is about
+(`parent`), with its own sources and provenance. What stands today about a subject
 belongs to the entry of that subject, in its summary and its fields. A body says what an entry is,
 not the list of what happened to it: inside one body, the dates are only headings, so `briefing`
 cannot say "a year ago", nothing can ask what happened on a day across entries, links and
 provenance cannot be said of each event, and every update sends and keeps the whole text again.
 When the instance has no type for such entries, the agent defines one itself (`define_type`), with
-a date field and a description that says when to use it, rather than growing a body, and later
-writers reuse it: the one exception to asking the owner when no type fits. The instructions of the
-MCP server and the description of `write` say so; the answer of `write` notices a body that
-accumulates (see "A body that accumulates"). No type, rule or code path names a kind of such
-entries: the agent names the types it defines.
+a required date field named by `dated_by` and a description that says when to use it, rather than
+growing a body, and later writers reuse it: the one exception to asking the owner when no type fits.
+The instructions of the MCP server and the description of `write` say so; the answer of `write`
+notices a body that accumulates (see "A body that accumulates"). No type, rule or code path names a
+kind of such entries: the agent names the types it defines.
+
+Two kinds of entries live side by side. Most say what something **is** (a project, an object, a
+contract): they are rewritten as the thing changes, and `valid_from` and `valid_until` say when they
+were true. Some say what **happened** at a moment: written once, they belong to the past, and their
+date is a day. What tells them apart is the type: a type is **dated** when its `dated_by` names one
+of its fields, a required `date` that holds one date (not `many`), the day each of its entries
+happened (`define_type` and `change_type` set it, `null` takes it away; a field made optional, of
+another kind or a list while it dates its type is refused, and a renamed one is followed). The
+server knows no name of such a type; it only reads, from the definition, which field says when.
+
+The field is required, so an entry whose day is not known still has one: the agent gives the first
+day of what it knows (the month, the year), writes that date `inferred`, and says in the body what is
+known of it, as the instructions ask. A day is never invented as known, and every dated entry can be
+ordered.
+
+Read in the order of time, newest first, the dated entries of a subject are its "where were we":
+
+- `read` of an entry gives, apart from its `children`, its parts that are dated and not archived
+  (`dated`: the 5 most recent, each with its slug, title, type, date and summary, the most recent
+  first, those of one day by title) and how many more there are (`more_dated`). The read API
+  (`/api/entries/{slug}`) gives the same.
+- `search` with `sort: "dated"` keeps only the dated entries, the most recent first: with `under`, a
+  subject's story further back. Every result of a dated type carries its `date`.
+- "A year ago" in `briefing` lists the entries that happened on the same days a year earlier
+  (`dated`), beside the entries created and the occurrences.
+- A write that changes the body or the fields of a dated entry more than 7 days after its date is
+  answered with a `notice`, never a refusal: what happened is not rewritten; a mistake is
+  corrected, and what happened since is a new entry. A new entry, a link, a source, a medium, a
+  summary, a place or an archive gets none.
+
+A key without the right `sensitive` sees none of this for an entry of a sensitive type: it is
+counted in `hidden_children`, and absent from `search` and `briefing`. An entry whose dated field
+is sensitive is, for that key, not dated: it is one of the `children`, has no `date` in a search,
+is not in `dated`, `sort: "dated"` or "a year ago", and a late rewrite of it is not noticed.
 
 ### Known or supposed
 
@@ -287,8 +321,8 @@ problem, naming the field and what is expected (through `formatSchemaError`).
 
 Every change of a type is recorded in the event log like any other write.
 
-`change_type` replaces the label or the description of a type, alone or with `sensitive` and
-`read_in_parent`, and nothing else of it; an empty one is refused. The description is what tells
+`change_type` replaces the label or the description of a type, alone or with `sensitive`,
+`read_in_parent` and `dated_by`, and nothing else of it; an empty one is refused. The description is what tells
 agents when to use the type, so it is sharpened as its use becomes clearer: `types` and the
 instructions of the next session give the new one, and the event holds the values before and after.
 
@@ -365,7 +399,8 @@ place that holds today as the entry's parent, and a place that is over among its
   entry part of two places is under both. The tree of the read API and of the viewer shows an entry
   under each of its places; one with none is at the top.
 - **`read`** gives the `path`, `part_of` (every place it is or was part of, the oldest first, each
-  with its `period`, `provenance`, `note`, `valid_from` and `valid_until`), and its `children`. The links
+  with its `period`, `provenance`, `note`, `valid_from` and `valid_until`), and its `children`, apart
+  from those of a dated type, given as `dated` (see "Things that happened at a time"). The links
   `part_of` are given there and not among `links` and `backlinks`, but for the entries that were
   part of it and are no more, which stay among the `backlinks` with their dates.
 - **The export** keeps one file per entry, in the folder of its oldest place (see
@@ -545,7 +580,8 @@ occurrences without knowing what they mean:
 - the answers of the MCP tools carry a `heads_up` list when an occurrence enters its notice
   period, once a day per key;
 - the `briefing` of a period (or of `from` and `to`) gathers the occurrences, the overdue deadlines,
-  the past ("a year ago") and what waits (the suppositions to confirm, the references without an entry);
+  the past ("a year ago": the entries created, the occurrences, and the entries of a dated type
+  that happened, on the same days a year earlier) and what waits (the suppositions to confirm, the references without an entry);
   an agent picks what matters and says it.
 
 An occurrence is closed when an entry linked to it by `fulfills`, for that date field and that
@@ -581,7 +617,9 @@ search configuration, `simple` by default) and accents never matter.
 
 Without a query, a search lists the entries by most recent change (`sort` `updated`, the default
 then; with a query the default stays `relevance`), bounded by `since` and `until`, and by `by`,
-the key that changed an entry last. When and by whom come from the event log (the actor of the
+the key that changed an entry last. `sort` `dated` keeps only the entries of a dated type, the
+most recent date first, and every result of a dated type carries its `date` (see "Things that
+happened at a time"). When and by whom come from the event log (the actor of the
 latest event that moved the entry's `updated`: created, updated, archived, or its body rewritten by
 a rename; a link, a medium or a `[[reference]]` that resolved by itself leaves it alone), not from
 a column of the entry. Over MCP each result also carries these two and its
@@ -591,7 +629,7 @@ updated first among equals, each with how it is joined and never its body. `read
 out the body unless asked, and with `depth` 2 or 3 returns the graph around the entry (capped at 50
 entries, `cut` when it was). What a key without the right `sensitive` may not see has no
 neighbor and no place in a graph, and archived entries are left out. The read API (`/api/search`)
-does not take or give any of this.
+does not take or give any of this, but the `date` of a result of a dated type.
 
 ## MCP tools
 

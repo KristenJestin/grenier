@@ -53,7 +53,7 @@ _rules.md                         the rules of the instance, as the owner wrote 
 - Archived entries are exported where they are filed, with their `archived_at`.
 - Everything is read in one snapshot of the database (`REPEATABLE READ`), so a write during the
   export never leaves it half before and half after. A type's file keeps `sensitive` and
-  `read_in_parent`.
+  `read_in_parent`, and `dated_by` for a dated type only.
 - The same content gives the same bytes: keys in a fixed order, fields and provenance by name,
   links by relation and target, media in their order (then by id).
 

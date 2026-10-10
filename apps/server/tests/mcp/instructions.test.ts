@@ -157,7 +157,7 @@ describe('the instructions put what matters most first', () => {
     expect(told).toContain(
       'There is no type yet.\n\nWhen the user mentions something Hippocampe may hold',
     )
-    expect(told).toContain('as far as they help.\n\nDiagnostics are on')
+    expect(told).toContain('goes further back.\n\nDiagnostics are on')
   })
 
   test('the order is the instance, how to choose a type, the types, the working memory, how to find, then diagnostics, the rules, the writing standard and the inbox standard', () => {
@@ -410,7 +410,7 @@ describe('agents keep each thing that happened at a time as an entry of its own'
 
   test('the instructions state, in general terms, that something that happened at a time is an entry of its own, dated, part of what it is about, with its own sources', () => {
     expect(WRITING_STANDARD).toContain(
-      '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (the day it happened, in a date field of its type or in `valid_from`, not only in its title), part of what it is about (`parent`), with its own sources and provenance.',
+      '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own, written once: of a dated type (its `dated_by` names the required date field that holds the day it happened, so the day is never only in its title), part of what it is about (`parent`), with its own sources and provenance.',
     )
     expect(instructionsFor(types, development, null, true)).toContain(
       'Something that happened at a time',
@@ -425,10 +425,10 @@ describe('agents keep each thing that happened at a time as an entry of its own'
 
   test('when no type fits such entries, the agent defines one with a date field itself, rather than growing a body or asking the owner', () => {
     expect(WRITING_STANDARD).toContain(
-      'When no type fits such entries, define one with a date field (`define_type`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
+      'When no dated type fits such entries, define one (`define_type` with a required date field, named by `dated_by`), with a description that says when to use it, rather than adding to a body; later writers reuse it.',
     )
     expect(GROWING_BODY).toContain(
-      'When no type fits them, define one with a date field (`define_type`), with a description that says when to use it; later writers reuse it.',
+      'When no dated type fits them, define one (`define_type` with a required date field, named by `dated_by`), with a description that says when to use it; later writers reuse it.',
     )
     const line = WRITING_STANDARD.split('\n').find((each) =>
       each.startsWith('- Something that happened'),
@@ -467,5 +467,45 @@ describe('agents keep each thing that happened at a time as an entry of its own'
       'Something that happened at a time is an entry of its own, never a part added to a body',
     )
     expect(write).toContain('`notice`')
+  })
+})
+
+describe('agents read what happened to a subject before acting, and write it when it happens', () => {
+  const types = [
+    { name: 'alpha', description: 'Use it when the user records an alpha.' },
+    { name: 'beta', description: 'Use it for what happened to an alpha.', dated_by: 'day' },
+  ]
+
+  test('a key that reads is told to read the recent dated entries of a subject before acting on it', () => {
+    const told = instructionsFor(types, development, null, false, true)
+    expect(told).toContain(
+      'When you start work on a subject, read what happened to it first: `read` gives its most recent dated entries (`dated`), and `search` with `under` and `sort: "dated"` goes further back.',
+    )
+    expect(instructionsFor(types, development, null, true, false)).not.toContain(
+      'read what happened to it first',
+    )
+  })
+
+  test('a key that writes is told to write one when a session ends or something happens, and to keep a lasting fact in its subject too', () => {
+    expect(WRITING_STANDARD).toContain(
+      '- When a session of work ends or something happens, write it as such an entry under its subject: what was done, decided or refused, and what comes next. A lasting fact learned on the way also goes into the entry it is about: the dated entry keeps the story, the subject keeps the fact.',
+    )
+  })
+
+  test('a day that is not known is never invented: the first day of what is known, said supposed, the body saying so', () => {
+    expect(WRITING_STANDARD).toContain(
+      'A day you do not know is never invented: give the first day of what you know (the month, the year), write it `inferred`, and say in the body what is known of the date.',
+    )
+  })
+
+  test('a dated type is listed with the field that dates it', () => {
+    const told = instructionsFor(types, development)
+    expect(told).toContain('- `alpha`: Use it when the user records an alpha.')
+    expect(told).toContain('- `beta` (dated by `day`): Use it for what happened to an alpha.')
+  })
+
+  test('the description of define_type says how a type is dated', () => {
+    const define = TOOLS.find(({ name }) => name === 'define_type')?.description ?? ''
+    expect(define).toContain('`dated_by`')
   })
 })
