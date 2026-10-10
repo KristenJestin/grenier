@@ -410,7 +410,7 @@ describe('agents keep each thing that happened at a time as an entry of its own'
 
   test('the instructions state, in general terms, that something that happened at a time is an entry of its own, dated, part of what it is about, with its own sources', () => {
     expect(WRITING_STANDARD).toContain(
-      '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (by a date field of its type, or `valid_from`), part of what it is about (`parent`), with its own sources and provenance.',
+      '- Something that happened at a time (a session of work, a measurement, a meeting, a repair, a decision) is an entry of its own: dated (the day it happened, in a date field of its type or in `valid_from`, not only in its title), part of what it is about (`parent`), with its own sources and provenance.',
     )
     expect(instructionsFor(types, development, null, true)).toContain(
       'Something that happened at a time',
@@ -434,8 +434,9 @@ describe('agents keep each thing that happened at a time as an entry of its own'
     expect(WRITING_STANDARD).toContain(
       'What you did or saw yourself (what you ran, read, measured or changed) is a source too',
     )
+    expect(WRITING_STANDARD).toContain('What you conclude or guess from it is `inferred`.')
     expect(WRITING_STANDARD).toContain(
-      'What you conclude or guess from it is `inferred`; what you were told is `said_by`.',
+      'What you were told is never `seen_by`: it is `said_by`, with the entry of the one who said it, or `inferred` when they have none.',
     )
   })
 

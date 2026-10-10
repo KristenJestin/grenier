@@ -92,7 +92,7 @@ export const SourceGiven = Schema.Union([
   SaidBy,
   Schema.Struct({
     seen_by: Schema.String.annotate({
-      description: `\`${WRITER}\`: what the key writing it did, ran, read or measured itself, kept with the name of that key.`,
+      description: `\`${WRITER}\`: what the key writing it did, ran, read or measured itself (never what it was told: that is \`said_by\`), kept with the name of that key.`,
     }),
     // Optional here so that a missing day is told plainly by the write, not as a mismatch.
     on: Schema.optionalKey(Schema.String).annotate({
